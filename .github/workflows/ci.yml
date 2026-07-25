@@ -74,6 +74,8 @@ jobs:
                 const st = fs.statSync(fp);
                 if (st.isDirectory()) { walk(fp); continue; }
                 if (!/\.(ts|vue)$/.test(f)) continue;
+                // 跳过测试文件：测试文件里的 key 是 fixture（假 key），用于测试 scrub 脱敏功能，不是真实 key
+                if (/\.test\.ts$/.test(f)) continue;
                 const content = fs.readFileSync(fp, 'utf8');
                 // 匹配 sk- 后跟 20+ 个字母数字（OpenAI/DeepSeek key 格式）
                 const match = content.match(/sk-[A-Za-z0-9]{20,}/);

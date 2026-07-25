@@ -10,6 +10,9 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 120_000,
   retries: 1,
+  // CI（Windows）上单 worker：避免多 Electron 进程并行启动时 electron.exe 文件锁冲突
+  // 错误现象："The process cannot access the file because it is being used by another process"
+  workers: 1,
   use: {
     trace: 'on-first-retry'
   }
