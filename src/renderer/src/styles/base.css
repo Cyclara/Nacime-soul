@@ -1,0 +1,100 @@
+/* src/renderer/src/styles/base.css
+ * P1-24: 基础样式 - CSS 变量、reset、布局
+ * 依据：S-001 P1-24
+ */
+
+:root {
+  --color-bg: #1a1b26;
+  --color-bg-secondary: #24283b;
+  --color-bg-tertiary: #2f334d;
+  --color-text: #c0caf5;
+  --color-text-secondary: #9aa5ce;
+  --color-text-muted: #565f89;
+  --color-accent: #7aa2f7;
+  --color-accent-hover: #89b4fa;
+  --color-user-bubble: #2f334d;
+  --color-assistant-bubble: #24283b;
+  --color-error: #f7768e;
+  --color-success: #9ece6a;
+  --color-warning: #e0af68;
+  --color-border: #2f334d;
+  --radius: 8px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+textarea {
+  font-family: inherit;
+  outline: none;
+  resize: none;
+}
+
+input {
+  font-family: inherit;
+  outline: none;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

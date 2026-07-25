@@ -1,0 +1,23 @@
+node_modules
+dist
+out
+.DS_Store
+.eslintcache
+*.log*
+
+# 测试与构建产物
+coverage/
+dist-electron/
+test-results/
+
+# 编译缓存
+*.tsbuildinfo
+
+# 敏感信息（预防性）
+.env
+
+# Claude Code 个人本地配置（.claude/ 目录其余部分仍可推）
+.claude/settings.local.json
+
+# Windows 系统缓存
+Thumbs.db

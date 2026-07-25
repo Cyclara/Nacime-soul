@@ -1,0 +1,30 @@
+appId: com.nacime-soul.app
+productName: Nacime-soul
+artifactName: '${productName}-${version}-${arch}.${ext}'
+directories:
+  output: dist-electron
+  buildResources: assets
+files:
+  - out/**
+  - package.json
+  - resources/prompts/**
+asar: true
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+npmRebuild: false
+publish:
+  provider: github
+  owner: REPLACE_BEFORE_RELEASE
+  repo: REPLACE_BEFORE_RELEASE

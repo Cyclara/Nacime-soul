@@ -1,0 +1,165 @@
+// src/main/llm/stream.ts
+// P1-19: 流式增量解析 - SSE 协议解析 + UTF-8 跨 chunk 边界 + AbortSignal
+// 依据：S-001 P1-19 验收"chunk 顺序正确；abort 后无晚到 chunk；UTF-8 跨 chunk 边界"
+//
+// 设计要点：
+//   1. parseSseStream 是通用 SSE 解析器，不绑定 OpenAI wire 格式
+//   2. UTF-8 跨 chunk 边界：用 TextDecoder({ stream: true })，不在 chunk 边界截断多字节字符
+//   3. AbortSignal：signal.aborted 时立即停止读取，保证"abort 后无晚到 chunk"
+//   4. 超时由调用方（adapter）通过 AbortController 管理，parseSseStream 只响应 signal
+//   5. SSE 行协议：data: <payload>\n\n，支持多行 data 拼接（SSE 规范）
+//
+// 依据 S-003 §3.8：delta 单块最大 16KB 由 ChatService 合并控制，provider 层不合并。
+
+import { AppError } from '@shared/errors'
+
+/** SSE 流解析选项 */
+export interface SseParseOptions {
+  /** 外部取消信号。abort 后立即停止读取，保证无晚到 chunk */
+  signal?: AbortSignal
+}
+
+/**
+ * 解析 SSE 流，逐个 yield data 负载字符串。
+ *
+ * SSE 协议（W3C EventSource 规范）：
+ *   - 以 `data: ` 开头的行是数据行
+ *   - 多行 data 以 \n 分隔，事件以空行（\n\n）结束
+ *   - `: ` 开头是注释行（心跳）
+ *   - `event:` / `id:` / `retry:` 是其他字段（本解析器忽略）
+ *
+ * 本解析器逐行 yield data 内容。多行 data 按 SSE 规范用 \n 拼接后 yield。
+ * 调用方（adapter）负责将 data 字符串解析为 vendor 特定的 JSON。
+ *
+ * @param response fetch Response，必须有 body 流
+ * @param opts 解析选项（signal）
+ * @yields data 负载字符串（不含 `data: ` 前缀）
+ */
+export async function* parseSseStream(
+  response: Response,
+  opts: SseParseOptions = {}
+): AsyncIterable<string> {
+  const body = response.body
+  if (!body) {
+    throw new AppError({
+      code: 'LLM_MALFORMED',
+      userMessage: '模型响应体为空',
+      severity: 'error',
+      retryable: false
+    })
+  }
+
+  const reader = body.getReader()
+  // TextDecoder stream:true 模式：保留未完成的多字节序列到下一次 decode，解决 UTF-8 跨 chunk 边界
+  const decoder = new TextDecoder('utf-8')
+  let lineBuffer = ''
+  // 当前事件的 data 行累积（SSE 规范：多行 data 用 \n 拼接为一个事件）
+  let dataLines: string[] = []
+
+  const signal = opts.signal
+
+  // 已 abort 则直接返回
+  if (signal?.aborted) {
+    try {
+      reader.releaseLock()
+    } catch {
+      /* already released */
+    }
+    return
+  }
+
+  // abort 时取消 reader，使正在等待的 reader.read() 立即 reject
+  const onAbort = (): void => {
+    reader.cancel().catch((): void => {
+      /* noop */
+    })
+  }
+  if (signal) {
+    signal.addEventListener('abort', onAbort, { once: true })
+  }
+
+  try {
+    while (true) {
+      let readResult: ReadableStreamReadResult<Uint8Array>
+      try {
+        readResult = await reader.read()
+      } catch {
+        // reader.read() reject = 被 cancel（abort）。立即返回，保证"abort 后无晚到 chunk"。
+        return
+      }
+
+      const { done, value } = readResult
+      if (done) break
+
+      // UTF-8 跨 chunk 边界：stream:true 保留未完成的多字节序列
+      lineBuffer += decoder.decode(value, { stream: true })
+
+      // 按行处理。最后一个可能不完整的行保留在 lineBuffer。
+      const lines = lineBuffer.split('\n')
+      lineBuffer = lines.pop() ?? ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, '') // 去除 CR（CRLF -> LF 兼容）
+
+        if (line === '') {
+          // 空行 = 事件结束。如果有累积的 data，yield 并重置。
+          if (dataLines.length > 0) {
+            yield dataLines.join('\n')
+            dataLines = []
+          }
+          continue
+        }
+
+        if (line.startsWith(':')) {
+          // 注释行（SSE 心跳），忽略
+          continue
+        }
+
+        if (line.startsWith('data:')) {
+          // data 行。slice(5) 去掉 "data:" 前缀，trim 去掉可选的单个空格。
+          // SSE 规范：data: 后面有一个可选空格，然后是数据。
+          const data = line.slice(5)
+          // 保留 data 内容（包括前导空格后的内容），但去掉规范允许的单个前导空格
+          dataLines.push(data.startsWith(' ') ? data.slice(1) : data)
+          continue
+        }
+
+        // event: / id: / retry: 等其他字段，Phase 1 忽略
+      }
+    }
+
+    // 流结束：flush 剩余的 lineBuffer（可能没有结尾空行）
+    if (lineBuffer) {
+      const line = lineBuffer.replace(/\r$/, '')
+      if (line.startsWith('data:')) {
+        const data = line.slice(5)
+        dataLines.push(data.startsWith(' ') ? data.slice(1) : data)
+      }
+    }
+    // flush 最后一个事件（如果流结束时没有空行结尾）
+    if (dataLines.length > 0) {
+      yield dataLines.join('\n')
+      dataLines = []
+    }
+
+    // flush decoder 中可能残留的尾字节
+    const tail = decoder.decode()
+    if (tail.trim()) {
+      // 极端情况：流结束时 decoder 仍有残留且包含 data 行
+      const tailLine = tail.replace(/\r$/, '')
+      if (tailLine.startsWith('data:')) {
+        const data = tailLine.slice(5)
+        yield data.startsWith(' ') ? data.slice(1) : data
+      }
+    }
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onAbort)
+    }
+    try {
+      reader.releaseLock()
+    } catch {
+      /* already released */
+    }
+  }
+}
