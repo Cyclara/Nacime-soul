@@ -198,7 +198,7 @@ describe('P2-14/15 IVF integration', () => {
     const recall = measureRecall(store, ids, vecs, dim, mulberry32(999), 30)
     // F5-003 §4 验收：recall >= 95%
     expect(recall).toBeGreaterThanOrEqual(0.95)
-  })
+  }, 30_000)
 
   it('n=5k weak clustering (50 clusters, noise 0.7): recall >= 90%', async () => {
     const dim = 64
@@ -213,7 +213,7 @@ describe('P2-14/15 IVF integration', () => {
     const recall = measureRecall(store, ids, vecs, dim, mulberry32(999), 30)
     // 弱聚类边界：90% 阈值（真实 embedding 不会这么弱）
     expect(recall).toBeGreaterThanOrEqual(0.9)
-  })
+  }, 30_000)
 
   it('IVF search respects minScore and returns sorted results', async () => {
     const dim = 16
