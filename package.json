@@ -4,6 +4,7 @@
   "description": "Nacime - AI 伴侣桌面应用",
   "main": "./out/main/index.js",
   "author": "Cyclara",
+  "license": "MIT",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
