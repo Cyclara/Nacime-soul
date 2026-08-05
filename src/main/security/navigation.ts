@@ -54,4 +54,10 @@ export function registerPermissionDenial(window: BrowserWindow): void {
     // 拒绝所有权限请求
     callback(false)
   })
+
+  // 审计 B-4：RequestHandler 只覆盖"异步弹窗式"权限请求。
+  // 同步检查路径（navigator.permissions.query、部分 getUserMedia 前置检查、
+  // Notification.permission 等）走 CheckHandler；不设的话 Electron 用默认策略，
+  // 等于权限防护只做了一半。两个 handler 必须成对出现。
+  session.setPermissionCheckHandler(() => false)
 }

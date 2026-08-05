@@ -1,0 +1,173 @@
+// src/shared/memory/types.ts
+// Phase 2 memory + growth IPC DTO。main 与 renderer 共用的唯一类型真源。
+// 依据：S-003-补充 §3.3/§3.4、S-002-补充 §3.1/§3.2、S-012 §1.4（MemoryUpdatedEvent）。
+//
+// 设计要点：
+//   - 列表投影（L2MemoryView）不含 embedding / evidence 正文，只含轻量元数据。
+//   - 详情（L2MemoryDetail）含 evidenceIds / sourceMessageIds（ID 引用，非正文）。
+//   - 成长投影（GrowthProfileView）是白名单脱敏投影，不含 A/B/C 原始指标（F5-006 决策 2）。
+//   - MemoryUpdatedEvent 只带 revision + hint + ts，不带数据（隐私 + IPC 带宽）。
+
+import type { MemoryLifecycleState, MemoryType } from '../../main/memory/l2-store'
+
+// === MemoryId ===
+
+/**
+ * L2 记忆 ID。格式：l2_{createdAtMs}_{randomHex}。
+ * validator 用正则 ^l2_[0-9]+_[A-Za-z0-9]+$ 校验（1..64 字符）。
+ */
+export type MemoryId = string
+
+// === L0 画像投影 ===
+
+/** L0 画像字段投影（main 已脱敏：只有白名单字段 + 中文 label） */
+export interface L0ProfileView {
+  fields: Array<{
+    key: string // L0FieldKey（preferredName | name | occupation | ...）
+    label: string // 中文标签（main 侧 L0_FIELD_DESCRIPTIONS 提供）
+    value: string | null // null = "未知/待发现"
+    isPinned: boolean
+    updatedAt: number | null
+  }>
+  filledCount: number
+  totalCount: number
+}
+
+// === L2 记忆投影 ===
+
+/** L2 记忆列表项（列表页用轻量投影，不含 embedding） */
+export interface L2MemoryView {
+  id: string
+  content: string
+  type: MemoryType
+  lifecycleState: Exclude<MemoryLifecycleState, 'purged'>
+  /** DMAE 当前激活值（引擎快照；dmae 关闭时为 0） */
+  activation: number
+  importance: number
+  confidence: number
+  isPinned: boolean
+  accessCount: number
+  createdAt: number
+}
+
+/** 记忆详情（详情抽屉用；evidence 只有 ID，正文按需单独拉） */
+export interface L2MemoryDetail extends L2MemoryView {
+  triggerText: string
+  evidenceIds: string[]
+  sourceMessageIds: string[]
+}
+
+// === DMAE 快照/历史 ===
+
+/** DMAE 引擎快照（面板基础版 + 完整版共用） */
+export interface DmaeSnapshotView {
+  enabled: boolean
+  counts: { active: number; dormant: number; archived: number }
+  maxActive: number
+  promptThreshold: number
+  /** 当前激活集合（≤ maxActive 条，按 activation 降序） */
+  activeSet: Array<{ memoryId: string; activation: number }>
+}
+
+export interface DmaeHistoryRequest {
+  memoryId: MemoryId
+  days: 7 | 30 | 90 // picklist，不收任意数字
+}
+
+export interface DmaeHistoryResponse {
+  memoryId: string
+  points: Array<{ ts: number; activation: number; state: string }>
+}
+
+// === Memory 查询/操作请求 ===
+
+export interface MemoryListRequest {
+  state?: 'active' | 'dormant' | 'archived' | 'soft_deleted'
+  search?: string // trim 后 0..200 字符；main 做 LIKE 转义（% _ 字面化）
+  limit: number // 1..200
+  offset: number // 0..100_000
+}
+
+export interface MemoryListResponse {
+  items: L2MemoryView[]
+  total: number
+  revision: number
+}
+
+export interface MemoryDetailRequest {
+  memoryId: MemoryId
+}
+
+export interface MemoryPinRequest {
+  memoryId: MemoryId
+  pinned: boolean
+}
+
+export interface MemoryDeleteRequest {
+  memoryId: MemoryId
+  confirm: true // 字面量 true，同 config:reset-domain 模式
+}
+
+export interface MemoryRestoreRequest {
+  memoryId: MemoryId
+}
+
+// === MemoryOverview（首屏一次拉取）===
+
+export interface MemoryOverview {
+  revision: number
+  enabled: boolean
+  l0: L0ProfileView | null
+  dmae: DmaeSnapshotView | null
+}
+
+// === MemoryUpdatedEvent（跨进程同步唯一通知源）===
+
+/**
+ * 任何记忆/成长数据落库后广播。节流 250ms 合并连发。
+ * 依据 S-012 §1.4：revision 为持久化全局 MemoryRevisionClock（不复用 VectorStore 进程内版本）。
+ */
+export interface MemoryUpdatedEvent {
+  revision: number
+  hint: 'l0' | 'l1' | 'l2' | 'dmae' | 'growth' | 'bulk'
+  ts: number
+}
+
+// === Growth 投影（F5-006 只读白名单）===
+
+/** 与 F5-006 GrowthProfile 对齐的脱敏投影（renderer 永远拿不到 A/B/C 原始细目） */
+export interface GrowthProfileView {
+  understanding: number // U 值 0-100
+  stage: 'stranger' | 'acquaintance' | 'familiar' | 'close'
+  activeDays: number
+  l2Total: number
+  startedAt: number
+  milestonesReached: Array<{ id: string; title: string; ts: number }>
+}
+
+export interface GrowthTimelineEntryView {
+  ts: number
+  kind: 'milestone' | 'periodic'
+  title: string
+  text: string
+}
+
+export interface GrowthTimelineRequest {
+  limit: number // 1..100
+}
+
+export interface GrowthTrendRequest {
+  metric: 'understanding' | 'l0FillRate' | 'l2Total' // 白名单，禁止任意 snapshot 键
+  days: 7 | 30 | 90
+}
+
+export type GrowthTrendPoint = { date: string; value: number }
+
+// === MemoryQuery（renderer store 内部查询条件，非 IPC DTO）===
+
+export interface MemoryQuery {
+  state?: L2MemoryView['lifecycleState']
+  search?: string
+  limit: number // 1..200
+  offset: number
+}

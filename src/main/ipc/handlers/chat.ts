@@ -5,6 +5,7 @@
 // 通道：
 //   companion:chat:list          -> service.list
 //   companion:chat:create-session -> service.createSession
+//   companion:chat:get-last-session -> service.getLastSessionId
 //   companion:chat:send          -> service.send（事件通过 webContents.send 推送）
 //   companion:chat:cancel        -> service.cancel
 //   companion:chat:retry         -> 查找原用户消息 -> service.send
@@ -66,6 +67,12 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
       tags: { sessionId }
     })
     return { sessionId }
+  })
+
+  // === companion:chat:get-last-session ===
+  // P2-43：启动恢复。返回最近活跃会话；空库（全新用户）返回 null，renderer 落到 createSession。
+  registerValidatedHandler('companion:chat:get-last-session', async () => {
+    return { sessionId: chatService.getLastSessionId() }
   })
 
   // === companion:chat:send ===

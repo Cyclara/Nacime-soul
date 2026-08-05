@@ -53,6 +53,7 @@ const mockEmit = (ipcRenderer as any).__emit as (channel: string, ...args: unkno
 
 describe('S-004 #35: Preload subscribe 退订', () => {
   beforeEach(() => {
+    mockIpc.invoke.mockClear()
     mockIpc.on.mockClear()
     mockIpc.removeListener.mockClear()
   })
@@ -213,15 +214,59 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(companionApi.config).toBeDefined()
     expect(companionApi.chat).toBeDefined()
     expect(companionApi.debug).toBeDefined()
+    expect(companionApi.memory).toBeDefined()
+    expect(companionApi.growth).toBeDefined()
 
     expect(typeof companionApi.app.getInfo).toBe('function')
     expect(typeof companionApi.window.minimize).toBe('function')
     expect(typeof companionApi.config.get).toBe('function')
     expect(typeof companionApi.chat.send).toBe('function')
+    expect(typeof companionApi.chat.getLastSession).toBe('function')
     expect(typeof companionApi.debug.getSnapshot).toBe('function')
 
     expect(typeof companionApi.app.onError).toBe('function')
     expect(typeof companionApi.chat.onStream).toBe('function')
     expect(typeof companionApi.window.onState).toBe('function')
+  })
+
+  it('chat namespace 恰好 6 invoke 方法 + onStream（P2-43 增 getLastSession）', () => {
+    expect(Object.keys(companionApi.chat).sort()).toEqual(
+      ['cancel', 'createSession', 'getLastSession', 'list', 'onStream', 'retry', 'send'].sort()
+    )
+  })
+
+  it('chat.getLastSession 固定调用 companion:chat:get-last-session', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { sessionId: null } })
+    await companionApi.chat.getLastSession()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:get-last-session', undefined)
+  })
+
+  it('memory namespace 恰好 9 invoke 方法 + onUpdated（S-003-补充 §3.6）', () => {
+    const memoryKeys = Object.keys(companionApi.memory).sort()
+    expect(memoryKeys).toEqual(
+      [
+        'getDmaeHistory',
+        'getDmaeSnapshot',
+        'getDetail',
+        'getL0',
+        'getOverview',
+        'listL2',
+        'onUpdated',
+        'restore',
+        'setPinned',
+        'softDelete'
+      ].sort()
+    )
+    for (const k of memoryKeys) {
+      expect(typeof (companionApi.memory as Record<string, unknown>)[k]).toBe('function')
+    }
+  })
+
+  it('growth namespace 恰好 3 invoke 方法（无订阅，S-003-补充 §3.6）', () => {
+    const growthKeys = Object.keys(companionApi.growth).sort()
+    expect(growthKeys).toEqual(['getProfile', 'getTimeline', 'getTrend'])
+    for (const k of growthKeys) {
+      expect(typeof (companionApi.growth as Record<string, unknown>)[k]).toBe('function')
+    }
   })
 })

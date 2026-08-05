@@ -22,6 +22,8 @@ export type ErrorCode =
   | 'MEM_MIGRATE_FAIL'
   | 'MEM_EMBED_FAIL'
   | 'MEM_WRITE_FAIL'
+  | 'MEM_NOT_FOUND'
+  | 'MEM_DISABLED'
   | 'L2D_MODEL_LOAD'
   | 'L2D_WEBGL'
   | 'L2D_TEXTURE'
@@ -30,6 +32,7 @@ export type ErrorCode =
   | 'SEC_KEYSTORE_DOWNGRADE'
   | 'IPC_VALIDATION'
   | 'CHAT_BUSY'
+  | 'CHAT_CONTEXT_TOO_LARGE'
   | 'UNKNOWN'
 
 export type ErrorSeverity = 'fatal' | 'error' | 'warn'

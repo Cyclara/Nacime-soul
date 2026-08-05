@@ -23,9 +23,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（17 个）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(17)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(17)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（Phase 1: 17 + Phase 2: 12 + P2-43: 1 = 30）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(30)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(30)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -51,7 +51,12 @@ describe('P1-11 undefined 通道 validator', () => {
     'companion:config:get',
     'companion:chat:create-session',
     'companion:debug:get-snapshot',
-    'companion:debug:open-log-folder'
+    'companion:debug:open-log-folder',
+    // Phase 2 undefined 通道
+    'companion:memory:get-overview',
+    'companion:memory:get-l0',
+    'companion:memory:get-dmae-snapshot',
+    'companion:growth:get-profile'
   ]
 
   for (const channel of undefinedChannels) {
@@ -1140,6 +1145,172 @@ describe('P1-11 ConfigUpdateRequest 子对象非法值拒绝（100% branch 补�
         expectedSchemaVersion: 1,
         domains: {},
         injection: 'bad'
+      })
+    ).toBe(false)
+  })
+})
+
+// === P2-29: memory + growth validator（12 invoke + 1 event）===
+
+describe('P2-29 memory/growth invoke validator', () => {
+  // memory:list-l2
+  it('list-l2 合法通过', () => {
+    expect(
+      validateIpcPayload('companion:memory:list-l2', {
+        state: 'active',
+        search: '咖啡',
+        limit: 50,
+        offset: 0
+      })
+    ).toBe(true)
+    expect(validateIpcPayload('companion:memory:list-l2', { limit: 1, offset: 0 })).toBe(true)
+  })
+  it('list-l2 非法 state/limit/offset 被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:memory:list-l2', { state: 'purged', limit: 50, offset: 0 })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:memory:list-l2', { limit: 0, offset: 0 })).toBe(false)
+    expect(validateIpcPayload('companion:memory:list-l2', { limit: 201, offset: 0 })).toBe(false)
+    expect(validateIpcPayload('companion:memory:list-l2', { limit: 50, offset: -1 })).toBe(false)
+    expect(validateIpcPayload('companion:memory:list-l2', { limit: 50, offset: 0, extra: 1 })).toBe(
+      false
+    )
+  })
+
+  // memory:get-detail
+  it('get-detail 合法 memoryId 通过', () => {
+    expect(
+      validateIpcPayload('companion:memory:get-detail', { memoryId: 'l2_1700000000000_abc123' })
+    ).toBe(true)
+  })
+  it('get-detail 非法 memoryId 被拒绝', () => {
+    expect(validateIpcPayload('companion:memory:get-detail', { memoryId: 'bad_id' })).toBe(false)
+    expect(validateIpcPayload('companion:memory:get-detail', { memoryId: 'l2_abc' })).toBe(false)
+    expect(validateIpcPayload('companion:memory:get-detail', { id: 'l2_1_a' })).toBe(false)
+  })
+
+  // memory:set-pinned
+  it('set-pinned 合法通过', () => {
+    expect(
+      validateIpcPayload('companion:memory:set-pinned', { memoryId: 'l2_1_a', pinned: true })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:memory:set-pinned', { memoryId: 'l2_1_a', pinned: false })
+    ).toBe(true)
+  })
+  it('set-pinned 非法 pinned 被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:memory:set-pinned', { memoryId: 'l2_1_a', pinned: 'yes' })
+    ).toBe(false)
+  })
+
+  // memory:soft-delete
+  it('soft-delete confirm 必须为字面量 true', () => {
+    expect(
+      validateIpcPayload('companion:memory:soft-delete', { memoryId: 'l2_1_a', confirm: true })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:memory:soft-delete', { memoryId: 'l2_1_a', confirm: false })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:memory:soft-delete', { memoryId: 'l2_1_a' })).toBe(false)
+  })
+
+  // memory:restore
+  it('restore 合法通过', () => {
+    expect(validateIpcPayload('companion:memory:restore', { memoryId: 'l2_1_a' })).toBe(true)
+  })
+
+  // memory:get-dmae-history
+  it('get-dmae-history days 必须为 7|30|90', () => {
+    expect(
+      validateIpcPayload('companion:memory:get-dmae-history', { memoryId: 'l2_1_a', days: 7 })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:memory:get-dmae-history', { memoryId: 'l2_1_a', days: 30 })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:memory:get-dmae-history', { memoryId: 'l2_1_a', days: 90 })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:memory:get-dmae-history', { memoryId: 'l2_1_a', days: 14 })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:memory:get-dmae-history', { memoryId: 'bad', days: 7 })
+    ).toBe(false)
+  })
+
+  // growth:get-timeline
+  it('get-timeline limit 1..100', () => {
+    expect(validateIpcPayload('companion:growth:get-timeline', { limit: 10 })).toBe(true)
+    expect(validateIpcPayload('companion:growth:get-timeline', { limit: 0 })).toBe(false)
+    expect(validateIpcPayload('companion:growth:get-timeline', { limit: 101 })).toBe(false)
+    expect(validateIpcPayload('companion:growth:get-timeline', { limit: 10.5 })).toBe(false)
+  })
+
+  // growth:get-trend
+  it('get-trend metric 白名单 + days picklist', () => {
+    expect(
+      validateIpcPayload('companion:growth:get-trend', { metric: 'understanding', days: 7 })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:growth:get-trend', { metric: 'l0FillRate', days: 30 })
+    ).toBe(true)
+    expect(validateIpcPayload('companion:growth:get-trend', { metric: 'l2Total', days: 90 })).toBe(
+      true
+    )
+    expect(validateIpcPayload('companion:growth:get-trend', { metric: 'bad', days: 7 })).toBe(false)
+    expect(
+      validateIpcPayload('companion:growth:get-trend', { metric: 'understanding', days: 14 })
+    ).toBe(false)
+  })
+
+  // undefined 通道（Phase 2 新增 4 个）
+  it('get-overview/get-l0/get-dmae-snapshot/get-profile 只收 undefined', () => {
+    expect(validateIpcPayload('companion:memory:get-overview', undefined)).toBe(true)
+    expect(validateIpcPayload('companion:memory:get-overview', { extra: 1 })).toBe(false)
+    expect(validateIpcPayload('companion:memory:get-l0', undefined)).toBe(true)
+    expect(validateIpcPayload('companion:memory:get-dmae-snapshot', undefined)).toBe(true)
+    expect(validateIpcPayload('companion:growth:get-profile', undefined)).toBe(true)
+  })
+})
+
+describe('P2-29 memory-updated event validator', () => {
+  it('合法 MemoryUpdatedEvent 通过', () => {
+    expect(
+      validateEventPayload('companion:event:memory-updated', {
+        revision: 5,
+        hint: 'l2',
+        ts: 1700000000000
+      })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:memory-updated', { revision: 0, hint: 'bulk', ts: 0 })
+    ).toBe(true)
+  })
+  it('非法 hint 被拒绝', () => {
+    expect(
+      validateEventPayload('companion:event:memory-updated', {
+        revision: 1,
+        hint: 'unknown',
+        ts: 0
+      })
+    ).toBe(false)
+  })
+  it('revision 非整数/负数被拒绝', () => {
+    expect(
+      validateEventPayload('companion:event:memory-updated', { revision: -1, hint: 'l2', ts: 0 })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:memory-updated', { revision: 1.5, hint: 'l2', ts: 0 })
+    ).toBe(false)
+  })
+  it('多余字段被拒绝', () => {
+    expect(
+      validateEventPayload('companion:event:memory-updated', {
+        revision: 1,
+        hint: 'l2',
+        ts: 0,
+        extra: 1
       })
     ).toBe(false)
   })

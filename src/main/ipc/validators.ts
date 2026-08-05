@@ -3,7 +3,7 @@
 // 依据：S-003 §3.5/§3.6、S-001 P1-11
 //
 // 设计要点：
-//   1. 17 个 invoke 通道 + 3 个 event 通道全部有 validator
+//   1. IPC_INVOKE_CHANNELS 中全部 invoke 通道都有 validator；event 载荷由 shared validator 覆盖
 //   2. IPC_VALIDATORS satisfies Record<IpcInvokeChannel, Validator> 保证全覆盖
 //   3. isTrustedSender 纯函数（不依赖 electron），校验 webContents.id + origin
 //   4. validator 只做"形状检查"；深层值范围由 ConfigStore/ChatService 的 schema 完成
@@ -27,6 +27,17 @@ import type {
   ConfigUpdateRequest,
   ModelConnectionTestRequest
 } from '@shared/config/types'
+import type {
+  DmaeHistoryRequest,
+  GrowthTimelineRequest,
+  GrowthTrendRequest,
+  MemoryDeleteRequest,
+  MemoryDetailRequest,
+  MemoryId,
+  MemoryListRequest,
+  MemoryPinRequest,
+  MemoryRestoreRequest
+} from '@shared/memory/types'
 
 // helper 函数从 shared 导入（main 的 invoke validator 复用）
 import {
@@ -351,6 +362,81 @@ function isConfigUpdateRequest(value: unknown): value is ConfigUpdateRequest {
   return true
 }
 
+// === Phase 2：memory + growth invoke validator（S-003-补充 §3.5）===
+
+/** MemoryId 正则：^l2_[0-9]+_[A-Za-z0-9]+$，1..64 字符 */
+const MEMORY_ID_RE = /^l2_[0-9]+_[A-Za-z0-9]+$/
+
+function isMemoryId(value: unknown): value is MemoryId {
+  if (typeof value !== 'string') return false
+  if (value.length < 1 || value.length > 64) return false
+  return MEMORY_ID_RE.test(value)
+}
+
+const MEMORY_LIST_STATES = new Set(['active', 'dormant', 'archived', 'soft_deleted'])
+
+function isMemoryListRequest(value: unknown): value is MemoryListRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['state', 'search', 'limit', 'offset'])) return false
+  if ('state' in value && value.state !== undefined) {
+    if (typeof value.state !== 'string' || !MEMORY_LIST_STATES.has(value.state)) return false
+  }
+  if ('search' in value && value.search !== undefined) {
+    if (!isString(value.search, { maxLen: 200 })) return false
+  }
+  if (!isNumber(value.limit, { min: 1, max: 200, integer: true })) return false
+  if (!isNumber(value.offset, { min: 0, max: 100_000, integer: true })) return false
+  return true
+}
+
+function isMemoryDetailRequest(value: unknown): value is MemoryDetailRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId'])) return false
+  return isMemoryId(value.memoryId)
+}
+
+function isMemoryPinRequest(value: unknown): value is MemoryPinRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId', 'pinned'])) return false
+  return isMemoryId(value.memoryId) && isBoolean(value.pinned)
+}
+
+function isMemoryDeleteRequest(value: unknown): value is MemoryDeleteRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId', 'confirm'])) return false
+  return isMemoryId(value.memoryId) && value.confirm === true
+}
+
+function isMemoryRestoreRequest(value: unknown): value is MemoryRestoreRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId'])) return false
+  return isMemoryId(value.memoryId)
+}
+
+const DMAE_HISTORY_DAYS = new Set([7, 30, 90])
+
+function isDmaeHistoryRequest(value: unknown): value is DmaeHistoryRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId', 'days'])) return false
+  if (!isMemoryId(value.memoryId)) return false
+  return typeof value.days === 'number' && DMAE_HISTORY_DAYS.has(value.days)
+}
+
+function isGrowthTimelineRequest(value: unknown): value is GrowthTimelineRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['limit'])) return false
+  return isNumber(value.limit, { min: 1, max: 100, integer: true })
+}
+
+const GROWTH_TREND_METRICS = new Set(['understanding', 'l0FillRate', 'l2Total'])
+
+function isGrowthTrendRequest(value: unknown): value is GrowthTrendRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['metric', 'days'])) return false
+  if (typeof value.metric !== 'string' || !GROWTH_TREND_METRICS.has(value.metric)) return false
+  return typeof value.days === 'number' && DMAE_HISTORY_DAYS.has(value.days)
+}
+
 // === IPC_VALIDATORS：satisfies Record 保证全覆盖 ===
 
 export const IPC_VALIDATORS = {
@@ -366,11 +452,26 @@ export const IPC_VALIDATORS = {
   'companion:config:reset-domain': isConfigResetRequest,
   'companion:chat:list': isChatListRequest,
   'companion:chat:create-session': (v: unknown): v is undefined => v === undefined,
+  'companion:chat:get-last-session': (v: unknown): v is undefined => v === undefined,
   'companion:chat:send': isChatSendRequest,
   'companion:chat:cancel': isChatCancelRequest,
   'companion:chat:retry': isChatRetryRequest,
   'companion:debug:get-snapshot': (v: unknown): v is undefined => v === undefined,
-  'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined
+  'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined,
+  // ── Phase 2：memory（9 invoke）──
+  'companion:memory:get-overview': (v: unknown): v is undefined => v === undefined,
+  'companion:memory:get-l0': (v: unknown): v is undefined => v === undefined,
+  'companion:memory:list-l2': isMemoryListRequest,
+  'companion:memory:get-detail': isMemoryDetailRequest,
+  'companion:memory:set-pinned': isMemoryPinRequest,
+  'companion:memory:soft-delete': isMemoryDeleteRequest,
+  'companion:memory:restore': isMemoryRestoreRequest,
+  'companion:memory:get-dmae-snapshot': (v: unknown): v is undefined => v === undefined,
+  'companion:memory:get-dmae-history': isDmaeHistoryRequest,
+  // ── Phase 2：growth（3 invoke）──
+  'companion:growth:get-profile': (v: unknown): v is undefined => v === undefined,
+  'companion:growth:get-timeline': isGrowthTimelineRequest,
+  'companion:growth:get-trend': isGrowthTrendRequest
 } satisfies { [K in IpcInvokeChannel]: Validator<IpcInvokeMap[K]['req']> }
 
 /**

@@ -83,9 +83,22 @@ export async function* parseSseStream(
       let readResult: ReadableStreamReadResult<Uint8Array>
       try {
         readResult = await reader.read()
-      } catch {
-        // reader.read() reject = 被 cancel（abort）。立即返回，保证"abort 后无晚到 chunk"。
-        return
+      } catch (e) {
+        // 审计 B-5：只有 abort 才是"正常结束"。
+        // 旧实现把一切读取异常都当正常结束，于是网络中断（undici
+        // 'terminated'/ECONNRESET）产生的半截回复会被当成完整回复落库，
+        // 用户看到的是一句没说完的话，且没有任何错误提示、无法重试。
+        if (signal?.aborted) {
+          // 用户主动取消：静默返回，保证"abort 后无晚到 chunk"
+          return
+        }
+        throw new AppError({
+          code: 'LLM_SERVER',
+          userMessage: '回复中断了，网络好像不太稳定。要我再试一次吗？',
+          severity: 'error',
+          retryable: true,
+          cause: e
+        })
       }
 
       const { done, value } = readResult

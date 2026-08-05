@@ -190,6 +190,88 @@ describe('parseSseStream abort', () => {
   })
 })
 
+// === 审计 B-5 回归：网络中断 ≠ 正常结束 ===
+// 修复前所有读取异常都被当成正常结束，半截回复会被当完整回复落库。
+describe('parseSseStream 传输错误（B-5）', () => {
+  it('无 abort 时读取失败必须抛 LLM_SERVER 且可重试（不静默截断）', async () => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: partial\n\n'))
+        // 模拟 undici 'terminated' / ECONNRESET
+        controller.error(new Error('terminated'))
+      }
+    })
+    const response = new Response(stream)
+
+    const chunks: string[] = []
+    let caught: unknown = null
+    try {
+      for await (const item of parseSseStream(response)) {
+        chunks.push(item)
+      }
+    } catch (e) {
+      caught = e
+    }
+
+    // 关键断言：必须抛错，让上层知道回复不完整（修复前是静默 return，被当正常结束）
+    expect(caught).not.toBeNull()
+    expect(caught).toMatchObject({ code: 'LLM_SERVER', retryable: true })
+    // 本用例中流在首次 read 前即进入错误态，故 chunks 为空；
+    // 重点不是收到多少，而是"错误没有被吞掉"。
+    expect(chunks.length).toBeLessThanOrEqual(1)
+  })
+
+  it('已 yield 若干 chunk 后中途断线：保留已收内容且仍然抛错', async () => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        // 用 pull 分次投递，让前两个 chunk 真的被读到再断
+        controller.enqueue(encoder.encode('data: first\n\n'))
+        await Promise.resolve()
+        controller.enqueue(encoder.encode('data: second\n\n'))
+        await Promise.resolve()
+        controller.error(new Error('terminated'))
+      }
+    })
+    const response = new Response(stream)
+
+    const chunks: string[] = []
+    let caught: unknown = null
+    try {
+      for await (const item of parseSseStream(response)) {
+        chunks.push(item)
+      }
+    } catch (e) {
+      caught = e
+    }
+
+    // 已收到的内容不丢
+    expect(chunks).toContain('first')
+    // 且错误没被吞（这正是"半截回复被存成完整"的根因）
+    expect(caught).toMatchObject({ code: 'LLM_SERVER', retryable: true })
+  })
+
+  it('已 abort 时读取失败仍静默返回（用户主动取消不算错误）', async () => {
+    const encoder = new TextEncoder()
+    const abortController = new AbortController()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: chunk1\n\n'))
+      }
+    })
+    const response = new Response(stream)
+
+    const chunks: string[] = []
+    // 不应抛错
+    for await (const item of parseSseStream(response, { signal: abortController.signal })) {
+      chunks.push(item)
+      abortController.abort()
+    }
+    expect(chunks[0]).toBe('chunk1')
+  })
+})
+
 // ── 注释/心跳行 ──
 
 describe('parseSseStream 注释行', () => {

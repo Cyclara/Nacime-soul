@@ -3,7 +3,6 @@
 // 依据：S-005 §3.7-§3.8、F5-013 atomicWriteJson、S-001 P1-07
 
 import * as fs from 'node:fs'
-import * as path from 'node:path'
 import * as v from 'valibot'
 import type { Logger } from '@shared/observability/types'
 import type {
@@ -17,6 +16,7 @@ import type {
 import { AppError } from '@shared/errors'
 import { AppConfigSchema } from './schema'
 import { DEFAULT_CONFIG_V1, deepFreeze } from './defaults'
+import { atomicWriteJson } from '../migrations/atomic-json'
 
 const THROTTLE_MS = 250
 
@@ -98,34 +98,8 @@ function mergePatches<T>(a: DeepPartial<T>, b: DeepPartial<T>): DeepPartial<T> {
   return result as DeepPartial<T>
 }
 
-/**
- * 原子写 JSON：写 {file}.tmp -> fsync -> rename -> best-effort fsync dir。
- * 依据 F5-013 §3 atomicWriteJson。写入中断不损坏旧文件（rename 是原子的）。
- */
-export function atomicWriteJson(filePath: string, data: unknown): void {
-  const tmpPath = filePath + '.tmp'
-  const json = JSON.stringify(data, null, 2) + '\n'
-  const fd = fs.openSync(tmpPath, 'w', 0o600)
-  try {
-    fs.writeFileSync(fd, json, 'utf8')
-    fs.fsyncSync(fd)
-  } finally {
-    fs.closeSync(fd)
-  }
-  // rename 原子替换（同分区 rename 在 POSIX 和 Windows 上都是原子的）
-  fs.renameSync(tmpPath, filePath)
-  // best-effort fsync 目录（某些 Windows 文件系统不支持，忽略失败）
-  try {
-    const dirFd = fs.openSync(path.dirname(filePath), 'r')
-    try {
-      fs.fsyncSync(dirFd)
-    } finally {
-      fs.closeSync(dirFd)
-    }
-  } catch {
-    // best-effort：目录 fsync 失败不影响数据完整性（rename 已原子完成）
-  }
-}
+// atomicWriteJson 已上移至 src/main/migrations/atomic-json.ts（F5-013 §3 规范位置）。
+// 此处经 import + re-export 保持 secret-store 与既有测试的 './store' 导入不变。
 
 /** 从 valibot issues 提取可读的 { path, message } 列表 */
 function issuesToDiagnostics(
@@ -410,4 +384,4 @@ export function createConfigStore(opts: { configPath: string; logger?: Logger })
   return new ConfigStoreImpl(opts)
 }
 
-export { deepMergeWithDefaults, mergePatches }
+export { deepMergeWithDefaults, mergePatches, atomicWriteJson }

@@ -5,6 +5,7 @@
 import * as fs from 'node:fs'
 import * as crypto from 'node:crypto'
 import type { Logger } from '@shared/observability/types'
+import { AppError } from '@shared/errors'
 import { atomicWriteJson } from '../config/store'
 
 /** safeStorage 接口（与 Electron safeStorage 兼容，便于测试注入） */
@@ -173,25 +174,28 @@ class SecretStoreImpl implements SecretStore {
       return
     }
 
-    if (this.safeStorage.isEncryptionAvailable()) {
-      const encrypted = this.safeStorage.encryptString(value)
-      this.secrets[name] = PREFIX_ENC + encrypted.toString('base64')
-    } else {
-      // safeStorage 不可用 -> 降级到 XOR 混淆
-      this.logger.warn('safeStorage unavailable, downgrading to XOR obfuscation', {
+    if (!this.safeStorage.isEncryptionAvailable()) {
+      // 审计 B-3：不再降级为 XOR"混淆"。
+      // 旧行为把 xorKey 和密文写在同一个 secrets.json 里（见 setup() 的 xorKey 生成），
+      // 拿到文件即可还原 Key——等于没加密，却让用户以为 Key 被保护了。
+      // 拒绝保存比假装加密更诚实：用户能立刻知道系统钥匙串不可用，自己决定怎么办。
+      // 读路径仍保留 obf:/plain: 解析，保证历史数据可迁移（见 get()）。
+      this.logger.error('refusing to store secret: OS keychain unavailable', {
         scope: 'security',
         code: 'SEC_KEYSTORE_DOWNGRADE',
         tags: { name }
       })
-      const key = Buffer.from(this.secrets.xorKey ?? '', 'base64')
-      if (key.length === 0) {
-        // xorKey 丢失，重新生成
-        this.secrets.xorKey = crypto.randomBytes(32).toString('base64')
-      }
-      const freshKey = Buffer.from(this.secrets.xorKey ?? '', 'base64')
-      const obfuscated = xorEncrypt(value, freshKey)
-      this.secrets[name] = PREFIX_OBF + obfuscated.toString('base64')
+      throw new AppError({
+        code: 'SEC_KEYSTORE_DOWNGRADE',
+        userMessage:
+          '系统密钥库不可用，无法安全保存 API Key。请检查系统钥匙串/凭据管理器是否正常，或改用环境变量提供密钥。',
+        severity: 'error',
+        retryable: false
+      })
     }
+
+    const encrypted = this.safeStorage.encryptString(value)
+    this.secrets[name] = PREFIX_ENC + encrypted.toString('base64')
     this.persist()
   }
 
