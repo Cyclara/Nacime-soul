@@ -77,9 +77,13 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function subscribe(): Unsubscribe {
-    const unsubs: Unsubscribe[] = []
+  // C-β：store 实例内只允许一组 app listener。旧 teardown 不能误拆新订阅。
+  let currentSubscription: Unsubscribe | null = null
 
+  function subscribe(): Unsubscribe {
+    currentSubscription?.()
+
+    const unsubs: Unsubscribe[] = []
     if (window.companion) {
       unsubs.push(
         window.companion.app.onError((e) => {
@@ -99,11 +103,17 @@ export const useAppStore = defineStore('app', () => {
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
 
-    return () => {
+    let disposed = false
+    const teardown: Unsubscribe = () => {
+      if (disposed) return
+      disposed = true
       for (const unsub of unsubs) unsub()
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
+      if (currentSubscription === teardown) currentSubscription = null
     }
+    currentSubscription = teardown
+    return teardown
   }
 
   function reset(): void {

@@ -10,6 +10,7 @@
 
 import type { IpcEventChannel } from './channels'
 import type { IpcEventMap } from './contracts'
+import type { MemoryUpdatedEvent } from '../memory/types'
 
 // === 工具函数（main 的 invoke validator 也复用）===
 
@@ -181,6 +182,18 @@ function isWindowStatePayload(
   return true
 }
 
+const MEMORY_HINTS = new Set(['l0', 'l1', 'l2', 'dmae', 'growth', 'bulk'])
+
+/** MemoryUpdatedEvent 验证。依据 S-003-补充 §3.2、S-012 §1.4 */
+function isMemoryUpdatedEvent(value: unknown): value is MemoryUpdatedEvent {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['revision', 'hint', 'ts'])) return false
+  if (!isNumber(value.revision, { min: 0, integer: true })) return false
+  if (typeof value.hint !== 'string' || !MEMORY_HINTS.has(value.hint)) return false
+  if (!isNumber(value.ts, { min: 0, integer: true })) return false
+  return true
+}
+
 /**
  * 校验 event 通道 payload。
  * 依据 S-003 §3.7：subscribe 中的 validateEventPayload。
@@ -197,6 +210,8 @@ export function validateEventPayload<K extends IpcEventChannel>(
       return isPublicAppError(payload)
     case 'companion:event:window-state':
       return isWindowStatePayload(payload)
+    case 'companion:event:memory-updated':
+      return isMemoryUpdatedEvent(payload)
     default:
       return false
   }

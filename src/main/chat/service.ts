@@ -21,6 +21,7 @@
 //   ACK 在 started 之前返回（S-003 §4 "send ACK 后 main 才发 started"）
 
 import { randomUUID } from 'node:crypto'
+import { performance } from 'node:perf_hooks'
 import type { Logger } from '@shared/observability/types'
 import { AppError, isAppError, type ErrorCode } from '@shared/errors'
 import type {
@@ -31,12 +32,17 @@ import type {
   MessageId,
   ChatStreamEvent
 } from '@shared/chat/types'
+import type { MemoryConfig } from '@shared/config/types'
 import type { LLMProvider, LlmRequest, LlmMessage } from '../llm/types'
 import type { PromptLoader } from '../prompts/loader'
 import { buildPrompt } from '../prompts/builder'
-import { applyBudget } from '../prompts/budgeter'
+import { applyBudget, type BudgetHistoryTurn } from '../prompts/budgeter'
+import type { PromptContextAssembler } from '../prompts/context-assembler'
 import { emitLifecycle, LifecycleEvent } from '../hooks/lifecycle'
 import type { SessionStore } from './session-store'
+import { hashIdempotencyText, type IdempotencyLedger } from './idempotency-ledger'
+import { getTracer } from '../observability/tracer'
+import { getMetrics } from '../observability/metrics'
 
 // === 类型定义 ===
 
@@ -52,6 +58,11 @@ export interface ProviderFactoryResult {
   capabilities: ModelCapabilities
 }
 
+/** 动态 Prompt 依赖（memory.enabled=true 时必需） */
+export interface DynamicPromptDeps {
+  contextAssembler: PromptContextAssembler
+}
+
 /** ChatService 依赖 */
 export interface ChatServiceDeps {
   logger: Logger
@@ -59,6 +70,16 @@ export interface ChatServiceDeps {
   sessionStore: SessionStore
   /** Provider 工厂：每次 turn 调用，返回当前配置的 provider + 能力 */
   providerFactory: () => ProviderFactoryResult
+  /** 只读配置获取器；返回当前 memory 配置。Phase 1 测试可省略（默认 memory.enabled=false） */
+  getMemoryConfig?: () => Readonly<MemoryConfig>
+  /** memory 关闭时可缺；开启时必须存在，否则抛 CFG_INVALID */
+  dynamicPrompt?: DynamicPromptDeps
+  /**
+   * P2-43 跨重启幂等账本。可选：不注入时只有 C-β 进程内幂等。
+   * 注入后：completed 终态跨重启重放原 ACK；failed 终态（含 cancelled/崩溃残留）
+   * 走逃生门——删除记录按全新请求处理（防死轮次锁死重试）。
+   */
+  idempotencyLedger?: IdempotencyLedger
 }
 
 /** 事件接收器。ChatService 通过此回调发射 ChatStreamEvent */
@@ -81,6 +102,8 @@ export interface TurnAck {
 /** ChatService 接口 */
 export interface ChatService {
   createSession(): SessionId
+  /** 最近活跃会话（P2-43 启动恢复）；无会话返回 null */
+  getLastSessionId(): SessionId | null
   list(sessionId: SessionId, limit: number): ChatHistorySnapshot
   send(request: TurnRequest, sink: ChatEventSink): Promise<TurnAck>
   cancel(requestId: RequestId): boolean
@@ -96,6 +119,18 @@ export interface TurnEndData {
   inputLen: number
   outputLen: number
   errorCode?: ErrorCode
+  /**
+   * 是否符合记忆提取条件。依据 S-010 §1.1：只有 provider 正常完成、assistant 非空、
+   * 已持久化且未走 sanitize/params 短路路径时为 true。failed/cancelled/stopped 均 false。
+   * 提取管线和引用追踪只认这个门。
+   */
+  memoryEligible: boolean
+  /**
+   * 最终预算保留且 provider 正常完成、非空并已持久化的 L2 memoryId 列表。
+   * 依据 S-011 §1.6：只有 memoryEligible=true 时才传非空数组；
+   * failed/cancelled/stopped/检索命中但被 budget 裁掉均传 []。
+   */
+  referencedMemoryIds: readonly string[]
 }
 
 // === 内部状态 ===
@@ -106,27 +141,48 @@ interface ActiveTurnState {
   controller: AbortController
 }
 
+interface ClientRequestRecord {
+  sessionId: SessionId
+  text: string
+  ackPromise: Promise<TurnAck>
+}
+
+/** 只释放 requestId 自己持有的 session 登记；迟到的旧 finally 不得解锁新轮次。 */
+export function releaseSessionTurnOwnership(
+  sessionActiveTurn: Map<SessionId, RequestId>,
+  sessionId: SessionId,
+  requestId: RequestId
+): void {
+  if (sessionActiveTurn.get(sessionId) === requestId) {
+    sessionActiveTurn.delete(sessionId)
+  }
+}
+
 // === ChatService 实现 ===
 
 /**
  * 创建 ChatService。
  *
  * send() 流程：
- *   1. 检查 active turn -> 有则拒绝
- *   2. 生成 turnId / requestId / messageId
- *   3. 执行 sanitize hook（chat.message）
- *   4. 存储用户消息（status=complete，role=user）
+ *   1. clientRequestId 幂等命中 -> 返回同一 ACK Promise
+ *   2. 检查 active turn -> 有则拒绝
+ *   3. 生成 IDs 并同步占有 session（首个 await 前）
+ *   4. 执行 sanitize hook，存储用户消息
  *   5. 返回 ACK（在事件之前）
  *   6. 后台启动 streamTurn（不阻塞 ACK）
  */
 export function createChatService(deps: ChatServiceDeps): ChatService {
-  const { logger, promptLoader, sessionStore, providerFactory } = deps
+  const { logger, promptLoader, sessionStore, providerFactory, getMemoryConfig, dynamicPrompt } =
+    deps
+  const idempotencyLedger = deps.idempotencyLedger
   const chatLogger = logger.child('chat')
 
   // active turns: requestId -> state
   const activeTurns = new Map<RequestId, ActiveTurnState>()
   // session -> active requestId（用于 hasActiveTurn 检查）
   const sessionActiveTurn = new Map<SessionId, RequestId>()
+  // C-β：renderer 生成的幂等键 -> 同一 pending/resolved ACK（ChatService 进程生命周期内保留）。
+  const clientRequests = new Map<RequestId, ClientRequestRecord>()
 
   function hasActiveTurn(sessionId: SessionId): boolean {
     return sessionActiveTurn.has(sessionId)
@@ -134,6 +190,10 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
 
   function createSession(): SessionId {
     return sessionStore.createSession()
+  }
+
+  function getLastSessionId(): SessionId | null {
+    return sessionStore.getLastSessionId()
   }
 
   function list(sessionId: SessionId, limit: number): ChatHistorySnapshot {
@@ -152,11 +212,43 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
   }
 
   async function send(request: TurnRequest, sink: ChatEventSink): Promise<TurnAck> {
-    const { sessionId, text } = request
+    const { sessionId, text, clientRequestId } = request
+
+    // C-β：幂等检查必须先于 busy。相同请求的重投是同一次调用，不应被判为 CHAT_BUSY。
+    const existing = clientRequests.get(clientRequestId)
+    if (existing) {
+      if (existing.sessionId !== sessionId || existing.text !== text) {
+        throw new AppError({
+          code: 'IPC_VALIDATION',
+          userMessage: '同一请求标识不能用于不同的聊天请求',
+          severity: 'error',
+          retryable: false
+        })
+      }
+      return existing.ackPromise
+    }
+
+    // P2-43：跨重启账本重放（进程内 miss 才查）。completed -> 原 ACK；
+    // 已落盘的 failed/cancelled -> 逃生门：删记录按全新请求处理，防死轮次锁死重试。
+    // 进程中途崩溃不会留下终态账本记录，同样按全新请求处理。
+    const persisted = idempotencyLedger?.get(clientRequestId)
+    if (persisted) {
+      if (persisted.sessionId !== sessionId || persisted.textHash !== hashIdempotencyText(text)) {
+        throw new AppError({
+          code: 'IPC_VALIDATION',
+          userMessage: '同一请求标识不能用于不同的聊天请求',
+          severity: 'error',
+          retryable: false
+        })
+      }
+      if (persisted.state === 'completed') {
+        return persisted.ack
+      }
+      idempotencyLedger?.remove(clientRequestId)
+    }
 
     // 1. 检查 active turn（S-004 #27：同 session 有 active turn 时拒绝第二次 send）
-    //    用 CHAT_BUSY 而非 LLM_CIRCUIT_OPEN：这是业务规则冲突（有活跃轮次），
-    //    不是断路器打开（LLM_CIRCUIT_OPEN 语义是 provider 连续失败熔断）。
+    //    此检查与下方登记之间没有 await：同一事件循环内形成原子占位，关闭 TOCTOU。
     if (hasActiveTurn(sessionId)) {
       throw new AppError({
         code: 'CHAT_BUSY',
@@ -166,64 +258,88 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       })
     }
 
-    // 2. 生成 ID
+    // 2. 生成 ID + 在第一个 await 前登记 active/session 所有权
     const turnId = randomUUID()
     const requestId = randomUUID()
     const userMessageId = randomUUID()
     const assistantMessageId = randomUUID()
+    const controller = new AbortController()
+    activeTurns.set(requestId, { sessionId, assistantMessageId, controller })
+    sessionActiveTurn.set(sessionId, requestId)
 
-    // 3. 执行 sanitize hook（chat.message 事件）
-    //    sanitize-message hook priority=100，failOpen=true
-    const sanitizeResult = await emitLifecycle(
-      LifecycleEvent.CHAT_MESSAGE,
-      { event: LifecycleEvent.CHAT_MESSAGE, turnId, sessionId },
-      { text, sessionId }
-    )
-    const sanitizedText = (sanitizeResult.data as { text: string }).text
+    // 用 microtask 启动准备阶段，确保 clientRequests 记录先同步写入，再执行任何 await 路径。
+    const ackPromise = Promise.resolve().then(async (): Promise<TurnAck> => {
+      // 3. 执行 sanitize hook（chat.message 事件）
+      //    sanitize-message hook priority=100，failOpen=true
+      const sanitizeResult = await emitLifecycle(
+        LifecycleEvent.CHAT_MESSAGE,
+        { event: LifecycleEvent.CHAT_MESSAGE, turnId, sessionId },
+        { text, sessionId }
+      )
+      const sanitizedText = (sanitizeResult.data as { text: string }).text
 
-    // 4. 存储用户消息（始终 complete，role=user）
-    //    冻结合同 §1.0：用户消息始终保持 user role
-    const userMessage: ChatMessage = {
-      id: userMessageId,
-      sessionId,
-      role: 'user',
-      content: sanitizedText,
-      createdAt: Date.now(),
-      status: 'complete',
-      turnId
-    }
-    sessionStore.appendMessage(sessionId, userMessage)
+      // 4. 存储用户消息（始终 complete，role=user）
+      //    冻结合同 §1.0：用户消息始终保持 user role
+      const userMessage: ChatMessage = {
+        id: userMessageId,
+        sessionId,
+        role: 'user',
+        content: sanitizedText,
+        createdAt: Date.now(),
+        status: 'complete',
+        turnId
+      }
+      sessionStore.appendMessage(sessionId, userMessage)
 
-    chatLogger.info('turn started', {
-      scope: 'chat',
-      turnId,
-      tags: { requestId, sessionId },
-      metrics: { inputLen: sanitizedText.length }
-    })
-
-    // 5. 返回 ACK（在事件之前，S-003 §4）
-    const ack: TurnAck = { requestId, userMessageId, assistantMessageId }
-
-    // 6. 后台启动 streamTurn（不阻塞 ACK 返回）
-    const wasStopped = sanitizeResult.stopped
-    void streamTurn({
-      ack,
-      turnId,
-      sessionId,
-      sanitizedText,
-      wasStopped,
-      sink
-    }).catch((err) => {
-      // 这是 streamTurn 内部未捕获的错误（不应发生，所有路径都有 try/catch）
-      chatLogger.error('turn streaming failed unexpectedly', {
+      chatLogger.info('turn started', {
         scope: 'chat',
-        code: 'UNKNOWN',
         turnId,
-        detail: err instanceof Error ? err.message : String(err)
+        tags: { requestId, sessionId },
+        metrics: { inputLen: sanitizedText.length }
       })
+
+      // 5. 返回 ACK（在事件之前，S-003 §4）
+      const ack: TurnAck = { requestId, userMessageId, assistantMessageId }
+
+      // 6. 后台启动 streamTurn（不阻塞 ACK 返回）；沿用 send() 已登记的 controller。
+      const wasStopped = sanitizeResult.stopped
+      void streamTurn({
+        ack,
+        turnId,
+        sessionId,
+        sanitizedText,
+        wasStopped,
+        sink,
+        controller,
+        clientRequestId,
+        text
+      }).catch((err) => {
+        // 这是 streamTurn 内部未捕获的错误（不应发生，所有路径都有 try/catch）
+        chatLogger.error('turn streaming failed unexpectedly', {
+          scope: 'chat',
+          code: 'UNKNOWN',
+          turnId,
+          detail: err instanceof Error ? err.message : String(err)
+        })
+      })
+
+      return ack
     })
 
-    return ack
+    const record: ClientRequestRecord = { sessionId, text, ackPromise }
+    clientRequests.set(clientRequestId, record)
+
+    try {
+      return await ackPromise
+    } catch (err) {
+      // ACK 前失败不应形成永久幂等记录；释放本请求仍持有的占位，允许真实重试。
+      if (clientRequests.get(clientRequestId) === record) {
+        clientRequests.delete(clientRequestId)
+      }
+      activeTurns.delete(requestId)
+      releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
+      throw err
+    }
   }
 
   /**
@@ -239,19 +355,14 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     sanitizedText: string
     wasStopped: boolean
     sink: ChatEventSink
+    controller: AbortController
+    /** P2-43：幂等账本落盘所需的原始请求键与原文（非 sanitized） */
+    clientRequestId: RequestId
+    text: string
   }): Promise<void> {
-    const { ack, turnId, sessionId, sanitizedText, wasStopped, sink } = opts
+    const { ack, turnId, sessionId, sanitizedText, wasStopped, sink, controller } = opts
+    const { clientRequestId, text } = opts
     const { requestId, assistantMessageId } = ack
-
-    // 注册 active turn
-    const controller = new AbortController()
-    const turnState: ActiveTurnState = {
-      sessionId,
-      assistantMessageId,
-      controller
-    }
-    activeTurns.set(requestId, turnState)
-    sessionActiveTurn.set(sessionId, requestId)
 
     let sequence = 0
     let status: 'completed' | 'failed' | 'cancelled' = 'completed'
@@ -260,6 +371,16 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     let accumulatedReasoning = ''
     let inputTokens = 0
     let outputTokens = 0
+    // memoryEligible：仅 provider 正常完成且 assistant 非空时为 true（S-010 §1.1）。
+    // sanitize 短路、params 短路、failed、cancelled、空输出均保持 false。
+    let memoryEligible = false
+    // 最终预算保留的 L2 memoryId 列表（S-011 §1.6）。
+    // 只在 memoryEligible=true 时才传非空给 turn.end；提前 return 路径保持 []。
+    let includedMemoryIds: readonly string[] = []
+
+    // P2-27: 开始一轮 trace（F5-011 §4 验收：连续 10 轮 -> 10 条完整 trace）
+    const tracer = getTracer()
+    tracer.beginTurn(turnId, sanitizedText.length)
 
     try {
       // 发射 started（seq=0）
@@ -301,24 +422,53 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       }
 
       // === 构建 prompt + budget ===
+      // P2-27: prompt.build span（含 context assemble + buildPrompt + applyBudget）
+      const promptSpan = tracer.startSpan('prompt.build')
+      // S-011 §1.6：memory.enabled=true 但 dynamicPrompt 缺失 -> CFG_INVALID
+      // memory.enabled=false（默认）-> Phase 1 五层静态路径
+      const memoryConfig = getMemoryConfig ? getMemoryConfig() : undefined
+      const memoryEnabled = memoryConfig?.enabled === true
+      if (memoryEnabled && !dynamicPrompt) {
+        throw new AppError({
+          code: 'CFG_INVALID',
+          userMessage: '记忆功能已启用但动态 Prompt 依赖未注入',
+          severity: 'fatal',
+          retryable: false
+        })
+      }
+
+      // 组装动态上下文（memory.enabled=true 时）
+      // 失败的动态层在 assembler 内部 fail-open，不影响其他层和聊天
+      const context = memoryEnabled
+        ? await dynamicPrompt!.contextAssembler.assemble({
+            sessionId,
+            query: sanitizedText,
+            memory: memoryConfig!
+          })
+        : undefined
+
       const builtPrompt = buildPrompt({
         loader: promptLoader,
-        logger: chatLogger
+        logger: chatLogger,
+        ...(context ? { context } : {})
       })
 
-      // 从会话历史构建 LlmMessage[]（只含 complete 消息，排除当前 assistant 占位）
+      // 从会话历史构建 BudgetHistoryTurn[]（按 turnId 分组，当前 turn 标 isCurrent）
       const allMessages = sessionStore.getMessages(sessionId, 10_000)
-      const history: LlmMessage[] = allMessages
-        .filter((m) => m.status === 'complete' && m.id !== assistantMessageId)
-        .map((m) => ({ role: m.role, content: m.content }))
+      const historyTurns = buildBudgetHistoryTurns(allMessages, turnId, assistantMessageId)
 
-      // 应用预算（按 L2 -> 旧历史 -> L1 -> style 裁剪）
+      // 应用预算（按 L2 -> 旧历史 -> L1 -> relationship fragments -> style 裁剪）
       const { provider, capabilities } = providerFactory()
       const budgetReport = applyBudget({
         layers: builtPrompt.layers,
-        history,
+        historyTurns,
         modelCapabilities: capabilities
       })
+
+      // 记录最终保留的 L2 memoryId（供 turn.end 时 referencedMemoryIds 用）
+      // 只在 memoryEligible=true 时才传非空；此处先暂存，最后按门决定
+      includedMemoryIds = budgetReport.includedMemoryIds
+      promptSpan.end(true)
 
       if (budgetReport.historyRemoved > 0 || budgetReport.styleRemoved) {
         chatLogger.debug('budget trimmed', {
@@ -379,6 +529,11 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       }
 
       // === provider stream ===
+      // P2-26/27: llm.call span + LLM 指标（calls/errors/latencyMs/tokens）
+      const metrics = getMetrics()
+      metrics.counter('llm.calls').inc()
+      const llmSpan = tracer.startSpan('llm.call')
+      const llmStartMs = performance.now()
       try {
         for await (const chunk of provider.stream(finalRequest, controller.signal)) {
           if (controller.signal.aborted) break
@@ -396,7 +551,13 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
             outputTokens = chunk.outputTokens
           }
         }
+        // P2-26/27: llm.call span 成功结束 + latencyMs observe
+        llmSpan.end(true)
+        metrics.histogram('llm.latencyMs').observe(performance.now() - llmStartMs)
       } catch (err) {
+        // P2-26/27: llm.call span 失败 + errors inc
+        metrics.counter('llm.errors').inc()
+        llmSpan.end(false, isAppError(err) ? err.code : undefined)
         // provider 错误：保留已接收文本，标 failed（S-004 #24）
         status = 'failed'
         errorCode = isAppError(err) ? err.code : 'UNKNOWN'
@@ -471,6 +632,13 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         turnId
       })
 
+      // provider 正常完成且 assistant 非空 -> 符合记忆提取条件（S-010 §1.1）
+      memoryEligible = accumulated.trim().length > 0
+
+      // P2-26: LLM token 指标（累计输入/输出 token）
+      metrics.counter('llm.tokens.in').inc(inputTokens)
+      metrics.counter('llm.tokens.out').inc(outputTokens)
+
       chatLogger.info('turn completed', {
         scope: 'chat',
         turnId,
@@ -527,7 +695,24 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       // 清理 active turn（在 turn.end hook 之前，确保 hasActiveTurn 在事件发射后立即返回 false）
       // turn.end 是独立扩展点，不应阻塞 active turn 的释放
       activeTurns.delete(requestId)
-      sessionActiveTurn.delete(sessionId)
+      releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
+
+      // P2-43：轮次终局落幂等账本（跨重启重放的依据）。
+      // cancelled 并入 failed：用户取消后点重试应当真跑（逃生门语义）。
+      // 崩溃时进程内 pending 随进程消失、此处不会执行 -> 账本查无此记录 ->
+      // 重启后按全新请求处理，恰好是死轮次的正确语义。
+      if (idempotencyLedger) {
+        idempotencyLedger.put(clientRequestId, {
+          sessionId,
+          textHash: hashIdempotencyText(text),
+          ack,
+          state: status === 'completed' ? 'completed' : 'failed',
+          createdAt: Date.now()
+        })
+        // 生产环境由有界账本接管终态后，释放进程内 pending/resolved Promise，避免双缓存无界增长。
+        // 未注入账本的 Phase 1 单测仍保留 C-β 原进程生命周期语义。
+        clientRequests.delete(clientRequestId)
+      }
 
       // === turn.end hook（独立扩展点，始终执行）===
       // Phase 2 记忆提取（MemoryJudge）在此接入
@@ -538,6 +723,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         status,
         inputLen: sanitizedText.length,
         outputLen: accumulated.length,
+        memoryEligible,
+        // S-011 §1.6：只有 memoryEligible=true 才传非空 includedMemoryIds
+        referencedMemoryIds: memoryEligible ? includedMemoryIds : [],
         ...(errorCode !== undefined ? { errorCode } : {})
       }
 
@@ -556,14 +744,65 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           detail: turnEndErr instanceof Error ? turnEndErr.message : String(turnEndErr)
         })
       }
+
+      // P2-27: 结束 trace（推入环形缓冲，供 debug:get-snapshot 拉取）
+      tracer.endTurn(accumulated.length)
     }
   }
 
   return {
     createSession,
+    getLastSessionId,
     list,
     send,
     cancel,
     hasActiveTurn
   }
+}
+
+/**
+ * 从会话历史构建 BudgetHistoryTurn[]。依据 S-011 §1.5。
+ *
+ * 规则：
+ *   - 按 turnId 分组；只含 complete 消息；排除当前 assistant 占位
+ *   - 允许 [user] 或 [user,assistant]；不得 assistant 开头（孤立 assistant -> 跳过该 turn）
+ *   - 当前 turnId 标 isCurrent=true（永不裁）
+ *   - 按时间升序排列（最旧在前，最旧先裁）
+ */
+function buildBudgetHistoryTurns(
+  messages: readonly ChatMessage[],
+  currentTurnId: string,
+  assistantPlaceholderId: MessageId
+): BudgetHistoryTurn[] {
+  const groups = new Map<string, LlmMessage[]>()
+  const order: string[] = []
+
+  for (const msg of messages) {
+    if (msg.status !== 'complete') continue
+    if (msg.id === assistantPlaceholderId) continue
+    if (msg.role === 'system') continue
+    const tid = msg.turnId
+    if (!tid) continue
+    if (!groups.has(tid)) {
+      groups.set(tid, [])
+      order.push(tid)
+    }
+    groups.get(tid)!.push({ role: msg.role, content: msg.content })
+  }
+
+  const turns: BudgetHistoryTurn[] = []
+  for (const tid of order) {
+    const msgs = groups.get(tid)!
+    // 孤立 assistant（assistant 开头）-> 跳过该 turn
+    while (msgs.length > 0 && msgs[0].role === 'assistant') {
+      msgs.shift()
+    }
+    if (msgs.length === 0) continue
+    turns.push({
+      turnId: tid,
+      messages: msgs,
+      isCurrent: tid === currentTurnId
+    })
+  }
+  return turns
 }

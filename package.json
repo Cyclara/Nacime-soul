@@ -18,8 +18,8 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "node scripts/run-vitest-electron.mjs run",
+    "test:coverage": "node scripts/run-vitest-electron.mjs run --coverage",
     "test:e2e": "npm run build && npx playwright test",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "gate": "node scripts/phase1-gate.mjs"
@@ -32,7 +32,8 @@
     "pinia": "^3.0.0",
     "pixi-live2d-display-lipsyncpatch": "0.5.0-ls-8",
     "pixi.js": "^7.4.0",
-    "valibot": "^1.0.0"
+    "valibot": "^1.0.0",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.0",

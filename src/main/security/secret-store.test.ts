@@ -7,7 +7,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import * as crypto from 'node:crypto'
-import { createSecretStore, type SafeStorageLike } from './secret-store'
+import { createSecretStore, xorEncrypt, type SafeStorageLike } from './secret-store'
 import type { Logger, LogFields } from '@shared/observability/types'
 
 let tmpDir: string
@@ -46,18 +46,20 @@ function createFakeSafeStorage(available: boolean): SafeStorageLike {
   }
 }
 
-/** spy logger：收集 warn 调用 */
+/** spy logger：收集 warn / error 调用 */
 function createSpyLogger(): {
   logger: Logger
   warns: Array<{ msg: string; fields: LogFields }>
+  errors: Array<{ msg: string; fields: LogFields }>
 } {
   const warns: Array<{ msg: string; fields: LogFields }> = []
+  const errors: Array<{ msg: string; fields: LogFields }> = []
   const logger: Logger = {
     fatal() {
       /* noop */
     },
-    error() {
-      /* noop */
+    error(msg, fields) {
+      errors.push({ msg, fields })
     },
     warn(msg, fields) {
       warns.push({ msg, fields })
@@ -72,7 +74,7 @@ function createSpyLogger(): {
       return logger
     }
   }
-  return { logger, warns }
+  return { logger, warns, errors }
 }
 
 function writeSecrets(data: unknown): void {
@@ -92,13 +94,21 @@ describe('P1-08 三种前缀可回读', () => {
     expect(store.get('modelApiKey')).toBe(TEST_KEY)
   })
 
-  it('obf: 前缀可回读（safeStorage 不可用）', () => {
+  // 审计 B-3 后：obf: 不再由 set() 产生，但历史数据必须仍可读（迁移兼容）。
+  // 因此这里预置 obf: 数据而非用 set() 写出。
+  it('obf: 前缀可回读（历史数据迁移兼容）', () => {
+    const xorKey = crypto.randomBytes(32).toString('base64')
+    const obfuscated = xorEncrypt(TEST_KEY, Buffer.from(xorKey, 'base64'))
+    writeSecrets({
+      schemaVersion: 1,
+      xorKey,
+      modelApiKey: `obf:${obfuscated.toString('base64')}`
+    })
     const store = createSecretStore({
       secretsPath,
       safeStorage: createFakeSafeStorage(false)
     })
     store.setup()
-    store.set('modelApiKey', TEST_KEY)
     expect(store.get('modelApiKey')).toBe(TEST_KEY)
   })
 
@@ -136,13 +146,14 @@ describe('P1-08 三种前缀可回读', () => {
     expect(store2.get('modelApiKey')).toBe(TEST_KEY)
   })
 
-  it('obf: 跨实例回读（xorKey 持久化）', () => {
-    const store1 = createSecretStore({
-      secretsPath,
-      safeStorage: createFakeSafeStorage(false)
+  it('obf: 跨实例回读（xorKey 持久化，历史数据）', () => {
+    const xorKey = crypto.randomBytes(32).toString('base64')
+    const obfuscated = xorEncrypt(TEST_KEY, Buffer.from(xorKey, 'base64'))
+    writeSecrets({
+      schemaVersion: 1,
+      xorKey,
+      ttsApiKey: `obf:${obfuscated.toString('base64')}`
     })
-    store1.setup()
-    store1.set('ttsApiKey', TEST_KEY)
 
     const store2 = createSecretStore({
       secretsPath,
@@ -166,16 +177,19 @@ describe('P1-08 secrets.json 不含明文 key', () => {
     expect(raw).toContain('enc:')
   })
 
-  it('obf: 存储后文件不含明文 key', () => {
+  // 审计 B-3：keychain 不可用时拒绝保存，明文绝不落盘（旧行为是写 obf: 假加密）
+  it('safeStorage 不可用时拒绝保存，文件不出现明文也不出现 obf:', () => {
     const store = createSecretStore({
       secretsPath,
       safeStorage: createFakeSafeStorage(false)
     })
     store.setup()
-    store.set('modelApiKey', TEST_KEY)
+    expect(() => store.set('modelApiKey', TEST_KEY)).toThrow(/密钥库不可用/)
     const raw = fs.readFileSync(secretsPath, 'utf8')
     expect(raw).not.toContain(TEST_KEY)
-    expect(raw).toContain('obf:')
+    expect(raw).not.toContain('obf:')
+    // 也没有把 key 存进去
+    expect(store.get('modelApiKey')).toBeNull()
   })
 
   it('多个 key 存储后都不含明文', () => {
@@ -193,17 +207,20 @@ describe('P1-08 secrets.json 不含明文 key', () => {
 })
 
 describe('P1-08 safeStorage 不可用降级', () => {
-  it('safeStorage 不可用时 set 降级到 obf: 并发 SEC_KEYSTORE_DOWNGRADE warn', () => {
-    const { logger, warns } = createSpyLogger()
+  // 审计 B-3：行为从"降级 XOR"改为"拒绝保存 + error 级日志"
+  it('safeStorage 不可用时 set 抛 SEC_KEYSTORE_DOWNGRADE 并记 error', () => {
+    const { logger, errors } = createSpyLogger()
     const store = createSecretStore({
       secretsPath,
       safeStorage: createFakeSafeStorage(false),
       logger
     })
     store.setup()
-    warns.length = 0 // 清除 setup 阶段的 warn
-    store.set('modelApiKey', TEST_KEY)
-    expect(warns.some((w) => w.fields.code === 'SEC_KEYSTORE_DOWNGRADE')).toBe(true)
+    errors.length = 0
+    expect(() => store.set('modelApiKey', TEST_KEY)).toThrow(
+      expect.objectContaining({ code: 'SEC_KEYSTORE_DOWNGRADE' })
+    )
+    expect(errors.some((e) => e.fields.code === 'SEC_KEYSTORE_DOWNGRADE')).toBe(true)
   })
 
   it('safeStorage 可用时不发降级 warn', () => {
@@ -390,8 +407,13 @@ describe('P1-08 S-004 #10: 已有前缀的值不重复加密', () => {
     expect(store.get('k2')).toBe('plaintext-secret')
   })
 
-  it('obf: 前缀值不重复加密', () => {
-    // safeStorage 不可用 -> 存储为 obf:
+  // 审计 B-3 后：obf: 不再由 set() 产生，但"已带前缀的值直通不重复加密"这条契约仍需成立
+  // （前缀直通发生在 keychain 可用性检查之前），因此预置 obf: 值来验证。
+  it('obf: 前缀值不重复加密（前缀直通早于 keychain 检查）', () => {
+    const xorKey = crypto.randomBytes(32).toString('base64')
+    const obfValue = `obf:${xorEncrypt('my-secret', Buffer.from(xorKey, 'base64')).toString('base64')}`
+    writeSecrets({ schemaVersion: 1, xorKey })
+
     const store = createSecretStore({
       secretsPath,
       safeStorage: createFakeSafeStorage(false),
@@ -399,12 +421,7 @@ describe('P1-08 S-004 #10: 已有前缀的值不重复加密', () => {
     })
     store.setup()
 
-    store.set('k1', 'my-secret')
-    const raw1 = JSON.parse(fs.readFileSync(secretsPath, 'utf8'))
-    const obfValue = raw1.k1 as string
-    expect(obfValue.startsWith('obf:')).toBe(true)
-
-    // 用 obf: 值再调 set
+    // 即使 safeStorage 不可用，传入已带 obf: 前缀的值也应直通保存（不抛错、不重复加密）
     store.set('k2', obfValue)
 
     const raw2 = JSON.parse(fs.readFileSync(secretsPath, 'utf8'))
@@ -468,21 +485,26 @@ describe('P1-08 secrets.json schemaVersion 修正', () => {
   })
 })
 
-describe('P1-08 xorKey 丢失时 set() 重新生成', () => {
-  it('safeStorage 不可用且 xorKey 丢失时 set() 重新生成 xorKey', () => {
-    // 不写 secrets.json、不调 setup()，xorKey 不存在
-    // 覆盖 secret-store.ts 行 187-189：xorKey 丢失时重新生成
+// 审计 B-3：原「xorKey 丢失时 set() 重新生成」测试针对的降级写路径已删除。
+// 替换为验证新契约：无论 setup 与否，keychain 不可用一律拒绝保存、绝不落任何形式的 key。
+describe('P1-08/B-3 keychain 不可用时的写入拒绝', () => {
+  it('未 setup 且 keychain 不可用时 set() 抛错且不落盘任何 key', () => {
     const store = createSecretStore({
       secretsPath,
       safeStorage: createFakeSafeStorage(false),
       logger: createSpyLogger().logger
     })
-    store.set('modelApiKey', 'test-secret')
-    expect(store.has('modelApiKey')).toBe(true)
-    const raw = JSON.parse(fs.readFileSync(secretsPath, 'utf8'))
-    expect(raw.modelApiKey).toMatch(/^obf:/)
-    expect(raw.xorKey).toBeDefined()
-    expect(store.get('modelApiKey')).toBe('test-secret')
+    expect(() => store.set('modelApiKey', 'test-secret')).toThrow(
+      expect.objectContaining({ code: 'SEC_KEYSTORE_DOWNGRADE' })
+    )
+    expect(store.has('modelApiKey')).toBe(false)
+    expect(store.get('modelApiKey')).toBeNull()
+    // 未创建文件，或创建了但不含该 key（两种都可接受，关键是没有明文/obf 落盘）
+    if (fs.existsSync(secretsPath)) {
+      const raw = fs.readFileSync(secretsPath, 'utf8')
+      expect(raw).not.toContain('test-secret')
+      expect(raw).not.toContain('obf:')
+    }
   })
 })
 

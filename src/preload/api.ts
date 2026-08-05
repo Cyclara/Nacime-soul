@@ -35,6 +35,26 @@ import type {
 } from '../shared/config/types'
 import type { PublicAppError } from '../shared/errors'
 import type { DebugSnapshot } from '../shared/observability/types'
+import type {
+  DmaeHistoryRequest,
+  DmaeHistoryResponse,
+  DmaeSnapshotView,
+  GrowthProfileView,
+  GrowthTimelineEntryView,
+  GrowthTimelineRequest,
+  GrowthTrendPoint,
+  GrowthTrendRequest,
+  L0ProfileView,
+  L2MemoryDetail,
+  MemoryDeleteRequest,
+  MemoryDetailRequest,
+  MemoryListRequest,
+  MemoryListResponse,
+  MemoryOverview,
+  MemoryPinRequest,
+  MemoryRestoreRequest,
+  MemoryUpdatedEvent
+} from '../shared/memory/types'
 import { validateEventPayload } from '../shared/ipc/validators'
 
 /**
@@ -127,6 +147,9 @@ export const companionApi: CompanionApi = Object.freeze({
     createSession(): Promise<IpcResult<{ sessionId: string }>> {
       return typedInvoke('companion:chat:create-session', undefined)
     },
+    getLastSession(): Promise<IpcResult<{ sessionId: string | null }>> {
+      return typedInvoke('companion:chat:get-last-session', undefined)
+    },
     send(input: ChatSendRequest): Promise<IpcResult<ChatSendAck>> {
       return typedInvoke('companion:chat:send', input)
     },
@@ -153,6 +176,54 @@ export const companionApi: CompanionApi = Object.freeze({
     },
     openLogFolder(): Promise<IpcResult<void>> {
       return typedInvoke('companion:debug:open-log-folder', undefined)
+    }
+  },
+
+  // ── Phase 2：memory（9 invoke + onUpdated，S-003-补充 §3.6）──
+  memory: {
+    getOverview(): Promise<IpcResult<MemoryOverview>> {
+      return typedInvoke('companion:memory:get-overview', undefined)
+    },
+    getL0(): Promise<IpcResult<L0ProfileView>> {
+      return typedInvoke('companion:memory:get-l0', undefined)
+    },
+    listL2(input: MemoryListRequest): Promise<IpcResult<MemoryListResponse>> {
+      return typedInvoke('companion:memory:list-l2', input)
+    },
+    getDetail(input: MemoryDetailRequest): Promise<IpcResult<L2MemoryDetail>> {
+      return typedInvoke('companion:memory:get-detail', input)
+    },
+    setPinned(input: MemoryPinRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:memory:set-pinned', input)
+    },
+    softDelete(input: MemoryDeleteRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:memory:soft-delete', input)
+    },
+    restore(input: MemoryRestoreRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:memory:restore', input)
+    },
+    getDmaeSnapshot(): Promise<IpcResult<DmaeSnapshotView>> {
+      return typedInvoke('companion:memory:get-dmae-snapshot', undefined)
+    },
+    getDmaeHistory(input: DmaeHistoryRequest): Promise<IpcResult<DmaeHistoryResponse>> {
+      return typedInvoke('companion:memory:get-dmae-history', input)
+    },
+    onUpdated(cb: (e: MemoryUpdatedEvent) => void): Unsubscribe {
+      return typedSubscribe('companion:event:memory-updated', cb)
+    }
+  },
+
+  // ── Phase 2：growth（3 invoke，S-003-补充 §3.6）──
+  // growth 不提供订阅方法：growth store 复用 memory.onUpdated 的 hint==='growth'（S-002-补充 §3.2）
+  growth: {
+    getProfile(): Promise<IpcResult<GrowthProfileView>> {
+      return typedInvoke('companion:growth:get-profile', undefined)
+    },
+    getTimeline(input: GrowthTimelineRequest): Promise<IpcResult<GrowthTimelineEntryView[]>> {
+      return typedInvoke('companion:growth:get-timeline', input)
+    },
+    getTrend(input: GrowthTrendRequest): Promise<IpcResult<GrowthTrendPoint[]>> {
+      return typedInvoke('companion:growth:get-trend', input)
     }
   }
 })

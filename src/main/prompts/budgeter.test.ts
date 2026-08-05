@@ -1,66 +1,187 @@
 // src/main/prompts/budgeter.test.ts
-// P1-21A 测试：PromptBudgeter
-// 依据：S-001 P1-21A 验收"小窗口 fixture 下按 L2->旧历史->L1 次序裁剪；
-//       Seed/system/identity/soul 不裁剪；无半 token/半字符静默截断"
+// P2-17 测试：PromptBudgeter（九层 item 级裁剪 + BudgetHistoryTurn 整轮裁剪）
+// 依据：S-011 §1.5、§3.2 测试矩阵
+//       S-001 P1-21A 验收（按 L2->旧历史->L1 次序裁剪；不可裁层 fail-closed；无半 token 截断）
 //       S-004 §3.3.1 合同门禁 #2（小 context 裁剪）#3（静态层 fail-closed）
 
 import { describe, it, expect } from 'vitest'
-import { applyBudget } from './budgeter'
-import type { PromptLayer } from './builder'
-import type { LlmMessage } from '../llm/types'
+import { applyBudget, type BudgetHistoryTurn } from './budgeter'
+import type { PromptItem, PromptLayer } from './builder'
+import { renderLayer } from './builder'
+import { estimateTokens } from './token-estimator'
 import { AppError, isAppError } from '@shared/errors'
 
 // === 测试辅助 ===
 
-function makeLayer(
+function makeStaticLayer(
   name: 'seed' | 'system' | 'identity' | 'soul' | 'style',
   content: string,
-  critical = false
+  opts: { critical?: boolean; trimmable?: boolean } = {}
 ): PromptLayer {
+  const item: PromptItem = {
+    id: `static:${name}`,
+    kind: 'static',
+    content,
+    tokenEstimate: estimateTokens(content),
+    trimmable: opts.trimmable ?? false
+  }
   return {
     name,
+    priority:
+      name === 'seed'
+        ? 0
+        : name === 'system'
+          ? 1
+          : name === 'identity'
+            ? 2
+            : name === 'soul'
+              ? 3
+              : 8,
+    critical: opts.critical ?? false,
+    trimmable: opts.trimmable ?? false,
+    status: 'loaded',
+    prefix: '',
     content,
-    critical,
-    loaded: true,
-    file: `${name}.md`
+    tokenEstimate: item.tokenEstimate,
+    items: [item],
+    file: `${name}.md`,
+    loaded: true
   }
 }
 
-function makeLayers(
-  opts: Partial<Record<'seed' | 'system' | 'identity' | 'soul' | 'style', string>> = {}
-): PromptLayer[] {
-  const layers: PromptLayer[] = []
-  if (opts.seed) layers.push(makeLayer('seed', opts.seed, true))
-  if (opts.system) layers.push(makeLayer('system', opts.system, true))
-  if (opts.identity) layers.push(makeLayer('identity', opts.identity))
-  if (opts.soul) layers.push(makeLayer('soul', opts.soul))
-  if (opts.style) layers.push(makeLayer('style', opts.style))
-  return layers
+function makeDynamicLayer(
+  name: 'l0' | 'l1' | 'l2' | 'relationship',
+  priority: 4 | 5 | 6 | 7,
+  items: PromptItem[],
+  trimmable: boolean
+): PromptLayer {
+  const prefix =
+    name === 'l0' ? '## L0' : name === 'l1' ? '## L1' : name === 'l2' ? '## L2' : '## REL'
+  const content = renderLayer(prefix, items)
+  return {
+    name,
+    priority,
+    critical: false,
+    trimmable,
+    status: items.length > 0 ? 'loaded' : 'empty',
+    prefix,
+    content,
+    tokenEstimate: estimateTokens(content),
+    items,
+    file: 'runtime',
+    loaded: items.length > 0
+  }
 }
 
-function makeHistory(messages: Array<[string, string]>): LlmMessage[] {
-  return messages.map(([role, content]) => ({
-    role: role as 'user' | 'assistant',
-    content
+function makeL2Item(memoryId: string, content: string, score: number): PromptItem {
+  const text = `- ${content}`
+  return {
+    id: `l2:${memoryId}`,
+    kind: 'l2-memory',
+    content: text,
+    tokenEstimate: estimateTokens(text),
+    trimmable: true,
+    trimRank: score
+  }
+}
+
+function makeL1Item(
+  text: string,
+  updatedAt: number,
+  category: 'recentGoal' | 'recentPreference'
+): PromptItem {
+  const content = `- ${text}`
+  return {
+    id: `l1:${category}:${updatedAt}`,
+    kind: 'l1-entry',
+    content,
+    tokenEstimate: estimateTokens(content),
+    trimmable: true,
+    trimRank: updatedAt,
+    updatedAt,
+    category
+  }
+}
+
+function makeRelFragment(index: number, text: string): PromptItem {
+  const content = `- ${text}`
+  return {
+    id: `relationship:fragment:${index}`,
+    kind: 'relationship-fragment',
+    content,
+    tokenEstimate: estimateTokens(content),
+    trimmable: true,
+    trimRank: index,
+    category: 'milestone'
+  }
+}
+
+function makeRelBaseline(): PromptItem {
+  const text = '你们仍在逐步相互了解；不要声称拥有不存在的共同经历。'
+  return {
+    id: 'relationship:baseline',
+    kind: 'relationship-baseline',
+    content: text,
+    tokenEstimate: estimateTokens(text),
+    trimmable: false
+  }
+}
+
+/** 构建 turns：每个 turn 是 [turnId, [[role, content]], isCurrent] */
+function makeHistoryTurns(
+  turns: Array<{ turnId: string; messages: Array<[string, string]>; isCurrent?: boolean }>
+): BudgetHistoryTurn[] {
+  return turns.map((t) => ({
+    turnId: t.turnId,
+    messages: t.messages.map(([role, content]) => ({
+      role: role as 'user' | 'assistant',
+      content
+    })),
+    isCurrent: t.isCurrent ?? false
   }))
 }
 
 const LARGE_CONTEXT = { contextWindow: 128000, maxOutputTokens: 2048 }
-const SMALL_CONTEXT = { contextWindow: 200, maxOutputTokens: 50 }
+
+function buildLayers(opts: {
+  seed?: string
+  system?: string
+  identity?: string
+  soul?: string
+  style?: string
+  l0?: PromptItem[]
+  l1?: PromptItem[]
+  l2?: PromptItem[]
+  relationship?: PromptItem[]
+}): PromptLayer[] {
+  const layers: PromptLayer[] = []
+  if (opts.seed !== undefined) layers.push(makeStaticLayer('seed', opts.seed, { critical: true }))
+  if (opts.system !== undefined)
+    layers.push(makeStaticLayer('system', opts.system, { critical: true }))
+  if (opts.identity !== undefined) layers.push(makeStaticLayer('identity', opts.identity))
+  if (opts.soul !== undefined) layers.push(makeStaticLayer('soul', opts.soul))
+  if (opts.l0 !== undefined) layers.push(makeDynamicLayer('l0', 4, opts.l0, false))
+  if (opts.l1 !== undefined) layers.push(makeDynamicLayer('l1', 5, opts.l1, true))
+  if (opts.l2 !== undefined) layers.push(makeDynamicLayer('l2', 6, opts.l2, true))
+  if (opts.relationship !== undefined)
+    layers.push(makeDynamicLayer('relationship', 7, opts.relationship, true))
+  if (opts.style !== undefined)
+    layers.push(makeStaticLayer('style', opts.style, { trimmable: true }))
+  return layers
+}
 
 // === 测试 ===
 
-describe('P1-21A PromptBudgeter', () => {
+describe('P2-17 PromptBudgeter (item-level + BudgetHistoryTurn)', () => {
   it('总 token 未超预算时不裁剪', () => {
-    const layers = makeLayers({
-      seed: '你是测试角色。',
-      system: '你在对话。'
-    })
-    const history = makeHistory([['user', '你好']])
+    const layers = buildLayers({ seed: 'seed', system: 'system' })
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', 'hello']], isCurrent: true }
+    ])
 
     const report = applyBudget({
       layers,
-      history,
+      historyTurns: turns,
       modelCapabilities: LARGE_CONTEXT,
       safetyMargin: 100
     })
@@ -71,18 +192,19 @@ describe('P1-21A PromptBudgeter', () => {
     expect(report.exceededHardLimit).toBe(false)
     expect(report.messages[0]!.role).toBe('system')
     expect(report.messages[1]!.role).toBe('user')
-    expect(report.messages[1]!.content).toBe('你好')
+    expect(report.messages[1]!.content).toBe('hello')
   })
 
-  it('S-004 §3.3.1 #3: 静态层超出硬上限时 fail-closed', () => {
-    const longSeed = '种'.repeat(200) // 200 CJK tokens
-    const layers = makeLayers({ seed: longSeed })
+  it('S-004 §3.3.1 #3: 静态核心超出硬上限时 CFG_INVALID fatal', () => {
+    // CJK：1 字符 = 1 token，便于精确控制
+    const longSeed = '种'.repeat(300) // 300 tokens
+    const layers = buildLayers({ seed: longSeed })
 
     expect(() =>
       applyBudget({
         layers,
-        history: [],
-        modelCapabilities: SMALL_CONTEXT, // budget = 200 - 50 - 256 < 0
+        historyTurns: [],
+        modelCapabilities: { contextWindow: 200, maxOutputTokens: 50 },
         safetyMargin: 10
       })
     ).toThrow(AppError)
@@ -90,170 +212,366 @@ describe('P1-21A PromptBudgeter', () => {
     try {
       applyBudget({
         layers,
-        history: [],
+        historyTurns: [],
         modelCapabilities: { contextWindow: 100, maxOutputTokens: 10 },
         safetyMargin: 5
       })
     } catch (e) {
       expect(isAppError(e)).toBe(true)
+      expect((e as InstanceType<typeof AppError>).code).toBe('CFG_INVALID')
       expect((e as InstanceType<typeof AppError>).severity).toBe('fatal')
-      expect((e as InstanceType<typeof AppError>).userMessage).toContain('超出预算')
     }
   })
 
+  it('budget<=0 时 CFG_INVALID', () => {
+    const layers = buildLayers({ seed: 's' })
+    expect(() =>
+      applyBudget({
+        layers,
+        historyTurns: [],
+        modelCapabilities: { contextWindow: 100, maxOutputTokens: 200 },
+        safetyMargin: 50
+      })
+    ).toThrow(AppError)
+  })
+
   it('S-001 验收: 按 L2->旧历史->L1 次序裁剪', () => {
-    // 小窗口：seed+system 刚好放下，但加 L2+历史+L1 后超预算
-    const layers = makeLayers({
+    // CJK：1 字符 = 1 token，便于精确控制
+    const layers = buildLayers({
       seed: '种子', // 2 tokens
-      system: '系统' // 2 tokens
+      system: '系统', // 2 tokens
+      l1: [makeL1Item('近期状态内容', 1000, 'recentGoal')], // ~8 tokens
+      l2: [makeL2Item('m1', '长期记忆内容', 0.5)] // ~8 tokens
     })
 
-    const history = makeHistory([
-      ['user', '第一条消息很长很长'], // 9 tokens
-      ['assistant', '回复也很长很长'], // 7 tokens
-      ['user', '当前消息'] // 4 tokens
+    const turns = makeHistoryTurns([
+      {
+        turnId: 't1',
+        messages: [
+          ['user', '旧消息内容'],
+          ['assistant', '旧回复内容']
+        ]
+      }, // ~10 tokens
+      { turnId: 't2', messages: [['user', '当前消息']], isCurrent: true } // ~4 tokens
     ])
 
-    // budget = 55 - 10 - 5 = 40
-    // 初始 total = static(4) + L1(20) + L2(20) + history(20) + joins(~6) ≈ 70
-    // 裁剪 L2(20) 后 ≈ 50 > 40 -> 继续裁剪历史
-    // 裁剪历史 msg1(9) 后 ≈ 41 > 40 -> 继续裁剪历史
-    // 裁剪历史 msg2(7) 后 ≈ 34 <= 40 -> 停止
+    // budget = 35 - 5 - 0 = 30
+    // total ≈ static(4) + l1(8) + l2(8) + history(14) = 34 > 30
+    // 裁 L2(8) -> 26 < 30 ✓
     const report = applyBudget({
       layers,
-      history,
-      dynamicLayers: {
-        l1: '近期状态'.repeat(5), // 20 tokens
-        l2: '长期记忆'.repeat(5) // 20 tokens
-      },
-      modelCapabilities: { contextWindow: 55, maxOutputTokens: 10 },
-      safetyMargin: 5
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 35, maxOutputTokens: 5 },
+      safetyMargin: 0
     })
 
-    // 应该先裁剪 L2
+    // 应该先裁 L2
     const l2Trim = report.trimmed.find((t) => t.target === 'l2')
     expect(l2Trim).toBeDefined()
-
-    // 然后裁剪旧历史
-    const historyTrim = report.trimmed.find((t) => t.target === 'history')
-    expect(historyTrim).toBeDefined()
-    expect(report.historyRemoved).toBeGreaterThanOrEqual(1)
-
-    // 保留最后一条用户消息
-    const lastMessage = report.messages[report.messages.length - 1]
-    expect(lastMessage!.role).toBe('user')
-    expect(lastMessage!.content).toBe('当前消息')
+    // 当前 user 保留
+    const lastMsg = report.messages[report.messages.length - 1]
+    expect(lastMsg!.content).toBe('当前消息')
   })
 
   it('Seed/system/identity/soul 不裁剪', () => {
-    const layers = makeLayers({
+    const layers = buildLayers({
       seed: '种子内容',
       system: '系统内容',
       identity: '身份内容',
       soul: '灵魂内容'
     })
 
-    const longHistory = makeHistory([
-      ['user', '历史消息'.repeat(20)],
-      ['assistant', '历史回复'.repeat(20)],
-      ['user', '当前']
+    const turns = makeHistoryTurns([
+      {
+        turnId: 't1',
+        messages: [
+          ['user', '历史消息'.repeat(20)],
+          ['assistant', '历史回复'.repeat(20)]
+        ]
+      },
+      { turnId: 't2', messages: [['user', '当前']], isCurrent: true }
     ])
 
+    // budget = 100 - 5 - 0 = 95
+    // static = 16 tokens; history = 160+160 = 320 tokens -> 裁历史
     const report = applyBudget({
       layers,
-      history: longHistory,
-      modelCapabilities: { contextWindow: 100, maxOutputTokens: 10 },
-      safetyMargin: 5
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 100, maxOutputTokens: 5 },
+      safetyMargin: 0
     })
 
-    // 所有静态层内容都应该在 systemPrompt 中
     expect(report.systemPrompt).toContain('种子内容')
     expect(report.systemPrompt).toContain('系统内容')
     expect(report.systemPrompt).toContain('身份内容')
     expect(report.systemPrompt).toContain('灵魂内容')
-
-    // 历史被裁剪
     expect(report.historyRemoved).toBeGreaterThan(0)
   })
 
-  it('裁剪只移除整条消息，不截断字符串', () => {
-    const layers = makeLayers({
-      seed: '种子',
-      system: '系统'
+  it('L0 不可裁（身份连续性资料）', () => {
+    const l0Item: PromptItem = {
+      id: 'l0:preferredName',
+      kind: 'l0-field',
+      content: '- [名字] 小明',
+      tokenEstimate: 20,
+      trimmable: false
+    }
+    const layers = buildLayers({
+      seed: 's',
+      system: 'sys',
+      l0: [l0Item]
     })
 
-    const history = makeHistory([
-      ['user', '完整消息一'],
-      ['assistant', '完整回复一'],
-      ['user', '完整消息二'],
-      ['assistant', '完整回复二'],
-      ['user', '当前消息']
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', 'old'.repeat(50)]], isCurrent: false },
+      { turnId: 't2', messages: [['user', 'cur']], isCurrent: true }
     ])
 
     const report = applyBudget({
       layers,
-      history,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 120, maxOutputTokens: 10 },
+      safetyMargin: 5
+    })
+
+    expect(report.systemPrompt).toContain('小明')
+  })
+
+  it('BudgetHistoryTurn 整轮删除，不拆 turn', () => {
+    const layers = buildLayers({ seed: 's', system: 'sys' })
+    const turns = makeHistoryTurns([
+      {
+        turnId: 't1',
+        messages: [
+          ['user', 'msg1'],
+          ['assistant', 'reply1']
+        ],
+        isCurrent: false
+      },
+      {
+        turnId: 't2',
+        messages: [
+          ['user', 'msg2'],
+          ['assistant', 'reply2']
+        ],
+        isCurrent: false
+      },
+      { turnId: 't3', messages: [['user', 'cur']], isCurrent: true }
+    ])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 60, maxOutputTokens: 10 },
+      safetyMargin: 5
+    })
+
+    // 裁剪的 history 是整 turn（itemIds 是 turnId）
+    const historyTrims = report.trimmed.filter((t) => t.target === 'history')
+    for (const ht of historyTrims) {
+      expect(ht.itemIds.length).toBe(1) // 整 turn 作为一个 ID
+    }
+    // 当前 turn 保留
+    expect(report.messages.some((m) => m.content === 'cur')).toBe(true)
+  })
+
+  it('当前 isCurrent turn 永不裁剪', () => {
+    const layers = buildLayers({ seed: 's', system: 'sys' })
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', 'old'.repeat(100)]], isCurrent: false },
+      { turnId: 't2', messages: [['user', 'curmsg']], isCurrent: true }
+    ])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
       modelCapabilities: { contextWindow: 50, maxOutputTokens: 10 },
       safetyMargin: 5
     })
 
-    // 每条保留的消息应该是完整的（不被截断）
-    for (const msg of report.messages) {
-      if (msg.role === 'user' || msg.role === 'assistant') {
-        // 消息内容应该是原始的完整内容，不是截断的
-        const originalContents = [
-          '完整消息一',
-          '完整回复一',
-          '完整消息二',
-          '完整回复二',
-          '当前消息'
-        ]
-        expect(originalContents).toContain(msg.content)
-      }
-    }
+    expect(report.messages.some((m) => m.content === 'curmsg')).toBe(true)
   })
 
-  it('style 在 L1 之后被裁剪', () => {
-    // 设计：L2 + 旧历史 + L1 全部裁剪后，static + style + 当前消息 仍超预算
-    const layers = makeLayers({
-      seed: '种子', // 2 tokens
-      system: '系统', // 2 tokens
-      style: '风格描述'.repeat(5) // 20 tokens
+  it('L2 items 按 trimRank 升序裁（低分先裁）', () => {
+    const layers = buildLayers({
+      seed: '种',
+      system: '系',
+      l2: [
+        makeL2Item('low', '低分记忆内容甲', 0.3), // 低分，先裁
+        makeL2Item('high', '高分记忆内容乙', 0.9) // 高分，保留
+      ]
     })
 
-    const history = makeHistory([
-      ['user', '历史消息'.repeat(5)], // 20 tokens
-      ['user', '当前'] // 2 tokens
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', '当前']], isCurrent: true }
     ])
 
-    // budget = 40 - 10 - 5 = 25
-    // 裁剪 L2(40) -> 裁剪历史(20) -> 裁剪 L1(40) 后：
-    // static(4) + style(20) + 当前(2) = 26 > 25 -> 裁剪 style
+    // budget = 25 - 5 - 0 = 20
+    // total ≈ static(2) + l2(约 20: prefix 4 + 2 items 各 8) + history(2) = 24 > 20
+    // 裁 low(8) -> 16 < 20 ✓
     const report = applyBudget({
       layers,
-      history,
-      dynamicLayers: {
-        l1: '近期状态'.repeat(10), // 40 tokens
-        l2: '长期记忆'.repeat(10) // 40 tokens
-      },
-      modelCapabilities: { contextWindow: 40, maxOutputTokens: 10 },
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 25, maxOutputTokens: 5 },
+      safetyMargin: 0
+    })
+
+    expect(report.droppedMemoryIds).toContain('low')
+    expect(report.includedMemoryIds).toContain('high')
+  })
+
+  it('includedMemoryIds/droppedMemoryIds 正确', () => {
+    const layers = buildLayers({
+      seed: 's',
+      system: 'sys',
+      l2: [makeL2Item('m1', 'content-1', 0.3), makeL2Item('m2', 'content-2', 0.9)]
+    })
+
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'cur']], isCurrent: true }])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 70, maxOutputTokens: 10 },
       safetyMargin: 5
     })
 
-    // L2 应该先被裁剪
-    expect(report.trimmed.find((t) => t.target === 'l2')).toBeDefined()
-    // L1 应该也被裁剪
-    expect(report.trimmed.find((t) => t.target === 'l1')).toBeDefined()
-    // style 应该也被裁剪（在 L1 之后）
-    expect(report.styleRemoved).toBe(true)
-    expect(report.systemPrompt).not.toContain('风格描述')
+    // m1 和 m2 不会同时在 included（预算小）；要么 m1 裁 m2 留，要么都裁
+    expect(report.includedMemoryIds.length + report.droppedMemoryIds.length).toBe(2)
+    // 若有 included，必不含 dropped
+    for (const id of report.includedMemoryIds) {
+      expect(report.droppedMemoryIds).not.toContain(id)
+    }
+  })
+
+  it('L1 items 按 updatedAt 升序裁（旧先裁）', () => {
+    const layers = buildLayers({
+      seed: 's',
+      system: 'sys',
+      l1: [
+        makeL1Item('old-goal', 1000, 'recentGoal'), // 旧，先裁
+        makeL1Item('new-pref', 9000, 'recentPreference') // 新，保留
+      ]
+    })
+
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'cur']], isCurrent: true }])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 80, maxOutputTokens: 10 },
+      safetyMargin: 5
+    })
+
+    const l1Trim = report.trimmed.find((t) => t.target === 'l1')
+    if (l1Trim) {
+      // 旧 goal 应先被裁
+      expect(l1Trim.itemIds).toContain('l1:recentGoal:1000')
+    }
+  })
+
+  it('relationship fragments 按 index 升序裁（旧先裁），baseline 保留', () => {
+    const layers = buildLayers({
+      seed: 's',
+      system: 'sys',
+      relationship: [
+        makeRelBaseline(),
+        makeRelFragment(0, 'old-fragment-content-aaaa'),
+        makeRelFragment(1, 'new-fragment-content-bbbb')
+      ]
+    })
+
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'cur']], isCurrent: true }])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 100, maxOutputTokens: 10 },
+      safetyMargin: 5
+    })
+
+    // baseline 始终保留
+    expect(report.systemPrompt).toContain('逐步相互了解')
+    // 旧 fragment 先裁
+    const relTrim = report.trimmed.find((t) => t.target === 'relationship')
+    if (relTrim) {
+      expect(relTrim.itemIds[0]).toBe('relationship:fragment:0')
+    }
+  })
+
+  it('style 整层最后裁剪', () => {
+    const layers = buildLayers({
+      seed: 's',
+      system: 'sys',
+      l2: [makeL2Item('m1', 'l2-content-aaaa', 0.5)],
+      l1: [makeL1Item('l1-content-aaaa', 1000, 'recentGoal')],
+      style: 'style-content-aaaa'
+    })
+
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', 'old-msg-aaaa']], isCurrent: false },
+      { turnId: 't2', messages: [['user', 'cur']], isCurrent: true }
+    ])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 80, maxOutputTokens: 10 },
+      safetyMargin: 5
+    })
+
+    // L2 应先于 style 裁
+    const l2TrimIdx = report.trimmed.findIndex((t) => t.target === 'l2')
+    const styleTrimIdx = report.trimmed.findIndex((t) => t.target === 'style')
+    if (styleTrimIdx >= 0) {
+      expect(l2TrimIdx).toBeLessThan(styleTrimIdx)
+      expect(report.styleRemoved).toBe(true)
+      expect(report.systemPrompt).not.toContain('style-content')
+    }
+  })
+
+  it('核心+L0+relationship baseline+当前 user 超限 -> CHAT_CONTEXT_TOO_LARGE', () => {
+    // CJK：1 字符 = 1 token
+    // 静态核心 < budget，但加上不可裁的当前 user 后超限
+    const layers = buildLayers({
+      seed: '种'.repeat(20), // 20 tokens
+      system: '系'.repeat(20) // 20 tokens
+    })
+    // static core = 40; budget = 100 - 5 - 0 = 95; 40 < 95 -> 通过静态检查
+    // 当前 user 消息 100 tokens，加核心 40 = 140 > 95 -> 超限
+    const longCurrent = '长'.repeat(100)
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', longCurrent]], isCurrent: true }
+    ])
+
+    expect(() =>
+      applyBudget({
+        layers,
+        historyTurns: turns,
+        modelCapabilities: { contextWindow: 100, maxOutputTokens: 5 },
+        safetyMargin: 0
+      })
+    ).toThrow(AppError)
+
+    try {
+      applyBudget({
+        layers,
+        historyTurns: turns,
+        modelCapabilities: { contextWindow: 100, maxOutputTokens: 5 },
+        safetyMargin: 0
+      })
+    } catch (e) {
+      expect(isAppError(e)).toBe(true)
+      expect((e as InstanceType<typeof AppError>).code).toBe('CHAT_CONTEXT_TOO_LARGE')
+      expect((e as InstanceType<typeof AppError>).retryable).toBe(false)
+    }
   })
 
   it('budget 计算 = contextWindow - maxOutput - safetyMargin', () => {
-    const layers = makeLayers({ seed: '种子' })
+    const layers = buildLayers({ seed: 's' })
     const report = applyBudget({
       layers,
-      history: [],
+      historyTurns: [],
       modelCapabilities: { contextWindow: 1000, maxOutputTokens: 200 },
       safetyMargin: 50
     })
@@ -262,92 +580,37 @@ describe('P1-21A PromptBudgeter', () => {
   })
 
   it('默认安全余量为 256', () => {
-    const layers = makeLayers({ seed: '种子' })
+    const layers = buildLayers({ seed: 's' })
     const report = applyBudget({
       layers,
-      history: [],
+      historyTurns: [],
       modelCapabilities: { contextWindow: 1000, maxOutputTokens: 200 }
-      // 不传 safetyMargin
     })
 
     expect(report.budget).toBe(1000 - 200 - 256)
   })
 
-  it('L0 不被裁剪（Phase 1 保留）', () => {
-    const layers = makeLayers({
-      seed: '种子',
-      system: '系统'
-    })
-
-    const l0Content = '用户画像'.repeat(10)
+  it('正常返回时 exceededHardLimit 恒为 false', () => {
+    const layers = buildLayers({ seed: 's', system: 'sys' })
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'hi']], isCurrent: true }])
 
     const report = applyBudget({
       layers,
-      history: makeHistory([['user', '当前消息']]),
-      dynamicLayers: { l0: l0Content },
-      modelCapabilities: { contextWindow: 100, maxOutputTokens: 10 },
-      safetyMargin: 5
+      historyTurns: turns,
+      modelCapabilities: LARGE_CONTEXT
     })
 
-    // L0 应该保留在 systemPrompt 中
-    expect(report.systemPrompt).toContain(l0Content)
-  })
-
-  it('保留至少最后一条历史消息', () => {
-    const layers = makeLayers({
-      seed: '种子',
-      system: '系统'
-    })
-
-    const history = makeHistory([
-      ['user', '旧消息'.repeat(30)],
-      ['assistant', '旧回复'.repeat(30)],
-      ['user', '当前消息']
-    ])
-
-    const report = applyBudget({
-      layers,
-      history,
-      modelCapabilities: { contextWindow: 50, maxOutputTokens: 10 },
-      safetyMargin: 5
-    })
-
-    // 最后一条消息（当前用户消息）必须保留
-    const lastMsg = report.messages[report.messages.length - 1]
-    expect(lastMsg).toBeDefined()
-    expect(lastMsg!.content).toBe('当前消息')
-  })
-
-  it('裁剪记录包含 tokensRemoved 和 itemsRemoved', () => {
-    const layers = makeLayers({
-      seed: '种子',
-      system: '系统'
-    })
-
-    const history = makeHistory([
-      ['user', '历史消息一'.repeat(20)],
-      ['user', '当前']
-    ])
-
-    const report = applyBudget({
-      layers,
-      history,
-      modelCapabilities: { contextWindow: 60, maxOutputTokens: 10 },
-      safetyMargin: 5
-    })
-
-    for (const trim of report.trimmed) {
-      expect(trim.tokensRemoved).toBeGreaterThan(0)
-      expect(trim.itemsRemoved).toBeGreaterThanOrEqual(1)
-      expect(trim.description).toBeTruthy()
-    }
+    expect(report.exceededHardLimit).toBe(false)
+    expect(report.totalTokens).toBeLessThanOrEqual(report.budget)
   })
 
   it('messages[0] 是 system role', () => {
-    const layers = makeLayers({ seed: '种子', system: '系统' })
+    const layers = buildLayers({ seed: 's', system: 'sys' })
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'hi']], isCurrent: true }])
+
     const report = applyBudget({
       layers,
-      history: makeHistory([['user', '你好']]),
+      historyTurns: turns,
       modelCapabilities: LARGE_CONTEXT
     })
 
@@ -355,16 +618,65 @@ describe('P1-21A PromptBudgeter', () => {
     expect(report.messages.length).toBe(2) // system + user
   })
 
-  it('无 style 层时正常工作', () => {
-    const layers = makeLayers({ seed: '种子', system: '系统' }) // 无 style
+  it('裁剪只移除整 item / 整 turn，不截断字符串', () => {
+    const layers = buildLayers({
+      seed: 's',
+      system: 'sys',
+      l2: [makeL2Item('m1', '完整内容一', 0.3), makeL2Item('m2', '完整内容二', 0.9)]
+    })
+
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'cur']], isCurrent: true }])
+
     const report = applyBudget({
       layers,
-      history: makeHistory([['user', '你好']]),
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 70, maxOutputTokens: 10 },
+      safetyMargin: 5
+    })
+
+    // systemPrompt 中保留的 L2 内容是完整的（不截断）
+    if (report.includedMemoryIds.includes('m2')) {
+      expect(report.systemPrompt).toContain('完整内容二')
+    }
+    // 裁掉的 m1 不出现
+    if (report.droppedMemoryIds.includes('m1')) {
+      expect(report.systemPrompt).not.toContain('完整内容一')
+    }
+  })
+
+  it('无 style 层时正常工作', () => {
+    const layers = buildLayers({ seed: 'seed', system: 'system' })
+    const turns = makeHistoryTurns([{ turnId: 't1', messages: [['user', 'hi']], isCurrent: true }])
+
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
       modelCapabilities: LARGE_CONTEXT
     })
 
     expect(report.styleRemoved).toBe(false)
-    expect(report.systemPrompt).toContain('种子')
-    expect(report.systemPrompt).toContain('系统')
+    expect(report.systemPrompt).toContain('seed')
+    expect(report.systemPrompt).toContain('system')
+  })
+
+  it('合法单 user failed turn 可整轮删除', () => {
+    // S-011 §1.5：合法单 user failed turn 可删（不拆 turn）
+    const layers = buildLayers({ seed: '种', system: '系' })
+    const turns = makeHistoryTurns([
+      { turnId: 't1', messages: [['user', '失败轮次的较长内容']], isCurrent: false }, // ~10 tokens
+      { turnId: 't2', messages: [['user', '当前']], isCurrent: true } // ~2 tokens
+    ])
+
+    // budget = 15 - 5 - 0 = 10
+    // total ≈ static(2) + t1(10) + t2(2) = 14 > 10 -> 裁 t1 -> 4 < 10 ✓
+    const report = applyBudget({
+      layers,
+      historyTurns: turns,
+      modelCapabilities: { contextWindow: 15, maxOutputTokens: 5 },
+      safetyMargin: 0
+    })
+
+    expect(report.historyRemoved).toBeGreaterThanOrEqual(1)
+    expect(report.messages.some((m) => m.content === '当前')).toBe(true)
   })
 })

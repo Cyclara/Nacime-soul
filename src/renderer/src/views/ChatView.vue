@@ -1,15 +1,14 @@
 <script setup lang="ts">
-// P1-24/P1-24A: ChatView - 主视图
-// 依据：S-001 P1-24/P1-24A、S-002 §2（跨域流程放 orchestrator）
-// 职责：调用 bootstrapApp、根据 boot stage 和 config 状态切换 FirstRunGuide/ChatShell
-// 无业务逻辑进组件：只调用 store actions 和 orchestrator
+// P1-24/P1-24A/C-β: ChatView - 主视图
+// 依据：S-001 P1-24/P1-24A、S-002-补充-bootstrap生命周期
+// 职责：根据 App 级 boot stage 和 config 状态切换 FirstRunGuide/ChatShell
+// 无业务逻辑进组件：应用 bootstrap 由路由外常驻的 App.vue 独占
 
-import { onMounted, computed, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useAppStore } from '../stores/app'
 import { useConfigStore } from '../stores/config'
 import { useChatStore } from '../stores/chat'
-import { bootstrapApp } from '../orchestrators/bootstrap'
 import AppErrorBanner from '../components/common/AppErrorBanner.vue'
 import ChatShell from '../components/chat/ChatShell.vue'
 import FirstRunGuide from '../components/onboarding/FirstRunGuide.vue'
@@ -37,10 +36,6 @@ function onFirstRunComplete(text: string): void {
   chatStore.setDraft(text)
   void chatStore.send()
 }
-
-onMounted(() => {
-  void bootstrapApp()
-})
 </script>
 
 <template>

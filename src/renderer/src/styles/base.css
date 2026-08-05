@@ -1,31 +1,190 @@
 /* src/renderer/src/styles/base.css
- * P1-24: 基础样式 - CSS 变量、reset、布局
- * 依据：S-001 P1-24
+ * P1-24/P2-31: 基础样式 - CSS 变量、reset、布局、浅色/暗色双主题
+ * 依据：S-001 P1-24、S-006 §1.4（无障碍与视觉基线）
+ *
+ * 主题规则：
+ *   - :root 提供默认暗色（config 加载前避免闪白）
+ *   - [data-theme="dark"] 与 :root 保持一致
+ *   - [data-theme="light"] 提供浅色伙伴主题
+ *   - App.vue 在 config store 加载后设置 document.documentElement.dataset.theme
  */
 
 :root {
-  --color-bg: #1a1b26;
-  --color-bg-secondary: #24283b;
-  --color-bg-tertiary: #2f334d;
-  --color-text: #c0caf5;
-  --color-text-secondary: #9aa5ce;
-  --color-text-muted: #565f89;
-  --color-accent: #7aa2f7;
-  --color-accent-hover: #89b4fa;
+  color-scheme: dark;
+
+  /* === 背景层级 === */
+  --color-bg: #1e1f2b;
+  --color-bg-secondary: #272a3a;
+  --color-bg-tertiary: #31354a;
+  --color-surface: #2c3042;
+  --color-surface-elevated: #32374d;
+
+  /* === 文字层级 === */
+  --color-text: #d8dce8;
+  --color-text-secondary: #9aa3c2;
+  --color-text-muted: #5e6685;
+  --color-text-on-accent: #ffffff;
+
+  /* === 强调与语义色 === */
+  --color-accent: #8b9ef0;
+  --color-accent-hover: #a0b1f7;
+  --color-accent-soft: rgba(139, 158, 240, 0.15);
+  --color-accent-soft-hover: rgba(139, 158, 240, 0.22);
+  --color-error: #f08a8a;
+  --color-error-bg: rgba(240, 138, 138, 0.12);
+  --color-error-border: rgba(240, 138, 138, 0.35);
+  --color-success: #8bc48b;
+  --color-success-bg: rgba(139, 196, 139, 0.12);
+  --color-success-border: rgba(139, 196, 139, 0.35);
+  --color-warning: #e6c285;
+  --color-warning-bg: rgba(230, 194, 133, 0.12);
+  --color-warning-border: rgba(230, 194, 133, 0.35);
+  --color-info: #8bb8e6;
+
+  /* === 状态色（记忆面板）=== */
+  --color-state-active: #7fd47f;
+  --color-state-active-bg: rgba(127, 212, 127, 0.12);
+  --color-state-dormant: #e6c285;
+  --color-state-dormant-bg: rgba(230, 194, 133, 0.12);
+  --color-state-archived: #9aa3c2;
+  --color-state-archived-bg: rgba(154, 163, 194, 0.12);
+  --color-state-deleted: #f08a8a;
+  --color-state-deleted-bg: rgba(240, 138, 138, 0.12);
+
+  /* === 聊天气泡 === */
   --color-user-bubble: #2f334d;
   --color-assistant-bubble: #24283b;
-  --color-error: #f7768e;
-  --color-success: #9ece6a;
-  --color-warning: #e0af68;
-  --color-border: #2f334d;
-  --radius: 8px;
+
+  /* === 边框与分割线 === */
+  --color-border: #373c55;
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* === 阴影 === */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.22);
+  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.3);
+  --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.32);
+
+  /* === 圆角与间距 === */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  /* === 字体 === */
+  --font-size-xs: 11px;
   --font-size-sm: 13px;
   --font-size-base: 14px;
   --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #1e1f2b;
+  --color-bg-secondary: #272a3a;
+  --color-bg-tertiary: #31354a;
+  --color-surface: #2c3042;
+  --color-surface-elevated: #32374d;
+
+  --color-text: #d8dce8;
+  --color-text-secondary: #9aa3c2;
+  --color-text-muted: #5e6685;
+  --color-text-on-accent: #ffffff;
+
+  --color-accent: #8b9ef0;
+  --color-accent-hover: #a0b1f7;
+  --color-accent-soft: rgba(139, 158, 240, 0.15);
+  --color-accent-soft-hover: rgba(139, 158, 240, 0.22);
+  --color-error: #f08a8a;
+  --color-error-bg: rgba(240, 138, 138, 0.12);
+  --color-error-border: rgba(240, 138, 138, 0.35);
+  --color-success: #8bc48b;
+  --color-success-bg: rgba(139, 196, 139, 0.12);
+  --color-success-border: rgba(139, 196, 139, 0.35);
+  --color-warning: #e6c285;
+  --color-warning-bg: rgba(230, 194, 133, 0.12);
+  --color-warning-border: rgba(230, 194, 133, 0.35);
+  --color-info: #8bb8e6;
+
+  --color-state-active: #7fd47f;
+  --color-state-active-bg: rgba(127, 212, 127, 0.12);
+  --color-state-dormant: #e6c285;
+  --color-state-dormant-bg: rgba(230, 194, 133, 0.12);
+  --color-state-archived: #9aa3c2;
+  --color-state-archived-bg: rgba(154, 163, 194, 0.12);
+  --color-state-deleted: #f08a8a;
+  --color-state-deleted-bg: rgba(240, 138, 138, 0.12);
+
+  --color-user-bubble: #2f334d;
+  --color-assistant-bubble: #24283b;
+
+  --color-border: #373c55;
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.22);
+  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.3);
+  --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.32);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg: #f5f3ef;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #f0ede8;
+  --color-surface: #ebe7e0;
+  --color-surface-elevated: #ffffff;
+
+  --color-text: #3d3a36;
+  --color-text-secondary: #6e6a63;
+  --color-text-muted: #9e9a92;
+  --color-text-on-accent: #ffffff;
+
+  --color-accent: #6b7ed8;
+  --color-accent-hover: #5a6ec7;
+  --color-accent-soft: rgba(107, 126, 216, 0.12);
+  --color-accent-soft-hover: rgba(107, 126, 216, 0.18);
+  --color-error: #d65a5a;
+  --color-error-bg: rgba(214, 90, 90, 0.1);
+  --color-error-border: rgba(214, 90, 90, 0.3);
+  --color-success: #5a9a5a;
+  --color-success-bg: rgba(90, 154, 90, 0.1);
+  --color-success-border: rgba(90, 154, 90, 0.3);
+  --color-warning: #c89a3d;
+  --color-warning-bg: rgba(200, 154, 61, 0.1);
+  --color-warning-border: rgba(200, 154, 61, 0.3);
+  --color-info: #5a8ac8;
+
+  --color-state-active: #4a9a4a;
+  --color-state-active-bg: rgba(74, 154, 74, 0.1);
+  --color-state-dormant: #c89a3d;
+  --color-state-dormant-bg: rgba(200, 154, 61, 0.1);
+  --color-state-archived: #6e6a63;
+  --color-state-archived-bg: rgba(110, 106, 99, 0.1);
+  --color-state-deleted: #d65a5a;
+  --color-state-deleted-bg: rgba(214, 90, 90, 0.1);
+
+  --color-user-bubble: #e8e4dd;
+  --color-assistant-bubble: #ffffff;
+
+  --color-border: #e0dbd3;
+  --color-border-subtle: rgba(60, 50, 40, 0.05);
+
+  --shadow-sm: 0 1px 2px rgba(60, 50, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(60, 50, 40, 0.08);
+  --shadow-lg: 0 8px 28px rgba(60, 50, 40, 0.1);
+  --shadow-drawer: -4px 0 24px rgba(60, 50, 40, 0.12);
 }
 
 * {
@@ -42,6 +201,19 @@ body,
   overflow: hidden;
 }
 
+html {
+  /* 主题切换时颜色平滑过渡（尊重 reduced-motion） */
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    transition: none;
+  }
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
   font-size: var(--font-size-base);
@@ -49,6 +221,17 @@ body {
   background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   user-select: none;
+
+  /* 主题变量切换平滑（只在支持动画时生效） */
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
 }
 
 button {
@@ -56,14 +239,22 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
+  background: transparent;
+  color: inherit;
   transition:
-    background 0.15s ease,
-    opacity 0.15s ease;
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
 }
 
 button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 textarea {
@@ -82,8 +273,13 @@ a {
   text-decoration: none;
 }
 
+a:hover {
+  color: var(--color-accent-hover);
+}
+
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -97,4 +293,21 @@ a {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
+}
+
+/* 聚焦环：可见但不过于抢眼 */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

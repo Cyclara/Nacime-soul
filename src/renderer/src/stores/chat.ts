@@ -38,6 +38,8 @@ export interface ChatState {
   activeTurn: ActiveTurn | null
   lastError: PublicAppError | null
   isHydrating: boolean
+  /** C-β：send 发出到 ACK 返回的同步锁，独立于 started 后的 activeTurn。 */
+  isSending: boolean
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -47,11 +49,13 @@ export const useChatStore = defineStore('chat', () => {
     draft: '',
     activeTurn: null,
     lastError: null,
-    isHydrating: false
+    isHydrating: false,
+    isSending: false
   })
 
   const canSend = computed(
-    () => state.draft.trim().length > 0 && !state.activeTurn && !state.isHydrating
+    () =>
+      state.draft.trim().length > 0 && !state.activeTurn && !state.isHydrating && !state.isSending
   )
   const isStreaming = computed(() => state.activeTurn !== null)
   // main 已排序，禁止组件再排序（S-002 §3.2）
@@ -64,7 +68,17 @@ export const useChatStore = defineStore('chat', () => {
     try {
       if (!window.companion) return
 
-      let sid = sessionId
+      // C-β β-2 + P2-43：显式 sid > renderer 当前 sid > main 恢复最近会话 > 新建。
+      let sid = sessionId ?? state.sessionId ?? undefined
+      if (!sid) {
+        // P2-43：SQLite SessionStore 恢复。空库（全新用户）返回 null，落到新建。
+        const lastResult = await window.companion.chat.getLastSession()
+        // 查询失败不等于空库：若继续 createSession 会把持久历史静默藏到新会话后面。
+        if (!lastResult.ok) return
+        if (lastResult.data.sessionId) {
+          sid = lastResult.data.sessionId
+        }
+      }
       if (!sid) {
         const createResult = await window.companion.chat.createSession()
         if (!createResult.ok) return
@@ -94,6 +108,8 @@ export const useChatStore = defineStore('chat', () => {
   async function send(): Promise<void> {
     if (!canSend.value || !state.sessionId || !window.companion) return
 
+    // C-β：必须在第一个 await 前同步置位。activeTurn 要等 started 事件，不能覆盖 ACK 窗口。
+    state.isSending = true
     const text = state.draft
     const clientRequestId = crypto.randomUUID()
     state.draft = ''
@@ -108,23 +124,28 @@ export const useChatStore = defineStore('chat', () => {
     }
     state.messages.push(userMessage)
 
-    const result = await window.companion.chat.send({
-      sessionId: state.sessionId,
-      text,
-      clientRequestId
-    })
+    try {
+      const result = await window.companion.chat.send({
+        sessionId: state.sessionId,
+        text,
+        clientRequestId
+      })
 
-    if (!result.ok) {
-      // 发送失败：移除乐观消息，恢复草稿（S-001 P1-24A "出错后回到正确步骤且草稿保留"）
-      const idx = state.messages.findIndex((m) => m.id === clientRequestId)
-      if (idx >= 0) state.messages.splice(idx, 1)
-      state.draft = text
-      state.lastError = {
-        code: result.error.code as ErrorCode,
-        message: result.error.message,
-        severity: 'error',
-        retryable: result.error.retryable
+      if (!result.ok) {
+        // 发送失败：移除乐观消息，恢复草稿（S-001 P1-24A "出错后回到正确步骤且草稿保留"）
+        const idx = state.messages.findIndex((m) => m.id === clientRequestId)
+        if (idx >= 0) state.messages.splice(idx, 1)
+        state.draft = text
+        state.lastError = {
+          code: result.error.code as ErrorCode,
+          message: result.error.message,
+          severity: 'error',
+          retryable: result.error.retryable
+        }
       }
+    } finally {
+      // ACK 成功、业务失败或 Promise reject 都必须解锁；流式阶段由 activeTurn 接管。
+      state.isSending = false
     }
   }
 
@@ -143,10 +164,9 @@ export const useChatStore = defineStore('chat', () => {
   function applyStream(event: ChatStreamEvent): void {
     switch (event.type) {
       case 'started': {
-        // 丢弃旧 requestId 事件
-        if (state.activeTurn && state.activeTurn.requestId !== event.requestId) {
-          return
-        }
+        // C-β：started 本身也要幂等。同 requestId 的重复投递不能再加占位气泡；
+        // 不同 requestId 在当前轮结束前同样属于旧/冲突事件。
+        if (state.activeTurn) return
         state.activeTurn = {
           requestId: event.requestId,
           assistantMessageId: event.assistantMessageId,
@@ -236,11 +256,28 @@ export const useChatStore = defineStore('chat', () => {
 
   // === 事件订阅 ===
 
+  // C-β：store 实例内只允许一个 stream listener；旧 teardown 不得误拆新订阅。
+  let currentSubscription: Unsubscribe | null = null
+
   function subscribe(): Unsubscribe {
-    if (!window.companion) return () => {}
-    return window.companion.chat.onStream((event) => {
+    currentSubscription?.()
+    if (!window.companion) {
+      currentSubscription = null
+      return () => {}
+    }
+
+    const unsubscribeStream = window.companion.chat.onStream((event) => {
       applyStream(event)
     })
+    let disposed = false
+    const teardown: Unsubscribe = () => {
+      if (disposed) return
+      disposed = true
+      unsubscribeStream()
+      if (currentSubscription === teardown) currentSubscription = null
+    }
+    currentSubscription = teardown
+    return teardown
   }
 
   function reset(): void {
@@ -250,6 +287,7 @@ export const useChatStore = defineStore('chat', () => {
     state.activeTurn = null
     state.lastError = null
     state.isHydrating = false
+    state.isSending = false
   }
 
   return {

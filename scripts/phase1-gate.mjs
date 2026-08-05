@@ -159,14 +159,40 @@ scanStep('构建产物无聊天正文残留', () => {
 
 // --- 7. 日志配置无聊天正文写入通道 ---
 scanStep('日志配置不写入聊天正文', () => {
-  // 检查 scrub.ts 的 LogFields 白名单不包含 content/message 等聊天字段
-  const scrubFile = join(root, 'src', 'main', 'observability', 'scrub.ts')
-  if (!existsSync(scrubFile)) return ['scrub.ts 不存在']
-  const content = readFileSync(scrubFile, 'utf8')
+  // 检查 LogFields 类型白名单不包含 content/messages/userText 等聊天正文字段。
+  // LogFields 定义在 src/shared/observability/types.ts（不是 scrub.ts --
+  // 旧版读 scrub.ts 且加 !content.includes('scrub') 自我否定条件，因 scrub.ts
+  // 必然含 "scrub" 字样而恒绿，该检查从写下起就没生效过）。
+  const typesFile = join(root, 'src', 'shared', 'observability', 'types.ts')
+  if (!existsSync(typesFile)) return ['src/shared/observability/types.ts 不存在']
+  const content = readFileSync(typesFile, 'utf8')
   const issues = []
-  // LogFields 类型中不应有 content / messages / userText 等字段
-  if (/content\??:\s*(string|unknown)/.test(content) && !content.includes('scrub')) {
-    issues.push('scrub.ts LogFields 可能含 content 字段')
+  // 提取 LogFields 接口块。当前 LogFields 无嵌套花括号（只有 Record<> 泛型），
+  // [^}]* 足够；若未来出现内联对象类型，content?: { ... } 的开头的字段名仍会被
+  // 捕获到第一个 } 之前，检查依然有效。
+  const blockMatch = content.match(/interface\s+LogFields\s*\{([^}]*)\}/)
+  if (!blockMatch) {
+    issues.push('LogFields 接口未在 types.ts 中找到')
+    return issues
+  }
+  const block = blockMatch[1]
+  // 提取字段名：行首标识符 + 可选 ? + :（注释行以 * 开头，不会误匹配）
+  const fieldRegex = /^\s*(\w+)\s*\??:/gm
+  const fields = [...block.matchAll(fieldRegex)].map((m) => m[1])
+  // 聊天正文/记忆内容/音频字段不得作为 LogFields 的合法字段
+  const forbidden = new Set([
+    'content',
+    'messages',
+    'userText',
+    'userMessage',
+    'assistantReply',
+    'reply',
+    'response',
+    'audio'
+  ])
+  const found = fields.filter((f) => forbidden.has(f))
+  if (found.length > 0) {
+    issues.push(`LogFields 含聊天正文类禁止字段: ${found.join(', ')}`)
   }
   return issues
 })

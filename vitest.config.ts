@@ -16,6 +16,10 @@ export default defineConfig({
       provider: 'istanbul',
       all: true,
       include: ['src/**/*.ts'],
+      // 此阈值（lines 75% / branches 70%）仅覆盖纯逻辑层。
+      // 以下 exclude 的文件因 Electron 运行时依赖（app/BrowserWindow/ipcMain/session）
+      // 无法在 vitest 纯 Node 环境加载，由 E2E 测试（tests/e2e/）覆盖，不计入此阈值。
+      // 误读「75% = 全项目覆盖率」会高估实际覆盖范围。
       exclude: [
         'src/**/*.test.ts',
         'src/**/*.integration.test.ts',

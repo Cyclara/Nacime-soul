@@ -2,12 +2,13 @@
 # 依据：S-004 §3.5 CI 门禁
 #
 # 作用：每次 push 代码或提交 PR 到 main/master 分支时，
-# GitHub 云端自动跑以下检查，任一失败则显示红色 ❌ 阻止合并：
+# GitHub 云端自动跑以下检查，任一失败则显示红色 ❌ 阻止合并
+#（E2E 除外，见下方第 5 项说明）：
 #   1. Lint        - 代码风格 0 error
 #   2. Typecheck   - 类型检查 0 error
 #   3. Test+coverage - 单元/集成/对抗测试全绿 + 覆盖率达标
 #   4. Build       - electron-vite 构建通过
-#   5. E2E         - Playwright Electron 端到端测试
+#   5. E2E         - Playwright Electron 端到端测试（continue-on-error，不阻塞 PR）
 #   6. Security    - 源码无明文 API key
 
 name: CI
@@ -43,7 +44,9 @@ jobs:
 
       # === 3. Test + coverage：单元/集成/对抗测试 + 覆盖率达标 ===
       # test:coverage 跑全部 *.test.ts（含 adversarial.test.ts），
-      # 并检查 vitest.config.ts 里的 thresholds（lines 65% / branches 70%）
+      # 并检查 vitest.config.ts 里的 thresholds（lines 75% / branches 70%）。
+      # 注意：该阈值仅覆盖纯逻辑层（见 vitest.config.ts exclude 注释），
+      # UI/入口/IPC handler/preload 由 E2E 覆盖，不计入此阈值。
       - name: Test + coverage
         run: npm run test:coverage
 

@@ -88,6 +88,17 @@ export interface ConfigHandlerDeps {
   configStore: ConfigStore
   secretStore: SecretStore
   logger: Logger
+  /**
+   * 创建"测试连接"用的 fetch（P1-09B Layer 2）。
+   *
+   * 安全红线（2026-08-03 审计 B-1）：test-model 会带着 API Key 访问用户填写的
+   * 任意 baseUrl，必须与正式聊天路径（index.ts providerFactory）走同一套
+   * createSecureFetch，否则整套私网/SSRF 防护被绕过。
+   *
+   * 用工厂而非现成 fetch：每次测试都要读当前 config.security
+   * （allowHttpLocalhostInDev 等运行时可变）。
+   */
+  createTestFetch: () => typeof globalThis.fetch
 }
 
 /**
@@ -95,7 +106,7 @@ export interface ConfigHandlerDeps {
  * 在 main/index.ts 中调用，需在 configureIpcGuard 之后。
  */
 export function registerConfigHandlers(deps: ConfigHandlerDeps): void {
-  const { configStore, secretStore, logger } = deps
+  const { configStore, secretStore, logger, createTestFetch } = deps
 
   // === companion:config:get ===
   registerValidatedHandler('companion:config:get', async () => {
@@ -169,7 +180,12 @@ export function registerConfigHandlers(deps: ConfigHandlerDeps): void {
     }
 
     // 通过 createProvider 创建 provider（复用 compat 检测 + adapter）
-    const llmProvider = createProvider({ config: testConfig, apiKey: effectiveApiKey }, { logger })
+    // 必须注入 secureFetch：测试连接同样携带 API Key 访问用户填写的 baseUrl，
+    // 不注入会回退到 provider.ts 的裸 globalThis.fetch，绕过全部私网防护（审计 B-1）。
+    const llmProvider = createProvider(
+      { config: testConfig, apiKey: effectiveApiKey, fetchFn: createTestFetch() },
+      { logger }
+    )
 
     // testConnection 发送最小 ping 消息，收到首个 chunk 即判定成功
     return testConnection(llmProvider, {

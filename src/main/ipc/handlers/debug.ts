@@ -7,6 +7,8 @@ import { app, shell } from 'electron'
 import type { Logger } from '@shared/observability/types'
 import type { DebugSnapshot } from '@shared/observability/types'
 import type { ErrorBuffer } from '../../observability/error-buffer'
+import { getMetrics } from '../../observability/metrics'
+import { getTracer } from '../../observability/tracer'
 import { registerValidatedHandler } from '../register'
 
 /** Debug handler 依赖 */
@@ -35,8 +37,8 @@ export function registerDebugHandlers(deps: DebugHandlerDeps): void {
     return {
       appVersion: app.getVersion(),
       uptimeSec,
-      metrics: {}, // Phase 2+ 接入 MetricsRegistry
-      recentTraces: [], // Phase 2+ 接入 TurnTracer
+      metrics: getMetrics().snapshot(),
+      recentTraces: getTracer().snapshot(),
       recentErrors,
       logFilePath,
       circuit: null, // Phase 4 断路器状态
