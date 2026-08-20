@@ -117,6 +117,11 @@ export const CANDIDATE_ITEM_SCHEMA = {
     importance: { enum: ['low', 'medium', 'high'] },
     forbiddenOverclaims: {
       type: 'array',
+      // 2026-08-20 验收实测：模型把本字段误解为预防性「不得推断清单」而逢项必填，
+      // 触发 Judge 无条件拒绝（judge.ts step 4），3/3 候选全灭。此处描述是模型唯一
+      // 可见的语义来源（schema 会被逐字嵌进 system prompt），必须写清自报弃用语义。
+      description:
+        '自报夸大通道：仅当 content 本身超出了 evidence 支持范围时，才把不被支持的夸大点列在这里；列出任意一项即视为该候选不合格，将被直接丢弃。content 完全忠于 evidence 时必须输出空数组 []；禁止把本字段当作预防性的「不得推断清单」填写。',
       maxItems: 8,
       items: { type: 'string', minLength: 1, maxLength: 32 }
     }

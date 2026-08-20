@@ -21,6 +21,7 @@ import { AppError } from '@shared/errors'
 import type { CompatFlags, LLMProvider, LlmMessage, LlmRequest, LlmStreamChunk } from '../types'
 import { mapHttpError, mapFetchError } from '../errors'
 import { parseSseStream } from '../stream'
+import { buildThinkingWireParams } from '../compat/thinking-wire'
 
 /** OpenAI Chat Completions 流式 chunk 的 wire 格式（vendor 类型，仅本文件内部使用） */
 interface OpenAIStreamChunk {
@@ -301,47 +302,22 @@ export class OpenAICompatibleProvider implements LLMProvider {
       stream_options: { include_usage: true }
     }
 
-    // 思考模式参数（依据 thinkingFormat）：
+    // 思考模式参数（与记忆提取共用 buildThinkingWireParams，映射唯一出处）：
     //   reasoningEffort='off' → 显式关闭（DeepSeek V4 默认 enabled，不发参数≠关闭）
-    //   reasoningEffort!='off' → 显式开启
-    // 来源：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode（2026-07-15 实测）
+    //   reasoningEffort!='off' → 显式开启 + V-02② 档位映射（low→low、medium→high、high→max）
+    // 来源：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode（2026-07-15 实测 / 2026-08-20 查证）
     // thinkingFormat='none' 时厂商不支持思考模式，两种情况都不发参数。
     const wantThinking = this.config.reasoningEffort !== 'off'
-    switch (this.compat.thinkingFormat) {
-      case 'thinking_type': {
-        // DeepSeek V4 风格：{"thinking":{"type":"enabled/disabled"}}
-        body['thinking'] = { type: wantThinking ? 'enabled' : 'disabled' }
-        // V-02②：思考力度映射——此前 low/medium/high 一律只发 enabled，
-        // 端点按默认 high 跑，用户选择被静默忽略（2026-08-20 对照官方文档发现）。
-        // 官方档位为 low/high/max（无 medium），映射：low→low、medium→high、high→max。
-        // 仅在开启时发送；关闭时 thinking.type=disabled 已足够。
-        // 来源：https://api-docs.deepseek.com/guides/thinking_mode（2026-08-20 查证）
-        if (wantThinking) {
-          const effortMap: Record<Exclude<ReasoningEffort, 'off'>, string> = {
-            low: 'low',
-            medium: 'high',
-            high: 'max'
-          }
-          body['reasoning_effort'] =
-            effortMap[this.config.reasoningEffort as Exclude<ReasoningEffort, 'off'>]
-        }
-        break
-      }
-      case 'enable_thinking':
-        // DashScope 风格：{"enable_thinking": true/false}
-        body['enable_thinking'] = wantThinking
-        break
-      case 'reasoning_split':
-        // MiniMax 风格：只有开启时发参数（无显式关闭格式）
-        if (wantThinking) {
-          body['reasoning_split'] = true
-        }
-        break
-      case 'none':
-      default:
-        // 厂商不支持思考模式（Moonshot 等），不发参数
-        break
-    }
+    Object.assign(
+      body,
+      buildThinkingWireParams(
+        this.compat.thinkingFormat,
+        wantThinking,
+        wantThinking
+          ? (this.config.reasoningEffort as Exclude<ReasoningEffort, 'off'>)
+          : undefined
+      )
+    )
 
     return body
   }

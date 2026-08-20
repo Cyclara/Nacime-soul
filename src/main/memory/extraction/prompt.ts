@@ -20,6 +20,7 @@ export const EXTRACTION_SYSTEM_PROMPT = `你是保守的记忆候选提取器，
 L0 只描述对话伙伴本人且必须来自伙伴第一人称/自我指称的明确陈述；角色身份、assistant 自述和"你叫……"不得进 L0。
 候选 content 使用自然、尊重的第三人称“伙伴”指代对话伙伴；不得输出“用户喜欢……/用户是……”这类冷硬措辞。面向界面时会再转换为“你”。
 每条 evidence.quote 必须逐字复制自给定 user message；不得改写。
+forbiddenOverclaims 是"自报夸大"通道：仅在 content 本身超出 evidence 支持范围时列出超出点（列出即丢弃该候选）；content 忠于 evidence 时必须留空 []，不得作为预防性的"不得推断清单"填写。
 只输出符合 memory-candidates-v1 schema 的单个 JSON 对象；无候选时输出 {"schemaVersion":1,"candidates":[]}；不要 markdown 或解释。
 
 JSON Schema：

@@ -151,7 +151,13 @@ export function createMemoryDispatcher(deps: MemoryDispatcherDeps): MemoryDispat
         accepted,
         downgraded,
         rejected,
-        written: writtenMemoryIds.length
+        written: writtenMemoryIds.length,
+        // F5-011 白名单允许 reason code 计数；metrics 值只允许 number/boolean，
+        // 故展平为 reason_<CODE> 前缀键。2026-08-20 事件：FORBIDDEN_OVERCLAIM
+        // 三连拒在日志里只有 rejected=3，不带 reason 时无法与「模型零候选」区分
+        ...Object.fromEntries(
+          Object.entries(reasonCounts).map(([code, n]) => [`reason_${code}`, n])
+        )
       }
     })
 

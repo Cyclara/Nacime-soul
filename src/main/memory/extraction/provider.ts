@@ -16,6 +16,8 @@
 import { AppError } from '@shared/errors'
 import type { Logger } from '@shared/observability/types'
 import type { LlmMessage } from '../../llm/types'
+import type { CompatFlags } from '../../llm/types'
+import { buildThinkingWireParams } from '../../llm/compat/thinking-wire'
 import { mapFetchError, mapHttpError } from '../../llm/errors'
 import { CANDIDATE_ENVELOPE_SCHEMA } from './candidate'
 
@@ -115,6 +117,14 @@ export interface OpenAIExtractionConfig {
   maxOutputTokens?: number
   /** 默认 30_000 */
   timeoutMs?: number
+  /**
+   * 厂商思考参数格式（resolveCompat 解析结果）；缺省 'none'（不发思考参数）。
+   * 2026-08-20 验收实测：thinking-capable 厂商（DeepSeek V4）服务端默认 thinking=enabled，
+   * 不发参数≠关闭——reasoning token 计入 max_tokens，sync_turn 的 400 预算被推理烧光，
+   * content='' → 每轮提取静默 0 候选（加大预算到 2048 同样被吃光）。
+   * 提取是 temperature=0 的机械 JSON 任务，思考纯浪费，故一律显式关闭。
+   */
+  thinkingFormat?: CompatFlags['thinkingFormat']
 }
 
 export interface OpenAIExtractionDeps {
@@ -162,7 +172,10 @@ export function createOpenAIExtractionProvider(
         messages: request.messages,
         temperature: 0,
         max_tokens: request.maxOutputTokens,
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_object' },
+        // 提取一律显式关思考（见 OpenAIExtractionConfig.thinkingFormat 注释）；
+        // 与聊天路径共用 buildThinkingWireParams，厂商映射唯一出处
+        ...buildThinkingWireParams(cfg.thinkingFormat ?? 'none', false)
       }
       const res = await fetchFn(url, {
         method: 'POST',

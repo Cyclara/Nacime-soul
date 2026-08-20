@@ -54,6 +54,7 @@ import {
   hasCorrectionIntent
 } from './conflict/resolver'
 import { createSecureFetch } from '../security/network-policy'
+import { resolveCompat } from '../llm/compat/detect-compat'
 import {
   createPromptContextAssembler,
   type PromptContextAssembler
@@ -375,7 +376,14 @@ export async function setupMemoryInfrastructure(
           provider: configStore.get().model.provider,
           model: configStore.get().model.model, // extraction 用 chat model（不是 embedding model）
           baseUrl: configStore.get().model.baseUrl, // 复用 model 域 baseUrl
-          apiKey
+          apiKey,
+          // 与聊天同款 compat 解析：提取必须显式关思考（DeepSeek V4 默认 enabled，
+          // 不发参数≠关闭，否则 reasoning 烧光 max_tokens，每轮静默 0 候选——2026-08-20 实测）
+          thinkingFormat: resolveCompat(
+            configStore.get().model.provider,
+            configStore.get().model.baseUrl,
+            configStore.get().model.compatOverrides
+          ).thinkingFormat
         },
         { logger: memLogger, fetchFn: secureFetch }
       )
