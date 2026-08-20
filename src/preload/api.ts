@@ -60,9 +60,12 @@ import type {
   MemoryRestoreRequest,
   MemoryUpdatedEvent
 } from '../shared/memory/types'
-import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../main/memory/dmae/diagnostics'
-import type { DmaeDailyAggregate } from '../main/memory/dmae/history-types'
-import type { DmaeBenchmarkReport } from '../main/memory/dmae/benchmark-types'
+import type {
+  DmaeBenchmarkReport,
+  DmaeDailyAggregate,
+  DmaePanelSnapshot,
+  DmaeTurnExplanation
+} from '../shared/memory/dmae-types'
 import { validateEventPayload } from '../shared/ipc/validators'
 
 /**

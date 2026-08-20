@@ -4,7 +4,7 @@
 // ⚠ 文案必须写"有资格进入"，不写"上一轮用了"（F5-002 §5 红线）。
 
 import { computed } from 'vue'
-import type { DmaeActiveSetEntry } from '../../../../main/memory/dmae/diagnostics'
+import type { DmaeActiveSetEntry } from '@shared/memory/dmae-types'
 import type { DensityMode } from '../../stores/dmae'
 
 const props = defineProps<{

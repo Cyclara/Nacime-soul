@@ -21,9 +21,12 @@ import type {
   ChatStreamEvent
 } from '../chat/types'
 import type { DebugSnapshot } from '../observability/types'
-import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../../main/memory/dmae/diagnostics'
-import type { DmaeDailyAggregate } from '../../main/memory/dmae/history-types'
-import type { DmaeBenchmarkReport } from '../../main/memory/dmae/benchmark-types'
+import type {
+  DmaeBenchmarkReport,
+  DmaeDailyAggregate,
+  DmaePanelSnapshot,
+  DmaeTurnExplanation
+} from '../memory/dmae-types'
 import type {
   DmaeBenchmarkRequest,
   DmaeHistoryRequest,

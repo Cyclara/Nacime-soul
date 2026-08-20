@@ -12,9 +12,12 @@
 import { reactive, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { IpcError, PublicAppError } from '@shared/errors'
-import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../../../main/memory/dmae/diagnostics'
-import type { DmaeDailyAggregate } from '../../../main/memory/dmae/history-types'
-import type { DmaeBenchmarkReport } from '../../../main/memory/dmae/benchmark-types'
+import type {
+  DmaeBenchmarkReport,
+  DmaeDailyAggregate,
+  DmaePanelSnapshot,
+  DmaeTurnExplanation
+} from '@shared/memory/dmae-types'
 import type { DmaeBenchmarkRequest, DmaeQualitativeRequest } from '@shared/memory/types'
 
 /** IpcError -> PublicAppError */

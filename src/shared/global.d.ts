@@ -45,9 +45,12 @@ import type {
   MemoryRestoreRequest,
   MemoryUpdatedEvent
 } from './memory/types'
-import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../main/memory/dmae/diagnostics'
-import type { DmaeDailyAggregate } from '../main/memory/dmae/history-types'
-import type { DmaeBenchmarkReport } from '../main/memory/dmae/benchmark-types'
+import type {
+  DmaeBenchmarkReport,
+  DmaeDailyAggregate,
+  DmaePanelSnapshot,
+  DmaeTurnExplanation
+} from './memory/dmae-types'
 
 /** preload 暴露的 typed API。依据 S-003 §3.7、S-003-补充 §3.6 */
 export interface CompanionApi {

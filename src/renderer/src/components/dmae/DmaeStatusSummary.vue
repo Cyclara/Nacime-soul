@@ -4,7 +4,7 @@
 // 验收②：总览必须同时显示 eligibleActive 与 selection.lastPromptSelectedCount，文案不混。
 
 import { computed } from 'vue'
-import type { DmaePanelSnapshot } from '../../../../main/memory/dmae/diagnostics'
+import type { DmaePanelSnapshot } from '@shared/memory/dmae-types'
 import type { DensityMode } from '../../stores/dmae'
 
 const props = defineProps<{

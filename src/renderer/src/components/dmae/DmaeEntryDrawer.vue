@@ -6,7 +6,7 @@
 //       修复旧实现 Esc 挂 panel 上、焦点在背景时 Esc 失效的问题。
 
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
-import type { DmaeTurnExplanation } from '../../../../main/memory/dmae/diagnostics'
+import type { DmaeTurnExplanation } from '@shared/memory/dmae-types'
 import type { DensityMode } from '../../stores/dmae'
 
 const props = defineProps<{

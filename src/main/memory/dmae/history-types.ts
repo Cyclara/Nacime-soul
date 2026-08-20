@@ -7,20 +7,9 @@
 
 import type { DmaeState } from './formulas'
 import type { AnomalyRuleId, UserDmaePreset } from '@shared/memory/dmae-config'
-
-// === DmaeParams（用于 annotation 的 before/after）===
-
-/** DMAE 参数快照（annotation 用，全 8 字段） */
-export interface DmaeParamsSnapshot {
-  maxScore: number
-  promptThreshold: number
-  userRewardBase: number
-  wakeGamma: number
-  modelRewardBase: number
-  wakeLambda: number
-  decayAlpha: number
-  decayBeta: number
-}
+// M-20：DmaeParamsSnapshot / DmaeDailyAggregate 已下沉 shared/memory/dmae-types（跨 IPC），
+// 本文件内部使用走此 import；外部既有导入由文件末尾的 re-export 兼容。
+import type { DmaeParamsSnapshot } from '@shared/memory/dmae-types'
 
 // === 1. 逐条采样点（dmae_samples）===
 
@@ -101,30 +90,7 @@ export interface DmaeTurnRecord {
 }
 
 // === 3. 每日聚合（dmae_daily）===
-
-/** 每日聚合。趋势图数据源；永久保留。 */
-export interface DmaeDailyAggregate {
-  date: string // 'YYYY-MM-DD' 本地时区
-  turns: number
-  eligibleActive: number
-  dormant: number
-  archived: number
-  l2Total: number
-  avgPromptSelected: number
-  medianPromptSelected: number
-  /** 当天 promptSelected === maxActive 的轮数 */
-  saturatedTurns: number
-  medianRetrievalHits: number
-  avgActivation: number
-  medianActivation: number
-  /** 当天新增 Archived 的条目数 */
-  archivedTransitions: number
-  floorRevivals: number
-  trueFloorRevivals: number
-  /** 当天 Σ(effective)/Σ(raw)，分母为 0 时 null */
-  modelRewardYield: number | null
-  paramsHash: string
-}
+// DmaeDailyAggregate 已下沉 shared/memory/dmae-types（M-20），见文件末尾 re-export。
 
 // === 4. 调参事件标注（dmae_annotations）===
 
@@ -205,3 +171,5 @@ export function snapshotFromDmaeConfig(dmae: {
 
 // === re-export for type compatibility ===
 export type { AnomalyRuleId, UserDmaePreset }
+// M-20：下沉 shared/memory/dmae-types 的 DTO，此处 re-export 兼容既有导入
+export type { DmaeParamsSnapshot, DmaeDailyAggregate } from '@shared/memory/dmae-types'

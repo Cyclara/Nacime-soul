@@ -201,8 +201,17 @@ describe('V-03a：流式中段关闭 sessionDb（模拟 before-quit）的写盘�
     // 模拟 before-quit（index.ts:500 sessionDb.close()）
     t.db.close()
 
-    // 给流留出收尾时间（终态事件到达或超时）
-    await Promise.race([collector.done, new Promise((r) => setTimeout(r, 1500))])
+    // 等终态事件到达。不用定长 race：修复后终态事件必达，waitFor 到达即返回；
+    // 满负载套件下 125×5ms 的流可能显著膨胀，给足 10s 预算避免负载抖动
+    await vi.waitFor(
+      () =>
+        expect(
+          collector.events.some(
+            (e) => e.type === 'completed' || e.type === 'failed' || e.type === 'cancelled'
+          )
+        ).toBe(true),
+      { timeout: 10000, interval: 50 }
+    )
 
     const types = collector.events.map((e) => e.type)
     // 修复后：provider 流正常产出完毕，completion 写盘撞已关闭 DB 抛 SqliteError → 外层 catch；

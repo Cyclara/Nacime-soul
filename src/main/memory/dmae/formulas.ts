@@ -18,6 +18,7 @@
 // 本模块 100% branch 覆盖（S-004 §3.3 红线）。公式对错 = 记忆行为对错，错一个分支是数据级事故。
 
 import type { MemoryConfig } from '@shared/config/types'
+import type { DmaeState } from '@shared/memory/dmae-types'
 
 /** DMAE 可调参数（从 config.memory.dmae 读取）。字段名与 Cyrene-Agent DmaeParams 对齐 */
 export interface DmaeParams {
@@ -39,8 +40,8 @@ export interface DmaeParams {
   decayBeta: number
 }
 
-/** DMAE 三态（与 L2Memory.lifecycleState 的 active/dormant/archived 对应） */
-export type DmaeState = 'Active' | 'Dormant' | 'Archived'
+/** DMAE 三态：M-20 已下沉 shared/memory/dmae-types（跨 IPC），此处 re-export 兼容既有导入 */
+export type { DmaeState } from '@shared/memory/dmae-types'
 
 /** importance≥10 硬豁免阈值（S-Phase2 P2-22）。seed 关联条目永不衰减 */
 export const IMPORTANCE_EXEMPT_THRESHOLD = 10

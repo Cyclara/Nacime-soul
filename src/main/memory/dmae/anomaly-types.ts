@@ -6,95 +6,26 @@
 //   1. 本文件只放类型与公共形状；规则实现（AnomalyRule 函数）在 P2-33 的 rules.ts
 //   2. AnomalyRuleId 从 shared/memory/dmae-config re-export（单一真源，不重复定义）
 //   3. DmaeAnomaly 是面板渲染与"忽略"状态的统一结构
+//
+// M-20：AnomalySeverity / DmaeAnomaly / TunableParam / DmaeParamChange / DmaeAdvice
+// 已下沉 shared/memory/dmae-types（跨 IPC），此处 re-export 兼容既有导入。
+// AnomalyContext / AnomalyRule 是规则引擎内部类型（不跨 IPC），留在本文件。
 
 import type { AnomalyRuleId } from '@shared/memory/dmae-config'
 import type { DmaeState } from './formulas'
 import type { DmaeParamsSnapshot } from './history-types'
+import type { DmaeAnomaly } from '@shared/memory/dmae-types'
 
 // re-export（F5-002 §3.5：AnomalyRuleId 唯一真源在 shared/memory/dmae-config）
 export type { AnomalyRuleId }
-
-// === 严重级别 ===
-
-/** 严重级别。critical 在面板顶部红色常驻；warning 黄色可折叠；info 仅工程档可见 */
-export type AnomalySeverity = 'critical' | 'warning' | 'info'
-
-// === 异常告警 ===
-
-/**
- * 一条检出的异常。面板渲染与"忽略"状态都基于此结构。
- * 依据 F5-002 §3.3。
- */
-export interface DmaeAnomaly {
-  ruleId: AnomalyRuleId
-  severity: AnomalySeverity
-  /** 叙事档标题（她的语言） */
-  title: string
-  /** 叙事档正文，已填入实际数值 */
-  narrative: string
-  /** 工程档单行摘要 */
-  technical: string
-  /** 支撑证据。面板 [看看为什么] 展开 */
-  evidence: {
-    /** 最多 20 条（面板只展示前 20，避免 15k 条列表） */
-    memoryIds: string[]
-    /** 规则相关的关键数值，键名由规则自定义 */
-    metrics: Record<string, number>
-    /** 采样窗口 */
-    windowTurns: number
-    windowDays: number
-  }
-  /** 关联的调参建议（F5-002 §3.4）。null = 此异常无参数解法 */
-  advice: DmaeAdvice | null
-  /** 检出时间 */
-  detectedAt: number
-}
-
-// === 调参建议 ===
-
-/** 可被建议修改的参数键（maxScore 是 literal 100，不可调） */
-export type TunableParam =
-  | 'promptThreshold'
-  | 'userRewardBase'
-  | 'wakeGamma'
-  | 'modelRewardBase'
-  | 'wakeLambda'
-  | 'decayAlpha'
-  | 'decayBeta'
-
-/** 一项参数变更。一条建议可以包含多项（如 R01 通常同时调 α 和 β） */
-export interface DmaeParamChange {
-  param: TunableParam
-  currentValue: number
-  /** 建议值，已按 F5-002 §3.4 的取整与范围裁剪规则处理 */
-  suggestedValue: number
-  direction: 'increase' | 'decrease'
-}
-
-/**
- * 一条调参建议。面板 [填入设置页] 按钮遍历 changes 逐项填入草稿态。
- * 依据 F5-002 §3.4。
- */
-export interface DmaeAdvice {
-  /** 产生此建议的规则 */
-  ruleId: AnomalyRuleId
-  /**
-   * 建议类型。
-   * - 'tune'    改参数，changes 非空
-   * - 'inspect' 不改参数，让用户去看别的东西（如 R04 查 importance、R08 "调了也没用"）
-   */
-  kind: 'tune' | 'inspect'
-  /** 建议的参数变更列表。必须支持多项（R01 同时调 α 和 β） */
-  changes: DmaeParamChange[]
-  /** 叙事档文案。必须包含"为什么"和"会有什么变化" */
-  narrative: string
-  /** 相互作用警告。非空时面板必须展示 */
-  interactionWarnings: string[]
-  /** 预计生效所需的观察时长 */
-  observeAfter: { turns: number; days: number }
-  /** 置信度。低置信度建议在叙事档标注"不太确定" */
-  confidence: 'high' | 'medium' | 'low'
-}
+// M-20 re-export（兼容既有导入）
+export type {
+  AnomalySeverity,
+  DmaeAnomaly,
+  TunableParam,
+  DmaeParamChange,
+  DmaeAdvice
+} from '@shared/memory/dmae-types'
 
 // === 规则运行上下文（P2-33 实现规则时用）===
 

@@ -26,102 +26,29 @@ import type { DmaeParamsSnapshot } from './history-types'
 import { snapshotFromDmaeConfig } from './history-types'
 import type { DmaeAnomaly, AnomalyContext } from './anomaly-types'
 import type { DmaeSamplePoint, DmaeDailyAggregate } from './history-types'
-import type { DmaeState } from './formulas'
 import { deriveState } from './formulas'
 import { evaluateAllRules } from './rules'
 import { runBenchmark as computeBenchmark } from './benchmark'
 import type { DmaeBenchmarkReport, DmaeQualitativeScores } from './benchmark-types'
+// M-20：面板 DTO 已下沉 shared/memory/dmae-types（跨 IPC），本文件内部使用走此 import
+import type {
+  DmaePanelSnapshot,
+  DmaeSelectionSummary,
+  DmaeActiveSetEntry,
+  DmaeStateFileHealth,
+  DmaeTurnExplanation
+} from '@shared/memory/dmae-types'
 
-// === DmaePanelSnapshot（F5-002 §3.7）===
-
-/** 面板首屏载荷 */
-export interface DmaePanelSnapshot {
-  enabled: boolean
-  params: DmaeParamsSnapshot
-  maxActive: number
-  currentTurn: number
-  /**
-   * 全库三态计数。`eligibleActive` = `activation ≥ threshold` 的条目总数。
-   * ⚠ 它不是 Prompt 占位数（F5-002 §2.1 事实 D）。占位看 `selection`。
-   */
-  counts: { eligibleActive: number; dormant: number; archived: number; l2Total: number }
-  /** 上一轮的真实占位（S-F03 裁定）。面板"用了几个位置"只能读这里。 */
-  selection: DmaeSelectionSummary
-  /**
-   * 当前**有资格进入**的集合（全局 `activation ≥ threshold` 的 top maxActive）。
-   * ⚠ 这是"够格的"，**不是**"上一轮真的进了 Prompt 的"。
-   */
-  activeSet: DmaeActiveSetEntry[]
-  /** P2-33 实现规则引擎后填充。P2-32 恒为空数组。 */
-  anomalies: DmaeAnomaly[]
-  /** P2-34 实现基准体检后填充。null = 尚未运行体检。 */
-  lastBenchmark: DmaeBenchmarkReport | null
-  /** P2-34 定性评分（Q1~Q3，人工判断）。null = 尚未记录。 */
-  lastQualitative: DmaeQualitativeScores | null
-  /** 状态文件健康度（R11 数据源） */
-  stateFile: DmaeStateFileHealth
-}
-
-/** 上一轮的选择链路（S-F03 裁定）。四个数字层层递减，面板不能只显示其中一个。 */
-export interface DmaeSelectionSummary {
-  /** 全库 activation ≥ threshold 的条目数（"有资格"） */
-  eligibleActiveCount: number
-  /** 上一轮向量检索召回并通过 hydrate 的条数 */
-  lastRetrievalHits: number
-  /** 上一轮 selectL2 实际返回的条数（"真正带进思考的"） */
-  lastPromptSelectedCount: number
-  /** 上一轮被选中的 memoryId（≤ maxActive，面板高亮用） */
-  lastPromptSelectedIds: string[]
-  /** 当时的 maxActive。注意它同时是检索 k（C-F08） */
-  maxActive: number
-}
-
-/** 有资格进入集合的单条（含内容摘要与迷你趋势） */
-export interface DmaeActiveSetEntry {
-  memoryId: string
-  /** 截断到 60 字符的内容（唯一允许带内容的字段） */
-  contentPreview: string
-  activation: number
-  importance: number
-  userSilence: number
-  /** 最近 7 个采样点的 activation，画迷你 sparkline */
-  spark: number[]
-  trend: 'rising' | 'falling' | 'stable'
-  /** importance≥10 硬豁免标记 */
-  decayExempt: boolean
-  /** 上一轮是否真的被 selectL2 选中 */
-  selectedLastTurn: boolean
-}
-
-/** 状态文件健康度（F5-002 §3.7） */
-export interface DmaeStateFileHealth {
-  path: string
-  entries: number
-  lastSaveOk: boolean
-  lastSaveAt: number | null
-  lastLoadReset: 'none' | 'invalid-json' | 'schema-mismatch'
-  saveFailures7d: number
-}
-
-// === DmaeTurnExplanation（F5-002 §3.7 工程档公式分解）===
-
-/** 单条记忆最近一轮的公式分解（工程档 entry inspector） */
-export interface DmaeTurnExplanation {
-  memoryId: string
-  turn: number
-  importance: number
-  before: { activation: number; userSilence: number; modelSilence: number; state: DmaeState }
-  userHit: boolean
-  modelHit: boolean
-  /** 每一项的公式字符串与数值，面板逐行渲染 */
-  terms: Array<{
-    name: 'Ru' | 'Rm_raw' | 'Rm_clamped' | 'Decay' | 'Floor' | 'Clamp'
-    formula: string
-    value: number
-    applied: boolean
-  }>
-  after: { activation: number; state: DmaeState }
-}
+// === DmaePanelSnapshot / DmaeTurnExplanation（F5-002 §3.7）===
+// M-20：DmaePanelSnapshot / DmaeSelectionSummary / DmaeActiveSetEntry / DmaeStateFileHealth /
+// DmaeTurnExplanation 已下沉 shared/memory/dmae-types（跨 IPC 边界），此处 re-export 兼容既有导入。
+export type {
+  DmaePanelSnapshot,
+  DmaeSelectionSummary,
+  DmaeActiveSetEntry,
+  DmaeStateFileHealth,
+  DmaeTurnExplanation
+} from '@shared/memory/dmae-types'
 
 // === DmaeDiagnosticsService 接口 ===
 

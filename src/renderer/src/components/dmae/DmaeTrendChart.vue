@@ -4,7 +4,7 @@
 // 不引入图表库（S-006 §3.1：Phase 2 用轻量 SVG 自绘，≤90 点/图）。
 
 import { computed } from 'vue'
-import type { DmaeDailyAggregate } from '../../../../main/memory/dmae/history-types'
+import type { DmaeDailyAggregate } from '@shared/memory/dmae-types'
 
 const props = defineProps<{
   data: readonly DmaeDailyAggregate[]
