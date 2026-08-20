@@ -103,6 +103,11 @@ export const useChatStore = defineStore('chat', () => {
     state.draft = value
   }
 
+  // M-18：清除发送/流式错误提示（错误条关闭按钮）
+  function clearLastError(): void {
+    state.lastError = null
+  }
+
   // === 发送/停止/重试 ===
 
   async function send(): Promise<void> {
@@ -297,6 +302,7 @@ export const useChatStore = defineStore('chat', () => {
     orderedMessages,
     hydrate,
     setDraft,
+    clearLastError,
     send,
     stop,
     retry,

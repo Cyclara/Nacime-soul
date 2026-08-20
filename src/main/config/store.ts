@@ -172,7 +172,9 @@ class ConfigStoreImpl implements ConfigStore {
     } catch (e) {
       this.backupCurrent()
       this.current = DEFAULT_CONFIG_V1
-      atomicWriteJson(this.configPath, DEFAULT_CONFIG_V1)
+      // M-16：自愈写入失败不抛给启动链（旧实现三处 healing 写入均无 try/catch，
+      // 磁盘满/被锁时 setup() 抛错 -> 应用静默无窗口）。
+      this.tryHealWrite()
       return {
         status: 'read-error',
         path: this.configPath,
@@ -193,7 +195,7 @@ class ConfigStoreImpl implements ConfigStore {
     } catch (e) {
       this.backupCurrent()
       this.current = DEFAULT_CONFIG_V1
-      atomicWriteJson(this.configPath, DEFAULT_CONFIG_V1)
+      this.tryHealWrite()
       return {
         status: 'invalid',
         path: this.configPath,
@@ -211,9 +213,23 @@ class ConfigStoreImpl implements ConfigStore {
     const merged = deepMergeWithDefaults(DEFAULT_CONFIG_V1, parsed)
     const result = v.safeParse(AppConfigSchema, merged)
     if (!result.success) {
+      // M-15（审计裁定 J-5/T-12）：schemaVersion 超前 = 数据由更高版本应用写入 ->
+      // 拒绝启动（CFG_MIGRATE_FAIL）并保留原文件，绝不静默重置为默认（会丢用户配置）。
+      const rawVersion =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>).schemaVersion
+          : undefined
+      if (typeof rawVersion === 'number' && rawVersion > DEFAULT_CONFIG_V1.schemaVersion) {
+        throw new AppError({
+          code: 'CFG_MIGRATE_FAIL',
+          userMessage: `配置文件版本（v${rawVersion}）高于当前应用支持（v${DEFAULT_CONFIG_V1.schemaVersion}），请升级应用。原文件已保留未改动。`,
+          severity: 'fatal',
+          retryable: false
+        })
+      }
       this.backupCurrent()
       this.current = DEFAULT_CONFIG_V1
-      atomicWriteJson(this.configPath, DEFAULT_CONFIG_V1)
+      this.tryHealWrite()
       return {
         status: 'invalid',
         path: this.configPath,
@@ -356,6 +372,23 @@ class ConfigStoreImpl implements ConfigStore {
     } catch (e) {
       this.logger.warn('config backup failed', {
         scope: 'config',
+        detail: e instanceof Error ? e.message : String(e)
+      })
+    }
+  }
+
+  /**
+   * 自愈写入（M-16）：healing 路径把损坏配置重置为默认值后写盘。
+   * 写失败只记日志不抛出——旧实现三处 healing 写入无 try/catch，
+   * config.json 被锁/磁盘满时 setup() 抛错会让整个启动链无窗口崩溃。
+   */
+  private tryHealWrite(): void {
+    try {
+      atomicWriteJson(this.configPath, DEFAULT_CONFIG_V1)
+    } catch (e) {
+      this.logger.error('config setup: heal write failed (config left as-is)', {
+        scope: 'config',
+        code: 'CFG_INVALID',
         detail: e instanceof Error ? e.message : String(e)
       })
     }

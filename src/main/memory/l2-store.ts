@@ -9,10 +9,20 @@ import { randomBytes } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 
 export type MemorySyncStatus = 'pending' | 'synced' | 'failed'
-export type MemoryLifecycleState = 'active' | 'dormant' | 'archived' | 'soft_deleted' | 'purged'
-export type MemoryType = 'one_off' | 'situational' | 'stable'
+// M-20：MemoryLifecycleState/MemoryType 下沉到 @shared/memory/types（消除 shared→main 反向依赖）。
+// import 供本文件使用；re-export 保持既有 `from '../l2-store'` 导入兼容。
+import type { MemoryLifecycleState, MemoryType } from '@shared/memory/types'
+export type { MemoryLifecycleState, MemoryType }
 
-/** L2 记忆完整模型（15 字段，002 迁移增加 extraction_key） */
+/**
+ * P2-37: L2 记忆来源。
+ *   - 'creator'      = seed 加载器创建（importance=10，DMAE Decay 豁免）
+ *   - 'user_explicit' = MemoryJudge 终审通过的用户明确陈述
+ *   - 'inferred'     = MemoryJudge 降级/推断
+ */
+export type MemorySource = 'creator' | 'user_explicit' | 'inferred'
+
+/** L2 记忆完整模型（16 字段，002 迁移增加 extraction_key，006 迁移增加 source） */
 export interface L2Memory {
   id: string
   evidenceIds: string[]
@@ -30,6 +40,8 @@ export interface L2Memory {
   archivedAt: number | null
   /** 跨轮/重启幂等键（S-010 §1.6）。旧数据/未设置时为 null */
   extractionKey: string | null
+  /** P2-37: 记忆来源（006 迁移增加；旧数据默认 'user_explicit'） */
+  source: MemorySource
 }
 
 export interface L2CreateInput {
@@ -46,6 +58,8 @@ export interface L2CreateInput {
   importance?: number
   /** 跨轮幂等键；缺失时为 null（旧数据兼容） */
   extractionKey?: string | null
+  /** P2-37: 记忆来源；默认 'user_explicit'（006 迁移 DEFAULT 语义一致） */
+  source?: MemorySource
 }
 
 export interface L2ListFilter {
@@ -62,8 +76,12 @@ export interface L2ListFilter {
 export type L2Event = 'l2.added'
 
 export interface L2Store {
-  /** 生成 id、插入、emit l2.added，返回完整记忆 */
-  add(input: L2CreateInput): L2Memory
+  /**
+   * 生成 id、插入、emit l2.added，返回完整记忆。
+   * @param emit 是否立即 emit（默认 true）。writer 的事务内写入传 false，
+   *   由 commit 后统一调用 emitAdded——避免事务回滚时订阅者收到幽灵事件（S-010 §1.6"commit 后才 emit"）。
+   */
+  add(input: L2CreateInput, emit?: boolean): L2Memory
   /** 事务内插入指定记忆（不 emit；供 P2-12 组合写入用） */
   insert(mem: L2Memory): void
   get(id: string): L2Memory | null
@@ -96,6 +114,7 @@ interface Row {
   importance: number
   archived_at: number | null
   extraction_key: string | null
+  source: MemorySource
 }
 
 function rowToMemory(r: Row): L2Memory {
@@ -114,7 +133,8 @@ function rowToMemory(r: Row): L2Memory {
     type: r.type,
     importance: r.importance,
     archivedAt: r.archived_at,
-    extractionKey: r.extraction_key
+    extractionKey: r.extraction_key,
+    source: r.source
   }
 }
 
@@ -148,10 +168,10 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
   const insertStmt = db.prepare(
     `INSERT INTO l2_memories
        (id, evidence_ids, source_message_ids, trigger_text, content, confidence,
-        sync_status, lifecycle_state, is_pinned, access_count, weight, type, importance, archived_at, extraction_key)
+        sync_status, lifecycle_state, is_pinned, access_count, weight, type, importance, archived_at, extraction_key, source)
      VALUES
        (@id, @evidence_ids, @source_message_ids, @trigger_text, @content, @confidence,
-        @sync_status, @lifecycle_state, @is_pinned, @access_count, @weight, @type, @importance, @archived_at, @extraction_key)`
+        @sync_status, @lifecycle_state, @is_pinned, @access_count, @weight, @type, @importance, @archived_at, @extraction_key, @source)`
   )
   const getStmt = db.prepare(`SELECT * FROM l2_memories WHERE id = ?`)
 
@@ -171,7 +191,8 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
       type: m.type,
       importance: m.importance,
       archived_at: m.archivedAt,
-      extraction_key: m.extractionKey
+      extraction_key: m.extractionKey,
+      source: m.source
     }
   }
 
@@ -215,7 +236,7 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
   }
 
   return {
-    add(input) {
+    add(input, shouldEmit = true) {
       const mem: L2Memory = {
         id: `l2_${now()}_${randomSuffix()}`,
         evidenceIds: input.evidenceIds ?? [],
@@ -231,10 +252,13 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
         type: input.type ?? 'situational',
         importance: input.importance ?? 5,
         archivedAt: null,
-        extractionKey: input.extractionKey ?? null
+        extractionKey: input.extractionKey ?? null,
+        source: input.source ?? 'user_explicit'
       }
       insert(mem)
-      emit(mem)
+      // shouldEmit=false 时由调用方（writer 事务）commit 后统一 emitAdded，
+      // 避免事务回滚时订阅者已收到指向不存在行的幽灵事件。
+      if (shouldEmit) emit(mem)
       return mem
     },
 
@@ -262,7 +286,7 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
            evidence_ids=@evidence_ids, source_message_ids=@source_message_ids, trigger_text=@trigger_text,
            content=@content, confidence=@confidence, sync_status=@sync_status, lifecycle_state=@lifecycle_state,
            is_pinned=@is_pinned, access_count=@access_count, weight=@weight, type=@type,
-           importance=@importance, archived_at=@archived_at, extraction_key=@extraction_key
+           importance=@importance, archived_at=@archived_at, extraction_key=@extraction_key, source=@source
          WHERE id=@id`
       ).run(r)
     },

@@ -298,6 +298,28 @@ describe('parseSseStream 边界条件', () => {
     expect(result).toEqual(['flush-me'])
   })
 
+  it('M-01 回归：无结尾空行 + 末字符跨 chunk 边界时不丢尾字符', async () => {
+    // 流 = "data: 你好"（无结尾 \n），且"好"的 3 个 UTF-8 字节被切到两个 chunk。
+    // 旧实现在尾 flush 把 decoder.decode() 补出的字符单独按"整行以 data: 开头"判断，
+    // 只 yield "你"、丢"好"（M-01 实测复现的 bug）。
+    const prefix = new TextEncoder().encode('data: 你')
+    const haoFull = new TextEncoder().encode('好') // E5 A5 BD
+    const chunk1 = new Uint8Array(prefix.length + 1)
+    chunk1.set(prefix, 0)
+    chunk1[prefix.length] = haoFull[0] // E5（好 的首字节）
+    const chunk2 = haoFull.subarray(1, 3) // A5 BD（好 的剩余字节）
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(chunk1)
+        c.enqueue(chunk2)
+        c.close()
+      }
+    })
+    const result = await collect(parseSseStream(new Response(stream)))
+    expect(result).toEqual(['你好'])
+  })
+
   it('跨 chunk 的行边界', async () => {
     // "data: chu" + "nk1\n\n"
     const response = mockResponse(['data: chu', 'nk1\n\n'])

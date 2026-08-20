@@ -21,10 +21,18 @@ import type {
   ChatStreamEvent
 } from '../chat/types'
 import type { DebugSnapshot } from '../observability/types'
+import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../../main/memory/dmae/diagnostics'
+import type { DmaeDailyAggregate } from '../../main/memory/dmae/history-types'
+import type { DmaeBenchmarkReport } from '../../main/memory/dmae/benchmark-types'
 import type {
+  DmaeBenchmarkRequest,
   DmaeHistoryRequest,
   DmaeHistoryResponse,
+  DmaeMuteRequest,
+  DmaeQualitativeRequest,
   DmaeSnapshotView,
+  DmaeTrendRequest,
+  DmaeExplainRequest,
   GrowthProfileView,
   GrowthTimelineEntryView,
   GrowthTimelineRequest,
@@ -91,6 +99,15 @@ export interface IpcInvokeMap {
   'companion:growth:get-profile': { req: undefined; res: GrowthProfileView }
   'companion:growth:get-timeline': { req: GrowthTimelineRequest; res: GrowthTimelineEntryView[] }
   'companion:growth:get-trend': { req: GrowthTrendRequest; res: GrowthTrendPoint[] }
+  // ── Phase 2 P2-32：DMAE 面板（F5-002 §3.7）──
+  'companion:dmae:get-panel': { req: undefined; res: DmaePanelSnapshot }
+  'companion:dmae:get-trend': { req: DmaeTrendRequest; res: readonly DmaeDailyAggregate[] }
+  'companion:dmae:explain': { req: DmaeExplainRequest; res: DmaeTurnExplanation | null }
+  // ── Phase 2 P2-34：DMAE 基准体检（F5-002 §3.6）──
+  'companion:dmae:run-benchmark': { req: DmaeBenchmarkRequest; res: DmaeBenchmarkReport }
+  'companion:dmae:record-qualitative': { req: DmaeQualitativeRequest; res: void }
+  // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道）──
+  'companion:dmae:mute-anomaly': { req: DmaeMuteRequest; res: void }
 }
 
 export interface IpcEventMap {

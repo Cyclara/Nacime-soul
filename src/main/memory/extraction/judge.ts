@@ -189,6 +189,29 @@ function evidenceHitsUserSelfReference(field: L0FieldKey, quotes: readonly strin
   return quotes.some((q) => patterns.some((p) => p.test(q)))
 }
 
+/**
+ * L1/L2 通用用户自指判定。合并 L0 全部字段的自指模式（去重），
+ * 任一命中即视为"引用含用户对自己身份的陈述"。
+ *
+ * 用途：L1/L2 的 assistant 指向检查（S-010 §1.6 step 6"对所有层"）——
+ *   引用同时含 assistant 指向词与用户自指时（如"你叫我小明"），是用户在表达
+ *   自己的名字，不是给 assistant 设身份，应放行；仅含 assistant 指向（"你叫小明"）
+ *   才是给 assistant 设身份，拒绝。与 L0 分支的 `evidenceHitsUserSelfReference`
+ *   语义对齐（J-07"叫我优先"），避免 L1/L2 用粗糙的"不含 assistant 词"误拒合法事实。
+ */
+function evidenceHitsGeneralUserSelfReference(quotes: readonly string[]): boolean {
+  return quotes.some((q) => L0_GENERAL_SELF_REFERENCE.some((p) => p.test(q)))
+}
+
+/** L0 全部字段自指模式的合并去重（evidenceHitsGeneralUserSelfReference 用） */
+const L0_GENERAL_SELF_REFERENCE: readonly RegExp[] = (() => {
+  const all = new Set<RegExp>()
+  for (const patterns of Object.values(L0_USER_SELF_REFERENCE)) {
+    for (const p of patterns) all.add(p)
+  }
+  return [...all]
+})()
+
 // === confidence 夹取（S-010 §1.6 step 8）===
 
 function clampConfidence(candidate: MemoryCandidate): number {
@@ -300,13 +323,14 @@ export function createMemoryJudge(): MemoryJudge {
         // 如果事实仍有价值且是稳定/情境信息，可降级 L2
         return downgradeToL2(candidate, ctx)
       }
-    } else if (candidate.targetLayer === 'l2') {
-      // L2 也要拦截"给 assistant 设定身份"的候选（不能绕过 L0 门改存 L2）
+    } else {
+      // L1/L2 也要拦截"给 assistant 设定身份"的候选（不能绕过 L0 门改存 L1/L2）。
+      // S-010 §1.6 step 6："先对所有层拒绝"——L1 近期状态写入"你叫X"同样污染角色自我认知。
+      // 判定只看 evidence 原文：命中 assistant 指向词（你叫/你是/以后你…）且无用户自指时拒绝。
+      // 引用同时含用户自指（"你叫我小明"命中"叫我"）= 用户在说自己的名字，放行（J-07 语义）。
       const assistantHit = evidenceHitsAssistantDirected(evidenceQuotes)
-      const anyUserSelf = candidate.evidence.some(
-        (ev) => ASSISTANT_DIRECTED_PATTERNS.every((p) => !p.test(ev.quote)) && /我/.test(ev.quote)
-      )
-      if (assistantHit && !anyUserSelf) {
+      const userSelfHit = evidenceHitsGeneralUserSelfReference(evidenceQuotes)
+      if (assistantHit && !userSelfHit) {
         return { candidateId, action: 'reject', reason: 'L0_SUBJECT_IS_ASSISTANT' }
       }
     }
@@ -414,8 +438,8 @@ export function createMemoryJudge(): MemoryJudge {
 
     // 6. L2 也要拦截"给 assistant 设定身份"
     const assistantHit = evidenceHitsAssistantDirected(evidenceQuotes)
-    const anyUserSelf = candidate.evidence.some((ev) => /我/.test(ev.quote))
-    if (assistantHit && !anyUserSelf) {
+    const userSelfHit = evidenceHitsGeneralUserSelfReference(evidenceQuotes)
+    if (assistantHit && !userSelfHit) {
       return { candidateId, action: 'reject', reason: 'L0_SUBJECT_IS_ASSISTANT' }
     }
 

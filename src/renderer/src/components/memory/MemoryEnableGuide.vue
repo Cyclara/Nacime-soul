@@ -51,109 +51,171 @@ const emit = defineEmits<{ (e: 'open-settings'): void }>()
 
 <style scoped>
 .enable-guide {
-  flex: 1;
   display: flex;
+  min-height: 0;
+  flex: 1;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-lg);
-  background: var(--color-bg);
+  overflow-y: auto;
+  padding: clamp(18px, 4vw, 48px);
+  background:
+    radial-gradient(circle at 50% 30%, var(--color-companion-soft), transparent 38%), transparent;
 }
 
 .guide-card {
-  max-width: 420px;
-  width: 100%;
-  text-align: center;
+  position: relative;
   display: flex;
+  width: min(100%, 540px);
   flex-direction: column;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-2xl) var(--spacing-xl);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
+  gap: 15px;
+  margin-block: auto;
+  padding: clamp(30px, 5vw, 52px);
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 28px;
+  background: var(--color-surface-translucent);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px rgba(255, 255, 255, 0.04);
+  text-align: center;
+  backdrop-filter: blur(20px) saturate(112%);
+}
+
+.guide-card::before {
+  position: absolute;
+  top: -88px;
+  right: -70px;
+  width: 210px;
+  height: 210px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-accent-soft), transparent 66%);
+  content: '';
+  pointer-events: none;
 }
 
 .guide-illustration {
-  width: 120px;
-  height: 120px;
+  position: relative;
+  z-index: 1;
+  width: 112px;
+  height: 112px;
+  margin-bottom: 2px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 38px 38px 38px 14px;
+  background:
+    radial-gradient(circle at 35% 30%, var(--color-companion-soft), transparent 44%),
+    var(--color-bg-tertiary);
+  box-shadow:
+    var(--shadow-md),
+    inset 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .memory-blob {
   width: 100%;
   height: 100%;
+  filter: saturate(0.75);
 }
 
 .guide-title {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
+  position: relative;
+  z-index: 1;
   color: var(--color-text);
+  font-family: var(--font-family-display);
+  font-size: clamp(24px, 3.2vw, 30px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .guide-desc {
+  position: relative;
+  z-index: 1;
+  max-width: 38ch;
   color: var(--color-text-secondary);
-  line-height: 1.7;
   font-size: var(--font-size-base);
+  line-height: 1.78;
 }
 
 .privacy-note {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-accent-soft-hover);
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-sm);
+  align-items: flex-start;
+  gap: 7px;
+  max-width: 100%;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-sage) 24%, var(--color-border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-sage) 8%, transparent);
   color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.55;
+  text-align: left;
 }
 
 .privacy-icon {
-  font-size: var(--font-size-sm);
+  filter: grayscale(1);
+  font-size: 12px;
+  opacity: 0.72;
 }
 
 .guide-actions {
+  position: relative;
+  z-index: 1;
   display: flex;
-  gap: var(--spacing-sm);
-  justify-content: center;
-  margin-top: var(--spacing-sm);
   flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.primary-btn,
+.secondary-btn {
+  min-height: 44px;
+  padding: 9px 20px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
 }
 
 .primary-btn {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius);
   background: var(--color-accent);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.22),
+    var(--shadow-sm);
   color: var(--color-text-on-accent);
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
 }
 
 .primary-btn:hover {
   background: var(--color-accent-hover);
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .secondary-btn {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius);
+  border: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
 }
 
 .secondary-btn:hover {
+  border-color: var(--color-border);
   background: var(--color-bg-tertiary);
+  color: var(--color-text);
 }
 
 @media (max-width: 480px) {
+  .enable-guide {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
   .guide-card {
-    padding: var(--spacing-xl) var(--spacing-lg);
+    padding: 28px 20px;
   }
 
   .guide-actions {
-    flex-direction: column;
     width: 100%;
+    flex-direction: column;
   }
 
   .primary-btn,

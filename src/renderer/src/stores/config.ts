@@ -22,6 +22,8 @@ import type {
   UiConfig,
   SecurityConfig
 } from '@shared/config/types'
+import type { DeepPartial } from '@shared/config/types'
+import { ANOMALY_RULE_IDS } from '@shared/memory/dmae-config'
 
 export interface ConfigState {
   saved: PublicConfigSnapshot | null
@@ -80,6 +82,55 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   /**
+   * P2-31.5A（S-005-补充 §1.8）：DMAE 嵌套草稿 merge。
+   *
+   * 现有 patch('memory', { dmae: { decayAlpha: 0.8 } }) 只做一层展开，
+   * 连续改两个参数时第二次会覆盖第一次的 dmae 对象。
+   * patchDmae 对 anomaly.muted / anomaly.windows 做正确的嵌套合并，
+   * 确保多参数草稿不丢值。
+   */
+  function patchDmae(patch: DeepPartial<MemoryConfig['dmae']>): void {
+    if (!state.draft) return
+    const current = state.draft.memory.dmae
+    // 解构排除 anomaly：anomaly 由下面的嵌套 merge 单独处理，
+    // 不能从 patch 展开（DeepPartial 类型会与完整 anomaly 类型冲突）
+    const { anomaly: patchAnomaly, ...restPatch } = patch
+
+    // restPatch 是 DeepPartial（maxScore:100 等字面量类型变 100|undefined），
+    // 展开后结果类型不满足 MemoryConfig['dmae'] 的字面量约束。
+    // IPC validator 已保证 patch 值合法，这里用类型断言收窄。
+    const nextDmae = {
+      ...current,
+      ...restPatch,
+      anomaly: patchAnomaly
+        ? {
+            muted: { ...current.anomaly.muted, ...(patchAnomaly.muted ?? {}) },
+            windows: mergeWindowPatches(current.anomaly.windows, patchAnomaly.windows)
+          }
+        : current.anomaly
+    } as MemoryConfig['dmae']
+
+    state.draft.memory = { ...state.draft.memory, dmae: nextDmae }
+  }
+
+  /** 窗口 patch 按 13 规则逐键合并，保留未改的键 */
+  function mergeWindowPatches(
+    current: MemoryConfig['dmae']['anomaly']['windows'],
+    patch?: DeepPartial<MemoryConfig['dmae']['anomaly']['windows']>
+  ): MemoryConfig['dmae']['anomaly']['windows'] {
+    if (!patch) return current
+    // 不用 structuredClone：Vue reactive proxy 不能被 structuredClone 克隆。
+    // 手动构造新对象：先浅拷贝每个规则的窗口对象，再覆盖被 patch 的规则。
+    const next = {} as MemoryConfig['dmae']['anomaly']['windows']
+    for (const ruleId of ANOMALY_RULE_IDS) {
+      const cur = current[ruleId]
+      const rp = patch[ruleId]
+      next[ruleId] = rp ? { ...cur, ...rp } : { ...cur }
+    }
+    return next
+  }
+
+  /**
    * 设置 API Key。写入模块闭包，不进入 reactive state。
    * 由组件 @input 直接调用。
    */
@@ -92,6 +143,11 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   async function save(): Promise<boolean> {
+    // S-04 修复：保存前清除上一次的失败标记，允许失败后重试。
+    // 旧行为：失败写入 validationErrors.save 后 canSave 恒为 false，
+    // 只有"放弃修改/成功保存"才能解除——一次网络抖动就把保存永久锁死。
+    state.validationErrors = {}
+
     // canSave 检查配置是否 dirty；有 pendingSecrets 时也允许保存
     // （API Key 通过 setApiKey 写入 pendingSecrets，不改变 draft，isDirty 可能是 false）
     // 空字符串不算有效 pending secret（用户清空输入框），否则会把 apiKey:'' 发到 main
@@ -171,7 +227,9 @@ export const useConfigStore = defineStore('config', () => {
       const input: ModelConnectionTestRequest = {
         provider: model.provider,
         baseUrl: model.baseUrl,
-        model: model.model
+        model: model.model,
+        // test-model 合同上限为 30s；聊天配置可到 300s，测试连接取较小值。
+        timeoutMs: Math.min(model.timeoutMs, 30_000)
       }
 
       // 优先用 pending key（测试未保存的新 key），否则不传（main 回退到 SecretStore）
@@ -205,7 +263,9 @@ export const useConfigStore = defineStore('config', () => {
 
   function discard(): void {
     if (state.saved) {
-      state.draft = structuredClone(state.saved)
+      // state.saved 是 Vue reactive proxy；structuredClone(proxy) 会抛 DataCloneError。
+      // 配置仅含 JSON 基本类型/对象/数组，与 save() 的去代理策略保持一致。
+      state.draft = JSON.parse(JSON.stringify(state.saved)) as PublicConfigSnapshot
     }
     pendingSecrets = {}
     state.validationErrors = {}
@@ -229,6 +289,7 @@ export const useConfigStore = defineStore('config', () => {
     canSave,
     load,
     patch,
+    patchDmae,
     setApiKey,
     save,
     testConnection,

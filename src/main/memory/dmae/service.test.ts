@@ -42,7 +42,41 @@ const DEFAULT_CFG: MemoryConfig = {
     modelRewardBase: 8,
     wakeLambda: 0.3,
     decayAlpha: 1.5,
-    decayBeta: 0.3
+    decayBeta: 0.3,
+    presets: [],
+    anomaly: {
+      muted: {
+        R01: 0,
+        R02: 0,
+        R03: 0,
+        R04: 0,
+        R05: 0,
+        R06: 0,
+        R07: 0,
+        R08: 0,
+        R09: 0,
+        R10: 0,
+        R11: 0,
+        R12: 0,
+        R13: 0
+      },
+      windows: {
+        R01: { days: 3 },
+        R02: { days: 7 },
+        R03: { days: 3 },
+        R04: { turns: 50 },
+        R05: { turns: 100 },
+        R06: {},
+        R07: { turns: 50 },
+        R08: { turns: 200 },
+        R09: { days: 3 },
+        R10: { days: 3, turns: 100 },
+        R11: { days: 7 },
+        R12: {},
+        R13: {}
+      }
+    },
+    historySampleEveryTurns: 1
   }
 } as MemoryConfig
 
@@ -66,7 +100,8 @@ function makeL2(
     type: 'situational',
     importance,
     archivedAt: null,
-    extractionKey: null
+    extractionKey: null,
+    source: 'user_explicit'
   }
 }
 
@@ -283,7 +318,8 @@ describe('P2-25 updateTurn reconcile', () => {
       new Map([
         ['m1', { activation: 50, userSilence: 0, modelSilence: 0, everActivated: true }],
         ['orphan', { activation: 30, userSilence: 0, modelSilence: 0, everActivated: true }]
-      ])
+      ]),
+      0
     )
     const service2 = createDmaeEngineService({
       stateStore,
@@ -338,6 +374,46 @@ describe('P2-25 updateTurn 持久化（重启延续）', () => {
     })
     service2.initialize()
     expect(service2.states.get('m1')!.activation).toBe(60) // 延续
+  })
+
+  it('P0: turn 跨重启单调延续，历史不再被覆盖', () => {
+    const { service } = makeService([makeL2('m1', 5)])
+    service.states.get('m1')!.activation = 50
+
+    // 进程 1 内跑 2 轮 -> turn=2
+    service.selectL2([makeHit('m1')], DEFAULT_CFG, 's1')
+    service.updateTurn('s1', [])
+    expect(service.turn).toBe(1)
+    service.selectL2([makeHit('m1')], DEFAULT_CFG, 's1')
+    service.updateTurn('s1', [])
+    expect(service.turn).toBe(2)
+
+    // 模拟重启：新服务实例应恢复到 turn=2（修复前是 0）
+    const stateStore2 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    const service2 = createDmaeEngineService({
+      stateStore: stateStore2,
+      l2Store: makeMockL2Store([makeL2('m1', 5)]),
+      getMemoryConfig: () => DEFAULT_CFG,
+      logger: makeLogger()
+    })
+    service2.initialize()
+    expect(service2.turn).toBe(2)
+
+    // 重启后下一轮 -> turn=3（严格递增，绝不写回 1..2）
+    service2.selectL2([makeHit('m1')], DEFAULT_CFG, 's1')
+    service2.updateTurn('s1', [])
+    expect(service2.turn).toBe(3)
+
+    // 再重启一次，确认 3 也持久化
+    const stateStore3 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    const service3 = createDmaeEngineService({
+      stateStore: stateStore3,
+      l2Store: makeMockL2Store([makeL2('m1', 5)]),
+      getMemoryConfig: () => DEFAULT_CFG,
+      logger: makeLogger()
+    })
+    service3.initialize()
+    expect(service3.turn).toBe(3)
   })
 })
 
@@ -519,5 +595,159 @@ describe('C-γ-2 孤儿桶兜底（turn.end 永不触发时有界）', () => {
     expect(service.pendingUserHitSessions).toBe(1)
     service.updateTurn('s1', [])
     expect(service.pendingUserHitSessions).toBe(0)
+  })
+})
+
+// === P2-31.5E：selectL2 lastSelection 诊断摘要（F5-002 §3.7）===
+
+describe('P2-31.5E: selectL2 lastSelection 诊断摘要', () => {
+  it('初始 lastSelection = null（尚无已提交的 turn）', () => {
+    const { service } = makeService([makeL2('m1', 5)])
+    expect(service.lastSelection).toBeNull()
+    expect(service.turn).toBe(0)
+  })
+
+  it('召回 6、Active 4 -> 提交后 lastSelection.retrievalHits=6, promptSelected=4', () => {
+    // 6 条记忆，4 条 activation >= threshold(30)，2 条 < threshold
+    const l2s = [
+      makeL2('m1', 5), // importance=5 -> 填 activation 后用
+      makeL2('m2', 5),
+      makeL2('m3', 5),
+      makeL2('m4', 5),
+      makeL2('m5', 5),
+      makeL2('m6', 5)
+    ]
+    const { service } = makeService(l2s)
+    // 手动设 activation：4 条 >= 30，2 条 < 30
+    service.states.get('m1')!.activation = 80
+    service.states.get('m2')!.activation = 60
+    service.states.get('m3')!.activation = 50
+    service.states.get('m4')!.activation = 40
+    service.states.get('m5')!.activation = 10 // < 30
+    service.states.get('m6')!.activation = 5 // < 30
+
+    // 6 条全部检索命中
+    const hits = [
+      makeHit('m1', 0.9),
+      makeHit('m2', 0.8),
+      makeHit('m3', 0.7),
+      makeHit('m4', 0.6),
+      makeHit('m5', 0.5),
+      makeHit('m6', 0.4)
+    ]
+    const selected = service.selectL2(hits, DEFAULT_CFG, 's1')
+    expect(selected).toHaveLength(4)
+
+    // P2：selectL2 只暂存（pending），updateTurn 才提交为 lastSelection
+    expect(service.lastSelection).toBeNull()
+    service.updateTurn('s1', [])
+
+    // 验收：retrievalHits=6, promptSelected=4（只有 4 条 >= threshold）
+    expect(service.lastSelection).not.toBeNull()
+    expect(service.lastSelection!.retrievalHits).toBe(6)
+    expect(service.lastSelection!.promptSelected).toBe(4)
+    // selectedIds 是被选中的 memory ID（不含 l2: 前缀）
+    expect(service.lastSelection!.selectedIds).toEqual(['m1', 'm2', 'm3', 'm4'])
+    // maxActive 来自 config（默认 15）
+    expect(service.lastSelection!.maxActive).toBe(15)
+    // atTurn = 提交时递增后的 turn（第 1 轮 -> 1）
+    expect(service.lastSelection!.atTurn).toBe(1)
+  })
+
+  it('全局 eligibleActive 与 promptSelected 不混用', () => {
+    // eligibleActive = 全库 activation >= threshold 的条数
+    // promptSelected = 本轮检索命中且 >= threshold 且 <= maxActive 的条数
+    const l2s = [makeL2('m1', 5), makeL2('m2', 5), makeL2('m3', 5)]
+    const { service } = makeService(l2s)
+    // 全部 3 条都 >= threshold（eligibleActive=3）
+    service.states.get('m1')!.activation = 50
+    service.states.get('m2')!.activation = 60
+    service.states.get('m3')!.activation = 70
+
+    // 但只检索命中 1 条
+    const selected = service.selectL2([makeHit('m1', 0.9)], DEFAULT_CFG, 's1')
+    expect(selected).toHaveLength(1)
+    service.updateTurn('s1', [])
+    expect(service.lastSelection!.retrievalHits).toBe(1)
+    expect(service.lastSelection!.promptSelected).toBe(1)
+    // eligibleActive（getStats 的 active）= 3，与 promptSelected=1 不同
+    expect(service.getStats().active).toBe(3)
+  })
+
+  it('updateTurn 递增 turn 计数器，提交的 atTurn 随轮次递增', () => {
+    const { service } = makeService([makeL2('m1', 5)])
+    service.states.get('m1')!.activation = 50
+
+    service.selectL2([makeHit('m1')], DEFAULT_CFG, 's1')
+    service.updateTurn('s1', [])
+    expect(service.turn).toBe(1)
+    expect(service.lastSelection!.atTurn).toBe(1)
+
+    // 下轮 selectL2 + updateTurn -> atTurn=2
+    service.selectL2([makeHit('m1')], DEFAULT_CFG, 's1')
+    service.updateTurn('s1', [])
+    expect(service.lastSelection!.atTurn).toBe(2)
+  })
+
+  it('本轮无 selectL2（无检索）-> 提交 null，不残留上一轮值', () => {
+    const { service } = makeService([makeL2('m1', 5)])
+    service.states.get('m1')!.activation = 50
+    service.selectL2([makeHit('m1')], DEFAULT_CFG, 's1')
+    service.updateTurn('s1', [])
+    expect(service.lastSelection).not.toBeNull()
+
+    // 第二轮无 selectL2 直接 updateTurn -> 提交 null
+    service.updateTurn('s1', [])
+    expect(service.lastSelection).toBeNull()
+  })
+
+  it('maxActive 截断：召回 20 条但 maxActive=15 -> promptSelected=15', () => {
+    const l2s = Array.from({ length: 20 }, (_, i) => makeL2(`m${i}`, 5))
+    const { service } = makeService(l2s)
+    // 全部 >= threshold
+    for (const st of service.states.values()) {
+      st.activation = 50
+    }
+    // 全部检索命中
+    const hits = l2s.map((l2) => makeHit(l2.id, 0.5))
+    const selected = service.selectL2(hits, DEFAULT_CFG, 's1')
+    expect(selected).toHaveLength(15)
+    service.updateTurn('s1', [])
+    expect(service.lastSelection!.retrievalHits).toBe(20)
+    expect(service.lastSelection!.promptSelected).toBe(15)
+    expect(service.lastSelection!.selectedIds).toHaveLength(15)
+  })
+})
+
+// === P2（2026-08-10 审计）：selection 跨会话绑定（A/B 串扰修复）===
+
+describe('P2: selection 按 session 绑定，A/B 交错各自提交', () => {
+  it('A selectL2、B selectL2、A updateTurn -> A 提交 A 的 selection（不是 B 的）', () => {
+    const { service } = makeService([makeL2('a1', 60), makeL2('b1', 60)])
+    service.states.get('a1')!.activation = 50
+    service.states.get('b1')!.activation = 50
+
+    service.selectL2([makeHit('a1')], DEFAULT_CFG, 'sessionA')
+    service.selectL2([makeHit('b1')], DEFAULT_CFG, 'sessionB')
+    // A 先 turn.end
+    service.updateTurn('sessionA', [])
+    // A 提交的必须是 A 的 selection（retrievalHits=1, selectedIds=[a1]）
+    expect(service.lastSelection!.selectedIds).toEqual(['a1'])
+
+    // B 后 turn.end -> 提交 B 的 selection
+    service.updateTurn('sessionB', [])
+    expect(service.lastSelection!.selectedIds).toEqual(['b1'])
+  })
+
+  it('selection 桶被 LRU 淘汰后 updateTurn -> 提交 null（不误用其他会话）', () => {
+    const { service } = makeService([makeL2('m1', 60)])
+    service.states.get('m1')!.activation = 50
+    service.selectL2([makeHit('m1')], DEFAULT_CFG, 'oldest')
+    // 用 MAX 个会话挤掉 oldest 的 selection 桶
+    for (let i = 0; i < MAX_PENDING_HIT_SESSIONS; i++) {
+      service.selectL2([], DEFAULT_CFG, `other-${i}`)
+    }
+    service.updateTurn('oldest', [])
+    expect(service.lastSelection).toBeNull()
   })
 })

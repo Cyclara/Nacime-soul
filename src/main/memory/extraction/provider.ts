@@ -137,11 +137,14 @@ export function createOpenAIExtractionProvider(
 ): ExtractionProvider {
   const fetchFn = deps.fetchFn ?? globalThis.fetch
   const logger = deps.logger
-  const timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const defaultTimeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const url = `${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`
   const tags = { provider: cfg.provider, model: cfg.model }
 
   async function complete(request: ExtractionRequest, signal: AbortSignal): Promise<string> {
+    // 请求级 timeoutMs 优先（P2-38 sync_turn 用 20s 便宜画像）；未指定回退构造配置（默认 30s）。
+    // 修复前只读 cfg.timeoutMs，request.timeoutMs 形同虚设，sync_turn 的短超时生产失效。
+    const timeoutMs = request.timeoutMs ?? defaultTimeoutMs
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => {

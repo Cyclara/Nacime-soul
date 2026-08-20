@@ -9,7 +9,6 @@ import { storeToRefs } from 'pinia'
 import { useAppStore } from '../stores/app'
 import { useConfigStore } from '../stores/config'
 import { useChatStore } from '../stores/chat'
-import AppErrorBanner from '../components/common/AppErrorBanner.vue'
 import ChatShell from '../components/chat/ChatShell.vue'
 import FirstRunGuide from '../components/onboarding/FirstRunGuide.vue'
 
@@ -40,12 +39,11 @@ function onFirstRunComplete(text: string): void {
 
 <template>
   <div class="chat-view">
-    <AppErrorBanner />
-    <div v-if="isLoading" class="loading">
+    <div v-if="isLoading" class="loading" role="status" aria-live="polite">
       <div class="spinner"></div>
       <p>正在加载...</p>
     </div>
-    <div v-else-if="appState.fatalError" class="fatal-error">
+    <div v-else-if="appState.fatalError" class="fatal-error" role="alert">
       <p>{{ appState.fatalError.message }}</p>
       <button class="retry-btn" @click="appStore.reset()">重试</button>
     </div>
@@ -56,41 +54,77 @@ function onFirstRunComplete(text: string): void {
 
 <style scoped>
 .chat-view {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
+
 .loading,
 .fatal-error {
-  flex: 1;
   display: flex;
+  width: min(calc(100% - 32px), 420px);
+  min-height: 230px;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
+  margin: auto;
+  padding: var(--spacing-xl);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-translucent);
+  box-shadow: var(--shadow-lg);
   color: var(--color-text-secondary);
+  text-align: center;
+  backdrop-filter: blur(18px);
 }
+
+.fatal-error {
+  border-color: var(--color-error-border);
+  background:
+    radial-gradient(circle at 50% 0%, var(--color-error-bg), transparent 58%),
+    var(--color-surface-translucent);
+}
+
+.fatal-error p {
+  max-width: 34ch;
+  color: var(--color-text-secondary);
+  line-height: 1.65;
+}
+
 .spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--color-border);
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--color-border);
   border-top-color: var(--color-accent);
+  border-right-color: var(--color-companion);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
+
 .retry-btn {
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius);
+  min-height: 42px;
+  padding: 9px 20px;
+  border-radius: var(--radius-full);
   background: var(--color-accent);
-  color: var(--color-bg);
-  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text-on-accent);
+  font-weight: 650;
 }
+
 .retry-btn:hover {
   background: var(--color-accent-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 </style>

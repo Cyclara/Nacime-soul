@@ -51,6 +51,47 @@ describe('P2-11 MemoryJudge', () => {
     expect(decisions[0].action).toBe('accept')
   })
 
+  it('J-06b (L1): "你叫小明" targetLayer=l1 -> L0_SUBJECT_IS_ASSISTANT（L1 不得绕过 L0 身份门）', () => {
+    const judge = createMemoryJudge()
+    const c = makeCandidate({
+      targetLayer: 'l1',
+      field: undefined,
+      content: '你叫小明',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '你叫小明' }]
+    })
+    const decisions = judge.judgeBatch([c], { ...ctx, userContent: '你叫小明' })
+    expect(decisions[0].action).toBe('reject')
+    expect(decisions[0].reason).toBe('L0_SUBJECT_IS_ASSISTANT')
+  })
+
+  it('J-06c (L1): "你叫我小明" targetLayer=l1 -> accept（有用户自指，非给 assistant 设身份）', () => {
+    const judge = createMemoryJudge()
+    const c = makeCandidate({
+      targetLayer: 'l1',
+      field: undefined,
+      content: '你叫我小明',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '你叫我小明' }]
+    })
+    const decisions = judge.judgeBatch([c], { ...ctx, userContent: '你叫我小明' })
+    expect(decisions[0].action).toBe('accept')
+  })
+
+  it('J-06d (L2): "以后你叫小红" targetLayer=l2 -> L0_SUBJECT_IS_ASSISTANT', () => {
+    const judge = createMemoryJudge()
+    const c = makeCandidate({
+      targetLayer: 'l2',
+      field: undefined,
+      content: '用户希望以后叫你小红',
+      certainty: 'inferred',
+      attribution: 'assistant_inferred',
+      memoryType: 'situational',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '以后你叫小红' }]
+    })
+    const decisions = judge.judgeBatch([c], { ...ctx, userContent: '以后你叫小红' })
+    expect(decisions[0].action).toBe('reject')
+    expect(decisions[0].reason).toBe('L0_SUBJECT_IS_ASSISTANT')
+  })
+
   it('J-01a: evidence "我不太吃香菜", content "用户永远不吃香菜" -> UNSUPPORTED_ABSOLUTE', () => {
     const judge = createMemoryJudge()
     const c = makeCandidate({

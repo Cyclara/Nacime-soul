@@ -45,32 +45,48 @@ function toggle(): void {
 
 <style scoped>
 .reasoning-block {
-  margin-top: var(--spacing-xs);
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid var(--color-border-subtle);
 }
+
 .reasoning-toggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: transparent;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 8px 3px 5px;
+  border-radius: var(--radius-full);
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-sm);
-  border-radius: var(--radius);
+  font-size: var(--font-size-xs);
 }
+
 .reasoning-toggle:hover {
-  background: var(--color-bg-tertiary);
+  background: var(--color-accent-soft);
   color: var(--color-text-secondary);
 }
+
 .reasoning-caret {
-  font-size: 10px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 9px;
 }
+
 .reasoning-label {
   font-weight: 500;
+  letter-spacing: 0.015em;
 }
+
 .reasoning-dots::after {
   content: '';
   animation: reasoning-dots 1.4s steps(4, end) infinite;
 }
+
 @keyframes reasoning-dots {
   0% {
     content: '';
@@ -85,20 +101,24 @@ function toggle(): void {
     content: '...';
   }
 }
+
 .reasoning-content {
-  margin-top: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius);
-  background: var(--color-bg-tertiary);
-  border-left: 2px solid var(--color-accent);
+  margin-top: 5px;
+  padding: 10px 13px;
+  border: 1px solid var(--color-border-subtle);
+  border-left: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  border-radius: 4px var(--radius) var(--radius) 4px;
+  background: color-mix(in srgb, var(--color-bg-tertiary) 74%, transparent);
+  user-select: text;
 }
+
 .reasoning-content pre {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
+  color: var(--color-text-secondary);
   font-family: inherit;
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  line-height: 1.5;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

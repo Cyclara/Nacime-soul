@@ -76,24 +76,52 @@ const stateMeta = STATE_LABELS[props.item.lifecycleState] ?? {
 
 <style scoped>
 .l2-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-bottom: 1px solid var(--color-border-subtle);
+  gap: 16px;
+  min-height: 76px;
+  margin-bottom: 7px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-surface) 58%, transparent);
   cursor: pointer;
   transition:
     background-color 0.15s ease,
-    transform 0.1s ease;
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.12s ease;
+}
+
+.l2-item::before {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft-hover);
+  content: '';
+  opacity: 0;
+  transition: opacity 0.15s ease;
 }
 
 .l2-item:hover,
 .l2-item:focus-visible {
-  background: var(--color-bg-secondary);
+  border-color: color-mix(in srgb, var(--color-accent) 24%, var(--color-border));
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.l2-item:hover::before,
+.l2-item:focus-visible::before {
+  opacity: 1;
 }
 
 .l2-item.deleted {
-  opacity: 0.75;
+  opacity: 0.72;
 }
 
 .l2-item.deleted .item-content {
@@ -101,97 +129,109 @@ const stateMeta = STATE_LABELS[props.item.lifecycleState] ?? {
 }
 
 .item-main {
-  flex: 1;
   min-width: 0;
+  flex: 1;
 }
 
 .item-content {
-  font-size: var(--font-size-base);
-  line-height: 1.55;
-  margin-bottom: var(--spacing-xs);
-  color: var(--color-text);
-  word-break: break-word;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  margin-bottom: 7px;
   overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  line-height: 1.58;
+  word-break: break-word;
+  user-select: text;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .item-meta {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: 5px;
   font-size: var(--font-size-xs);
 }
 
 .state-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  min-height: 22px;
   padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   border-radius: var(--radius-full);
-  font-weight: 500;
+  font-weight: 550;
 }
 
 .state-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
   flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 10%, transparent);
 }
 
 .type-tag {
-  color: var(--color-text-secondary);
+  min-height: 22px;
   padding: 2px 8px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-full);
-  background: var(--color-bg-tertiary);
+  background: color-mix(in srgb, var(--color-bg-tertiary) 72%, transparent);
+  color: var(--color-text-secondary);
 }
 
 .pin-mark {
-  font-size: var(--font-size-sm);
+  filter: grayscale(1);
+  font-size: 10px;
+  opacity: 0.72;
 }
 
 .activation-bar {
-  width: 64px;
   display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+  width: 76px;
   flex-shrink: 0;
+  align-items: center;
+  gap: 7px;
 }
 
 .bar-track {
+  height: 5px;
   flex: 1;
-  height: 4px;
-  background: var(--color-border);
-  border-radius: var(--radius-full);
   overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover));
   border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--color-companion), var(--color-accent));
   transition: width 0.25s ease;
 }
 
 .bar-value {
-  font-size: var(--font-size-xs);
+  min-width: 17px;
   color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
-  min-width: 14px;
   text-align: right;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bar-fill {
+  .bar-fill,
+  .l2-item,
+  .l2-item::before {
     transition: none;
   }
 }
 
 @media (max-width: 480px) {
   .l2-item {
-    padding: var(--spacing-sm) var(--spacing-md);
+    gap: 10px;
+    padding: 11px 10px;
   }
 
   .activation-bar {

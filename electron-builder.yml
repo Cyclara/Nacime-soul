@@ -8,6 +8,8 @@ files:
   - out/**
   - package.json
   - resources/prompts/**
+  - resources/seeds/**
+  - resources/growth/**
 asar: true
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'
@@ -16,6 +18,17 @@ win:
     - target: nsis
       arch: [x64]
   icon: assets/icon.ico
+  # M-10：Windows 代码签名（发布前启用，消除 SmartScreen 警告）。
+  # 当前未配置证书 -> 产物不签名。接入方式二选一：
+  #   A) 本地证书：取消下面注释，提供 .pfx 路径（密码走环境变量 WIN_CERT_PASSWORD，勿写死）：
+  #   certificateFile: path/to/your.pfx
+  #   certificatePassword: ${env.WIN_CERT_PASSWORD}
+  #   B) Azure Trusted Signing（云端签名，推荐）：
+  #   azureSignOptions:
+  #     endpoint: https://eus.codesigning.azure.net
+  #     certificateProfileName: your-profile
+  #     timestampRfc3161: http://timestamp.acs.microsoft.com
+  # 签名后请在发布 workflow 中开启 forceCodeSigning 以拒绝未签名产物。
 nsis:
   oneClick: false
   perMachine: false

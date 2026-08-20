@@ -53,7 +53,41 @@ const DEFAULT_MEMORY: MemoryConfig = {
     modelRewardBase: 30,
     wakeLambda: 0.3,
     decayAlpha: 1.5,
-    decayBeta: 0.3
+    decayBeta: 0.3,
+    presets: [],
+    anomaly: {
+      muted: {
+        R01: 0,
+        R02: 0,
+        R03: 0,
+        R04: 0,
+        R05: 0,
+        R06: 0,
+        R07: 0,
+        R08: 0,
+        R09: 0,
+        R10: 0,
+        R11: 0,
+        R12: 0,
+        R13: 0
+      },
+      windows: {
+        R01: { days: 3 },
+        R02: { days: 7 },
+        R03: { days: 3 },
+        R04: { turns: 50 },
+        R05: { turns: 100 },
+        R06: {},
+        R07: { turns: 50 },
+        R08: { turns: 200 },
+        R09: { days: 3 },
+        R10: { days: 3, turns: 100 },
+        R11: { days: 7 },
+        R12: {},
+        R13: {}
+      }
+    },
+    historySampleEveryTurns: 1
   }
 }
 
@@ -90,7 +124,8 @@ function makeL2(id: string): L2Memory {
     type: 'situational',
     importance: 5,
     archivedAt: null,
-    extractionKey: null
+    extractionKey: null,
+    source: 'user_explicit'
   }
 }
 

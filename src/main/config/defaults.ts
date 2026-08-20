@@ -3,6 +3,7 @@
 // 依据：S-005 §3.7
 
 import type { AppConfigV1 } from '@shared/config/types'
+import { DEFAULT_ANOMALY_MUTED, DEFAULT_ANOMALY_WINDOWS } from '@shared/memory/dmae-config'
 
 /**
  * 深度冻结对象，使 DEFAULT_CONFIG_V1 在运行时不可变。
@@ -80,12 +81,20 @@ export const DEFAULT_CONFIG_V1: Readonly<AppConfigV1> = deepFreeze({
       modelRewardBase: 8,
       wakeLambda: 0.3,
       decayAlpha: 1.5,
-      decayBeta: 0.3
+      decayBeta: 0.3,
+      // P2-31.5A：四字段默认。presets=[]（内置预设常驻代码，不落 config）。
+      // muted/windows 完整列 13 键（deepMergeWithDefaults 只遍历默认对象已有键）。
+      presets: [],
+      anomaly: {
+        muted: DEFAULT_ANOMALY_MUTED,
+        windows: DEFAULT_ANOMALY_WINDOWS
+      },
+      historySampleEveryTurns: 1
     }
   },
   ui: {
     locale: 'zh-CN',
-    theme: 'system',
+    theme: 'light', // P2-46：默认浅色（此前 'system' 跟随 OS，深色系统会开局深色）
     fontScale: 1,
     reduceMotion: false,
     window: { width: 900, height: 720, maximized: false },

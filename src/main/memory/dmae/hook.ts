@@ -21,22 +21,36 @@ import type { HookFn, HookResult } from '../../hooks/types'
 import type { TurnEndData } from '../../chat/service'
 import type { MemoryConfig } from '@shared/config/types'
 import type { DmaeEngineService } from './service'
+import type { DmaeHistoryStore } from './history-store'
 import type { MemoryRevisionClock } from '../revision-clock'
 import type { MemoryEventBroadcaster } from '../event-broadcaster'
+import { snapshotFromDmaeConfig } from './history-types'
 import { getMetrics } from '../../observability/metrics'
 
 export interface DmaeHookDeps {
   logger: Logger
   dmaeService: DmaeEngineService
+  /** P2-31.5G：历史存储（可选；未注入时不记录历史） */
+  historyStore?: DmaeHistoryStore
   getMemoryConfig: () => Readonly<MemoryConfig>
   revisionClock: MemoryRevisionClock
   broadcaster: MemoryEventBroadcaster
 }
 
+/** 用户关注的 memory ID 集合（面板 [关注] 按钮；P2-32 UI 接入后由 store 管理） */
+let watchedMemoryIds = new Set<string>()
+
+/** 设置关注的 memory ID（面板 [关注] 按钮调用） */
+export function setWatchedMemoryIds(ids: ReadonlySet<string>): void {
+  watchedMemoryIds = new Set(ids)
+}
+
 export function createDmaeHook(deps: DmaeHookDeps): {
   hook: { name: string; event: string; priority: number; fn: HookFn; failOpen: true }
 } {
-  const { logger, dmaeService, getMemoryConfig, revisionClock, broadcaster } = deps
+  const { logger, dmaeService, historyStore, getMemoryConfig, revisionClock, broadcaster } = deps
+
+  let lastAggregatedDate = ''
 
   const hookFn: HookFn = (_ctx, data): HookResult => {
     const turnEnd = data as TurnEndData
@@ -53,6 +67,47 @@ export function createDmaeHook(deps: DmaeHookDeps): {
       metrics.gauge('dmae.active').set(result.stats.active)
       metrics.gauge('dmae.dormant').set(result.stats.dormant)
       metrics.gauge('dmae.archived').set(result.stats.archived)
+
+      // P2-31.5G：记录历史（dmae_turns + dmae_samples 分层采样）
+      // P2（2026-08-10 审计）：save 失败时不记录——激活变化未落盘，历史行会谎称已持久化。
+      if (historyStore && dmaeService.lastSaveOk) {
+        try {
+          historyStore.recordTurn({
+            turn: dmaeService.turn,
+            ts: Date.now(),
+            diagnostics: result.diagnostics,
+            selection: dmaeService.lastSelection,
+            counts: {
+              active: result.stats.active,
+              dormant: result.stats.dormant,
+              archived: result.stats.archived
+            },
+            // P1（2026-08-10 审计）：真实 l2Total（修复前恒 0，导致 dmae_daily.l2Total 失真）
+            l2Total: dmaeService.getL2Total(),
+            params: snapshotFromDmaeConfig(config.dmae),
+            sampleEveryTurns: config.dmae.historySampleEveryTurns,
+            watchedIds: watchedMemoryIds
+          })
+
+          // P1（2026-08-10 审计）：每轮幂等 upsert 当日聚合。
+          // 修复前只在日期变化时聚合 -> 同日后续轮次不更新、隔夜重启丢昨日。
+          // 每轮 aggregateDaily(today) 让当日行始终最新；跨日时先把昨日行补一次（幂等）。
+          const today = formatDate(new Date())
+          if (lastAggregatedDate && lastAggregatedDate !== today) {
+            historyStore.aggregateDaily(lastAggregatedDate)
+          }
+          historyStore.aggregateDaily(today)
+          lastAggregatedDate = today
+        } catch (histErr) {
+          // 历史写失败只 warn，不影响聊天（败而不崩）
+          logger.warn('dmae history recordTurn failed', {
+            scope: 'memory',
+            turnId: turnEnd.turnId,
+            code: 'UNKNOWN',
+            detail: histErr instanceof Error ? histErr.message : String(histErr)
+          })
+        }
+      }
 
       // C-γ-2 问题 B：activation 变化时广播，让 renderer 记忆面板刷新。
       // 触发条件：有状态迁移，或本轮处理了 userHit/modelHit/floorRevival（activation 值实际变化）。
@@ -104,4 +159,11 @@ export function createDmaeHook(deps: DmaeHookDeps): {
       failOpen: true
     }
   }
+}
+
+function formatDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }

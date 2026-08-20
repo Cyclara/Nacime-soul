@@ -137,7 +137,8 @@ const NEGATION_PATTERNS: readonly RegExp[] = [
   /\bcan'?t/i
 ]
 
-function hasCorrectionIntent(text: string | null): boolean {
+/** 用户纠正意图检测。供 conflict scoring 与 growth B 层判定流（F5-006 §3"复用冲突系统已有能力"）共用。 */
+export function hasCorrectionIntent(text: string | null): boolean {
   if (!text) return false
   return CORRECTION_PATTERNS.some((p) => p.test(text))
 }
@@ -326,6 +327,42 @@ export function createConflictService(deps: ConflictServiceDeps): ConflictServic
   const now = deps.now ?? ((): number => Date.now())
   const listeners = new Set<(result: ConflictResolveResult) => void>()
 
+  // M-04 修复：进程内"最近解决过"缓存。
+  // 旧实现用 logStore.listByPair(newMemory.id, existing.id) 精确 id 匹配 conflict_log——
+  // 但 L2 id 每次写入都带随机后缀（l2_{ts}_{rand}），同一事实跨轮再次纠正时 newMemory.id
+  // 必然不同，listByPair 恒返回空，recentlyResolved 恒 false，-25 惩罚与"1 小时内不重复解决"
+  // 保护从不生效（死代码）。这里改按稳定键（existing.id + 新记忆归一化内容）记录/查询，
+  // 同事实跨轮能命中、不同事实不受影响；进程重启后清空（1 小时窗口，可接受）。
+  const recentResolutions = new Map<string, number>()
+  const RECENT_RESOLUTIONS_MAX = 500
+
+  function conflictKey(pair: ConflictPair): string {
+    return `${pair.existingMemory.id}|${pair.newMemory.content.trim().normalize('NFC')}`
+  }
+
+  function isRecentlyResolved(pair: ConflictPair): boolean {
+    const key = conflictKey(pair)
+    const t = recentResolutions.get(key)
+    if (t === undefined) return false
+    if (now() - t > RECENTLY_RESOLVED_WINDOW_MS) {
+      recentResolutions.delete(key)
+      return false
+    }
+    return true
+  }
+
+  function recordResolution(pair: ConflictPair): void {
+    recentResolutions.set(conflictKey(pair), now())
+    if (recentResolutions.size > RECENT_RESOLUTIONS_MAX) {
+      // 清理过期项；仍超限则清空（极端情况，冲突本就低频，宁可多解决一次）
+      const cutoff = now() - RECENTLY_RESOLVED_WINDOW_MS
+      for (const [k, ts] of recentResolutions) {
+        if (ts < cutoff) recentResolutions.delete(k)
+      }
+      if (recentResolutions.size > RECENT_RESOLUTIONS_MAX) recentResolutions.clear()
+    }
+  }
+
   function emit(result: ConflictResolveResult): void {
     for (const h of listeners) {
       try {
@@ -422,13 +459,9 @@ export function createConflictService(deps: ConflictServiceDeps): ConflictServic
         ragScore: hit.score,
         score: { score: 0, band: 'none', breakdown: {}, overridden: false } // 占位，下面填
       }
-      // 检查 recentlyResolved
-      const recentEntries = logStore.listByPair(
-        newMemory.id,
-        existing.id,
-        now() - RECENTLY_RESOLVED_WINDOW_MS
-      )
-      const recentlyResolved = recentEntries.length > 0
+      // M-04 修复：recentlyResolved 改按稳定键查进程内缓存（见 createConflictService 顶部）。
+      // 旧实现 logStore.listByPair(newMemory.id, existing.id) 对含随机后缀的真实 id 恒为空。
+      const recentlyResolved = isRecentlyResolved(pair)
       pair.score = computeConflictSignals(pair, { recentlyResolved, now })
       pairs.push(pair)
     }
@@ -478,8 +511,6 @@ export function createConflictService(deps: ConflictServiceDeps): ConflictServic
         // P2-29: supersede/reject 改变 L2 状态 -> 广播 hint='l2'
         broadcaster?.notify('l2')
       }
-
-      // 写 conflict_log
       try {
         logStore.append({
           newMemoryId: pair.newMemory.id,
@@ -497,6 +528,9 @@ export function createConflictService(deps: ConflictServiceDeps): ConflictServic
           tags: { reason: e instanceof Error ? e.name : 'unknown' }
         })
       }
+      // M-04：无论日志写盘是否成功，记录"最近已解决"（进程内稳定键缓存），
+      // 使同事实 1 小时内再次纠正时命中 recentlyResolved 降级。
+      recordResolution(pair)
 
       // P2-26: memory.conflicts 指标（累计冲突数，供调试面板）
       getMetrics().counter('memory.conflicts').inc()
@@ -504,6 +538,11 @@ export function createConflictService(deps: ConflictServiceDeps): ConflictServic
       const result: ConflictResolveResult = { pair, resolution, resolvedAt: resolvedAt ?? now() }
       results.push(result)
       emit(result)
+
+      // reject 短路（2026-08-11 审计修复）：resolver 判定新记忆错误并已软删（applyResolution 置
+      // soft_deleted）后，剩余 pairs 不应继续处理——用一条已判定的错误记忆去 supersede 其他旧记忆
+      // 自相矛盾。跳过后续所有 pairs（同一 newMemory 只解决一次，rest 交由未来轮次的写入重新检测）。
+      if (resolution === 'reject') break
     }
 
     if (results.length > 0) {

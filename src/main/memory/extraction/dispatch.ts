@@ -19,12 +19,23 @@
 import type { Logger } from '@shared/observability/types'
 import type { L0Store } from '../l0-store'
 import type { L1Store } from '../l1-store'
-import type { L2Store } from '../l2-store'
-import type { MemoryCandidate } from './candidate'
+import type { L2Store, MemorySource } from '../l2-store'
+import type { MemoryCandidate, CandidateAttribution } from './candidate'
 import { importanceToValue } from './candidate'
 import type { JudgeDecision } from './judge'
 import type { MemoryWriter, WriteL2Input } from '../writer'
 import type { ConflictService } from '../conflict/resolver'
+
+/**
+ * P2-37: candidate.attribution -> L2 source 映射。
+ *   user_explicit       -> 'user_explicit'（用户明确陈述）
+ *   assistant_inferred  -> 'inferred'（模型推断）
+ *   mixed               -> 'inferred'（混合来源按推断处理，保守降权）
+ */
+function attributionToSource(attr: CandidateAttribution): MemorySource {
+  if (attr === 'user_explicit') return 'user_explicit'
+  return 'inferred'
+}
 
 export interface DispatchContext {
   sessionId: string
@@ -180,6 +191,8 @@ export function createMemoryDispatcher(deps: MemoryDispatcherDeps): MemoryDispat
       triggerText: candidate.evidence[0]?.quote ?? null,
       type: candidate.memoryType ?? 'situational',
       importance: importanceToValue(candidate.importance),
+      // P2-37: attribution -> source 映射（user_explicit / inferred）
+      source: attributionToSource(candidate.attribution),
       // extractionKey 由 writer 内部计算（需要 sourceMessageId + fieldOrType + content）
       sourceMessageId: candidate.evidence[0]?.messageId ?? '',
       fieldOrType: candidate.memoryType ?? 'situational'

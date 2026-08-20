@@ -164,6 +164,52 @@ describe('P2-27 未 beginTurn 就 span / endTurn', () => {
   })
 })
 
+describe('P2（2026-08-10 审计）：跨会话并发 streaming 互不覆盖', () => {
+  it('A/B 交错 begin+span，各自 endTurn 归属自己的 trace', async () => {
+    const t = createTracer()
+    // A 开始
+    t.beginTurn('turn-A', 10)
+    const spanA1 = t.startSpan('prompt.build', 'turn-A')
+    // B 开始（旧实现会顶掉 A 的 current）
+    t.beginTurn('turn-B', 5)
+    const spanB1 = t.startSpan('llm.call', 'turn-B')
+    // A 继续加 span（旧实现会记进 B）
+    const spanA2 = t.startSpan('llm.call', 'turn-A')
+    spanA1.end()
+    spanA2.end()
+    spanB1.end()
+    // A 先收尾
+    t.endTurn(20, 'turn-A')
+    // B 后收尾
+    t.endTurn(30, 'turn-B')
+
+    const traces = t.snapshot()
+    expect(traces).toHaveLength(2)
+    const traceA = traces.find((tr) => tr.turnId === 'turn-A')!
+    const traceB = traces.find((tr) => tr.turnId === 'turn-B')!
+    expect(traceA.inputLen).toBe(10)
+    expect(traceA.outputLen).toBe(20)
+    expect(traceB.inputLen).toBe(5)
+    expect(traceB.outputLen).toBe(30)
+    // A 的 trace 只有 A 的 span（prompt.build + llm.call）
+    expect(traceA.spans.map((s) => s.name)).toEqual(['prompt.build', 'llm.call'])
+    // B 的 trace 只有 B 的 span（llm.call）
+    expect(traceB.spans.map((s) => s.name)).toEqual(['llm.call'])
+  })
+
+  it('无参 endTurn 收尾最近 begin 的 turn（单会话兼容）', async () => {
+    const t = createTracer()
+    t.beginTurn('turn-1', 5)
+    await t.span('prompt.build', () => {
+      /* sync */
+    })
+    t.endTurn(7) // 无 turnId
+    const traces = t.snapshot()
+    expect(traces).toHaveLength(1)
+    expect(traces[0].turnId).toBe('turn-1')
+  })
+})
+
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }

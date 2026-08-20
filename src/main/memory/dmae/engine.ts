@@ -85,6 +85,82 @@ export interface DmaeTurnResult {
     dormant: number
     archived: number
   }
+  /**
+   * P2-31.5D：引擎诊断 ABI（F5-002 §3.2/§3.7）。
+   * 逐条诊断：raw/effective/gated/decay/hits/everActivatedBefore。
+   * 统计：raw/effective sum、gated、trueFloorRevivals。
+   *
+   * 禁止在诊断层重算公式（S-F02 裁定）--rawRm 必须由引擎带出。
+   * 改变 clamp 测试常数时采样结果同步，无第二份公式。
+   */
+  diagnostics: DmaeTurnDiagnostics
+}
+
+/**
+ * P2-31.5D：单条记忆本轮诊断（供 HistoryStore 分层采样写入 dmae_samples）。
+ * 只在需要采样时读取，不影响引擎主路径性能（纯算术 + Map 写入）。
+ */
+export interface DmaeEntryDiagnostics {
+  memoryId: string
+  /** 本轮用户命中 */
+  userHit: boolean
+  /** 本轮模型命中 */
+  modelHit: boolean
+  /** 模型命中但被 Active gating 拦下（aOld 不是 Active） */
+  modelHitGated: boolean
+  /** clamp 前的 raw Rm（仅 modelHit 且走到 clamp 时记实际值，否则 0） */
+  modelRewardRaw: number
+  /** clamp 后的 effective Rm */
+  modelRewardEffective: number
+  /** 本轮 decay */
+  decay: number
+  /** 本轮之前是否曾经 activation > 0（S-F04：唯一真源是状态文件 everActivated） */
+  everActivatedBefore: boolean
+  /** 本轮是否首次激活（!everActivatedBefore && aNew > 0） */
+  firstActivation: boolean
+  /** 更新前状态（P0 采样修复：history-store 靠它识别全部状态迁移） */
+  stateBefore: DmaeState
+  /** 更新后状态 */
+  stateAfter: DmaeState
+  /** 更新前 activation（explainLastTurn 权威 before 值，batch E） */
+  activationBefore: number
+  /** 更新前 userSilence */
+  userSilenceBefore: number
+  /** 更新前 modelSilence */
+  modelSilenceBefore: number
+  /** 更新后 activation */
+  activationAfter: number
+  /** 更新后 userSilence */
+  userSilenceAfter: number
+  /** 更新后 modelSilence */
+  modelSilenceAfter: number
+}
+
+/**
+ * P2-31.5D：本轮聚合诊断（供 HistoryStore 写入 dmae_turns + 面板 R08 规则用）。
+ */
+export interface DmaeTurnDiagnostics {
+  /** 逐条诊断（按 states 遍历序） */
+  entries: DmaeEntryDiagnostics[]
+  /** Σ 本轮所有条目的 clamp 前 Rm（只累加真正进了 clamp 的） */
+  modelRewardRawSum: number
+  /** Σ 本轮所有条目的 clamp 后 Rm */
+  modelRewardEffectiveSum: number
+  /** 模型命中但被 Active gating 拦下的条数 */
+  modelHitsGated: number
+  /**
+   * 剔除 firstActivation 后的真实复活数。
+   * 引擎原始 floorRevivals 会把新记忆首次激活计成复活（activation=0 被 deriveState 判为 Archived）。
+   * trueFloorRevivals = floorRevivals - firstActivations。R09 只用这个。
+   */
+  trueFloorRevivals: number
+  /**
+   * 本轮更新后全库 activation 的分布统计（P1 daily 聚合真源）。
+   * history-store 用它填 dmae_turns.activation_sum/count/median，避免把"条目数"当"激活均值"。
+   */
+  activationStats: { count: number; sum: number; mean: number; median: number }
+  /** 本轮从非 Archived 迁入 Archived 的条目数（dmae_daily.archivedTransitions 真源，R01 用） */
+  archivedTransitions: number
 }
 
 /**
@@ -126,11 +202,23 @@ export function updateTurn(
   let dormant = 0
   let archived = 0
 
+  // P2-31.5D：诊断统计
+  const entryDiagnostics: DmaeEntryDiagnostics[] = []
+  let modelRewardRawSum = 0
+  let modelRewardEffectiveSum = 0
+  let modelHitsGated = 0
+  let firstActivations = 0
+  // P1（2026-08-10 审计）：daily 聚合真源——逐条 activationAfter 分布 + 迁入 Archived 计数
+  let archivedTransitions = 0
+  const activationValues: number[] = []
+
   for (const [id, st] of states) {
     const usOld = st.userSilence
     const msOld = st.modelSilence
     const aOld = st.activation
     const importance = getImportance(id)
+    // P2-31.5D/S-F04：everActivatedBefore 是更新前的值（唯一真源）
+    const everActivatedBefore = st.everActivated
 
     const userHit = userHitIds.has(id)
     const modelHit = modelHitIds.has(id)
@@ -151,10 +239,21 @@ export function updateTurn(
 
     // ─ model reward（仅 modelHit + Active gating + Rm<D clamp） ─
     let modelReward = 0
-    if (modelHit && deriveState(aOld, threshold) === 'Active') {
-      const rawRm = computeModelReward(usOld, params)
-      // v4.0 §8 不变量：Rm < D 严格成立（避免 Rm≥D 时仍涨分）
-      modelReward = Math.max(0, Math.min(rawRm, decay - RM_CLAMP_EPSILON))
+    let rawRm = 0
+    let modelHitGated = false
+    if (modelHit) {
+      const modelOldState = deriveState(aOld, threshold)
+      if (modelOldState === 'Active') {
+        rawRm = computeModelReward(usOld, params)
+        // v4.0 §8 不变量：Rm < D 严格成立（避免 Rm≥D 时仍涨分）
+        modelReward = Math.max(0, Math.min(rawRm, decay - RM_CLAMP_EPSILON))
+        modelRewardRawSum += rawRm
+        modelRewardEffectiveSum += modelReward
+      } else {
+        // 模型命中但 aOld 不是 Active -> 被 Active gating 拦下
+        modelHitGated = true
+        modelHitsGated++
+      }
     }
 
     // ─ activation 更新 ─
@@ -171,6 +270,15 @@ export function updateTurn(
     }
     aNew = clampActivation(aNew, maxScore)
 
+    // ─ P2-31.5D/S-F04：everActivated 原子翻转（aNew > 0 则置 true，一旦为 true 不再回落） ─
+    const firstActivation = !everActivatedBefore && aNew > 0
+    if (aNew > 0) {
+      st.everActivated = true
+    }
+    if (firstActivation) {
+      firstActivations++
+    }
+
     // ─ commit ─
     st.activation = aNew
     st.userSilence = usNew
@@ -185,16 +293,53 @@ export function updateTurn(
       let archivedAt: number | null | undefined = undefined
       if (newState === 'Archived') {
         archivedAt = now() // 写入时间戳
+        archivedTransitions++ // P1：迁入 Archived 计数（R01/daily 真源）
       } else if (revivedFromArchived && newState === 'Active') {
         archivedAt = null // Floor 复活 -> 清空
       }
       transitions.push({ id, from: oldState, to: newState, archivedAt })
     }
+
+    // P1：收集更新后 activation 分布（daily 聚合均值/中位数真源）
+    activationValues.push(aNew)
+
+    // ─ P2-31.5D：收集逐条诊断 ─
+    entryDiagnostics.push({
+      memoryId: id,
+      userHit,
+      modelHit,
+      modelHitGated,
+      modelRewardRaw: rawRm,
+      modelRewardEffective: modelReward,
+      decay,
+      everActivatedBefore,
+      firstActivation,
+      stateBefore: oldState,
+      stateAfter: newState,
+      activationBefore: aOld,
+      userSilenceBefore: usOld,
+      modelSilenceBefore: msOld,
+      activationAfter: aNew,
+      userSilenceAfter: usNew,
+      modelSilenceAfter: msNew
+    })
   }
+
+  // P1：activation 分布统计（count/sum/mean/median）
+  const activationStats = computeActivationStats(activationValues)
 
   return {
     transitions,
-    stats: { userHits, modelHits, floorRevivals, totalDecay, active, dormant, archived }
+    stats: { userHits, modelHits, floorRevivals, totalDecay, active, dormant, archived },
+    diagnostics: {
+      entries: entryDiagnostics,
+      modelRewardRawSum,
+      modelRewardEffectiveSum,
+      modelHitsGated,
+      trueFloorRevivals: floorRevivals - firstActivations,
+      activationStats,
+      archivedTransitions
+    }
   }
 }
 
@@ -238,6 +383,21 @@ export function countStates(
     else archived++
   }
   return { active, dormant, archived }
+}
+
+/** 从一轮的 activation 值数组计算分布统计（count/sum/mean/median）。空数组 -> 全 0 */
+function computeActivationStats(values: number[]): {
+  count: number
+  sum: number
+  mean: number
+  median: number
+} {
+  if (values.length === 0) return { count: 0, sum: 0, mean: 0, median: 0 }
+  const sum = values.reduce((s, v) => s + v, 0)
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+  return { count: values.length, sum, mean: sum / values.length, median }
 }
 
 /**

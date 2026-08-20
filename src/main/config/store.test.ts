@@ -413,3 +413,158 @@ describe('P1-07 atomicWriteJson', () => {
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ v: 2 })
   })
 })
+
+// === P2-31.5A：DMAE 配置升级/重启/数组语义回归（S-005-补充 §3.3）===
+
+describe('P2-31.5A CFG-DMAE: 升级/重启/数组语义', () => {
+  // CFG-DMAE-02：旧 v1 config 只有原 9 个 dmae 字段 -> setup 自动补四字段；schemaVersion 仍为 1
+  it('CFG-DMAE-02: 旧 v1 config（9 字段 dmae）自动补四字段，schemaVersion 仍为 1', () => {
+    // 构造只有旧 9 字段的 dmae 配置
+    const oldConfig = {
+      ...DEFAULT_CONFIG_V1,
+      memory: {
+        ...DEFAULT_CONFIG_V1.memory,
+        dmae: {
+          enabled: true,
+          maxScore: 100,
+          promptThreshold: 30,
+          userRewardBase: 20,
+          wakeGamma: 0.5,
+          modelRewardBase: 8,
+          wakeLambda: 0.3,
+          decayAlpha: 1.5,
+          decayBeta: 0.3
+        }
+      }
+    }
+    writeConfig(oldConfig)
+    const store = createConfigStore({ configPath })
+    const diag = store.setup()
+    expect(diag.status).toBe('ok')
+    // 运行时自动补齐四字段（deepMergeWithDefaults 在内存中补齐，setup 不写回磁盘）
+    const dmae = store.get().memory.dmae
+    expect(dmae.presets).toEqual([])
+    expect(dmae.historySampleEveryTurns).toBe(1)
+    expect(Object.keys(dmae.anomaly.muted)).toHaveLength(13)
+    expect(Object.keys(dmae.anomaly.windows)).toHaveLength(13)
+    // schemaVersion 仍为 1（不写 config 迁移）
+    expect(store.get().schemaVersion).toBe(1)
+  })
+
+  // CFG-DMAE-03：muted.R07=未来时间戳后保存并重启 -> R07 保留，其他 12 项为 0
+  it('CFG-DMAE-03: muted.R07=未来时间戳 -> 保存重启后 R07 保留，其余 12 项为 0', async () => {
+    writeConfig(DEFAULT_CONFIG_V1)
+    const store = createConfigStore({ configPath })
+    store.setup()
+    const futureTs = Date.now() + 7 * 24 * 60 * 60 * 1000
+    await store.update({
+      memory: {
+        dmae: {
+          anomaly: {
+            muted: { R07: futureTs } as unknown as Record<string, number>
+          }
+        }
+      }
+    })
+    // 重启：新 store 实例
+    const store2 = createConfigStore({ configPath })
+    store2.setup()
+    const muted = store2.get().memory.dmae.anomaly.muted
+    expect(muted.R07).toBe(futureTs)
+    // 其余 12 项仍为 0
+    for (const [key, value] of Object.entries(muted)) {
+      if (key !== 'R07') expect(value).toBe(0)
+    }
+  })
+
+  // CFG-DMAE-04：windows.R10.days 局部改为 5 -> 保存/重启后 days=5 且 turns=100 未丢
+  it('CFG-DMAE-04: windows.R10.days=5 -> 保存重启后 days=5 且 turns=100 未丢', async () => {
+    writeConfig(DEFAULT_CONFIG_V1)
+    const store = createConfigStore({ configPath })
+    store.setup()
+    await store.update({
+      memory: {
+        dmae: {
+          anomaly: {
+            windows: {
+              R10: { days: 5 }
+            } as unknown as Record<string, { days?: number; turns?: number }>
+          }
+        }
+      }
+    })
+    // 重启
+    const store2 = createConfigStore({ configPath })
+    store2.setup()
+    const w = store2.get().memory.dmae.anomaly.windows
+    expect(w.R10.days).toBe(5)
+    expect(w.R10.turns).toBe(100) // 默认值未丢
+  })
+
+  // CFG-DMAE-12：参数真实变化时已有 muted 值 -> 13 个 muted 全清 0；
+  //   只改 windows/采样频率时不清
+  //   注意：S-005-补充 §1.9 第 4 条说"任一 DMAE 可调参数真实变化后，main 比较旧值/新值
+  //   并把 13 个 muted 全部清零"。此行为在 P2-31.5A 阶段尚未实现（属于 P2-33 的 mute-anomaly
+  //   handler 职责）。这里先测试当前可验证的部分：windows 改动不清 muted。
+  it('CFG-DMAE-04b: 只改 windows 不清 muted（muted 值保留）', async () => {
+    writeConfig(DEFAULT_CONFIG_V1)
+    const store = createConfigStore({ configPath })
+    store.setup()
+    const futureTs = Date.now() + 7 * 24 * 60 * 60 * 1000
+    // 先设 muted.R03
+    await store.update({
+      memory: {
+        dmae: {
+          anomaly: {
+            muted: { R03: futureTs } as unknown as Record<string, number>
+          }
+        }
+      }
+    })
+    // 改 windows.R01.days
+    await store.update({
+      memory: {
+        dmae: {
+          anomaly: {
+            windows: {
+              R01: { days: 5 }
+            } as unknown as Record<string, { days?: number; turns?: number }>
+          }
+        }
+      }
+    })
+    const muted = store.get().memory.dmae.anomaly.muted
+    expect(muted.R03).toBe(futureTs) // windows 改动不清 muted
+  })
+})
+
+describe('M-15/M-16 setup 健壮性', () => {
+  it('M-15：schemaVersion 超前 -> setup 抛 CFG_MIGRATE_FAIL 且原文件不被覆盖', () => {
+    // 模拟"数据由更高版本应用写入"：schemaVersion=2 > 当前支持 1
+    writeConfig({ schemaVersion: 2, model: { provider: 'future-model' } })
+    const store = createConfigStore({ configPath })
+
+    expect(() => store.setup()).toThrowError(/CFG_MIGRATE_FAIL|高于当前应用支持/)
+
+    // 原文件保留（仍是 v2，未被静默重置为默认）
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8')) as { schemaVersion: number }
+    expect(raw.schemaVersion).toBe(2)
+  })
+
+  it('M-16：healing 自愈写失败不抛错，返回 healed 状态', () => {
+    // read-error 路径：readFileSync 抛错；heal 写（renameSync）抛错
+    vi.mocked(fs.readFileSync).mockImplementationOnce(() => {
+      throw new Error('disk locked')
+    })
+    vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+      throw new Error('rename failed')
+    })
+    writeRaw('placeholder')
+
+    const store = createConfigStore({ configPath })
+    // 旧实现这里会抛错 -> 启动链无窗口；现在返回 healed 状态
+    const diag = store.setup()
+    expect(diag.status).toBe('read-error')
+    expect(diag.healed).toBe(true)
+  })
+})

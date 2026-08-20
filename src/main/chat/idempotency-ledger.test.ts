@@ -50,6 +50,8 @@ describe('P2-43 幂等账本：持久化与缓存定性', () => {
 
     ledger1.put('k1', makeRecord())
     expect(ledger1.size).toBe(1)
+    // M-28：put 走防抖写盘，断言前先 flushNow 落盘
+    ledger1.flushNow()
     // 隐私：账本只存正文 SHA-256，不重复落聊天明文
     expect(readFileSync(file, 'utf8')).not.toContain('你好')
 

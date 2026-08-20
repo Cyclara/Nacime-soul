@@ -10,6 +10,7 @@ import type { ErrorBuffer } from '../../observability/error-buffer'
 import { getMetrics } from '../../observability/metrics'
 import { getTracer } from '../../observability/tracer'
 import { registerValidatedHandler } from '../register'
+import { AppError } from '@shared/errors'
 
 /** Debug handler 依赖 */
 export interface DebugHandlerDeps {
@@ -31,6 +32,15 @@ export function registerDebugHandlers(deps: DebugHandlerDeps): void {
 
   // === companion:debug:get-snapshot ===
   registerValidatedHandler('companion:debug:get-snapshot', async (): Promise<DebugSnapshot> => {
+    // M-05：打包后的正式应用拒绝暴露内部调试信息（指标/绝对路径/错误码/trace）。
+    if (app.isPackaged) {
+      throw new AppError({
+        code: 'IPC_UNAUTHORIZED',
+        userMessage: '调试信息仅在开发模式可用',
+        severity: 'error',
+        retryable: false
+      })
+    }
     const uptimeSec = Math.floor((Date.now() - startTime) / 1000)
     const recentErrors = errorBuffer.snapshot()
 
@@ -48,6 +58,15 @@ export function registerDebugHandlers(deps: DebugHandlerDeps): void {
 
   // === companion:debug:open-log-folder ===
   registerValidatedHandler('companion:debug:open-log-folder', async () => {
+    // M-05：打包后的正式应用不允许打开本地日志文件夹。
+    if (app.isPackaged) {
+      throw new AppError({
+        code: 'IPC_UNAUTHORIZED',
+        userMessage: '日志文件夹仅在开发模式可用',
+        severity: 'error',
+        retryable: false
+      })
+    }
     // 日志文件路径在 userData/logs/ 下
     const logDir = app.getPath('logs')
     const openError = await shell.openPath(logDir)

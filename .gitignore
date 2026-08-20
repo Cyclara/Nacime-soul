@@ -9,6 +9,8 @@ out
 coverage/
 dist-electron/
 test-results/
+# Golden Eval 语义 rubric 报告（每次运行再生，含时间戳；人工评分基线另行快照）
+tests/evals/reports/
 
 # 编译缓存
 *.tsbuildinfo

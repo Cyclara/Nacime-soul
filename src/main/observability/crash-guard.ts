@@ -15,6 +15,7 @@ import * as path from 'node:path'
 import type { Logger } from '@shared/observability/types'
 import type { CrashContext } from '@shared/observability/types'
 import type { ErrorBuffer } from './error-buffer'
+import type { PublicAppError } from '@shared/errors'
 import { scrub } from './scrub'
 
 /** 熔断阈值：10 分钟内最多允许的 renderer 崩溃次数 */
@@ -35,6 +36,11 @@ export interface CrashGuardConfig {
   createWindow: () => BrowserWindow
   /** 显示崩溃对话框的回调（main 崩溃时调用） */
   showCrashDialog?: (reason: string) => void
+  /**
+   * M-07：向 renderer 推送 app-error 事件的可选回调。
+   * 接线后 main 的未处理 rejection 等可让 UI 显示错误横幅（此前 app-error 通道从未发射）。
+   */
+  onAppError?: (error: PublicAppError) => void
 }
 
 /** CrashGuard 实例 */
@@ -133,14 +139,21 @@ class CrashGuardImpl implements CrashGuard {
   }
 
   private onUnhandledRejection = (reason: unknown): void => {
-    const { logger } = this.config
+    const { logger, onAppError } = this.config
     const msg = reason instanceof Error ? reason.message : String(reason)
 
     logger.error(`unhandledRejection: ${scrub(msg)}`, {
       scope: 'crash',
       code: 'UNKNOWN'
     })
-    // 不崩溃，仅记录
+    // M-07：把 main 的内部异常推到 UI（通用文案，不含可能敏感的原始 message）。
+    // 不崩溃，仅记录 + 通知。
+    onAppError?.({
+      code: 'UNKNOWN',
+      message: '应用内部发生错误，已尝试继续运行。若反复出现，请反馈。',
+      severity: 'error',
+      retryable: false
+    })
   }
 
   private onRendererGone = (

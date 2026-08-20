@@ -40,6 +40,11 @@ function makeDmaeService(result: DmaeTurnResult): {
     updateTurn: updateTurnSpy,
     getActivation: () => 0,
     getStats: () => ({ active: 0, dormant: 0, archived: 0 }),
+    get lastSaveOk() {
+      return true
+    },
+    getL2Total: () => 0,
+    seedActivation: () => false,
     get pendingUserHitSessions() {
       return 0
     },
@@ -76,6 +81,15 @@ function emptyResult(overrides: Partial<DmaeTurnResult['stats']> = {}): DmaeTurn
       dormant: 0,
       archived: 0,
       ...overrides
+    },
+    diagnostics: {
+      entries: [],
+      modelRewardRawSum: 0,
+      modelRewardEffectiveSum: 0,
+      modelHitsGated: 0,
+      trueFloorRevivals: 0,
+      activationStats: { count: 0, sum: 0, mean: 0, median: 0 },
+      archivedTransitions: 0
     }
   }
 }
@@ -107,6 +121,126 @@ describe('C-γ-2 DMAE hook：sessionId 透传', () => {
     expect(updateTurnSpy).toHaveBeenCalledOnce()
     expect(updateTurnSpy).toHaveBeenCalledWith('session-X', ['m1'])
   })
+
+  it('P1: recordTurn 收到真实 l2Total，且每轮都 aggregateDaily（当日幂等 upsert）', () => {
+    const updateTurnSpy = vi
+      .fn()
+      .mockReturnValue(emptyResult({ active: 2, dormant: 1, archived: 0 }))
+    const recordTurnSpy = vi.fn()
+    const aggregateDailySpy = vi.fn()
+    const historyStore = {
+      recordTurn: recordTurnSpy,
+      aggregateDaily: aggregateDailySpy,
+      querySamples: () => [],
+      queryRecentSamples: () => [],
+      queryTurns: () => [],
+      queryDaily: () => [],
+      queryAnnotations: () => [],
+      addAnnotation: () => {},
+      pruneExpired: () => ({ samplesDeleted: 0, turnsDeleted: 0 })
+    }
+    const service = {
+      initialize: () => {},
+      selectL2: () => [],
+      updateTurn: updateTurnSpy,
+      getActivation: () => 0,
+      getStats: () => ({ active: 0, dormant: 0, archived: 0 }),
+      get lastSaveOk() {
+        return true
+      },
+      getL2Total: () => 42,
+      seedActivation: () => false,
+      get turn() {
+        return 3
+      },
+      get lastSelection() {
+        return null
+      },
+      get pendingUserHitSessions() {
+        return 0
+      },
+      get states() {
+        return new Map()
+      }
+    } as unknown as DmaeEngineService
+    const revisionClock = { next: vi.fn(), current: vi.fn(() => 0) }
+    const broadcaster = { notify: vi.fn(), flush: vi.fn(), dispose: vi.fn() }
+
+    const { hook } = createDmaeHook({
+      logger: makeLogger(),
+      dmaeService: service,
+      historyStore: historyStore as never,
+      getMemoryConfig: () => MEM_CFG,
+      revisionClock,
+      broadcaster
+    })
+
+    hook.fn({ event: 'turn.end' }, makeTurnEnd())
+    hook.fn({ event: 'turn.end' }, makeTurnEnd())
+
+    expect(recordTurnSpy).toHaveBeenCalledTimes(2)
+    expect(recordTurnSpy.mock.calls[0][0]).toMatchObject({
+      turn: 3,
+      counts: { active: 2, dormant: 1, archived: 0 },
+      l2Total: 42 // 修复前恒 0
+    })
+    // 每轮都聚合同日（修复前只在日期变化时聚合）
+    expect(aggregateDailySpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('P2: save 失败 -> 不记录历史（激活未落盘，历史行不能谎称持久化）', () => {
+    const updateTurnSpy = vi.fn().mockReturnValue(emptyResult())
+    const recordTurnSpy = vi.fn()
+    const historyStore = {
+      recordTurn: recordTurnSpy,
+      aggregateDaily: vi.fn(),
+      querySamples: () => [],
+      queryRecentSamples: () => [],
+      queryTurns: () => [],
+      queryDaily: () => [],
+      queryAnnotations: () => [],
+      addAnnotation: () => {},
+      pruneExpired: () => ({ samplesDeleted: 0, turnsDeleted: 0 })
+    }
+    const service = {
+      initialize: () => {},
+      selectL2: () => [],
+      updateTurn: updateTurnSpy,
+      getActivation: () => 0,
+      getStats: () => ({ active: 0, dormant: 0, archived: 0 }),
+      get lastSaveOk() {
+        return false // save 失败
+      },
+      getL2Total: () => 0,
+      seedActivation: () => false,
+      get turn() {
+        return 1
+      },
+      get lastSelection() {
+        return null
+      },
+      get pendingUserHitSessions() {
+        return 0
+      },
+      get states() {
+        return new Map()
+      }
+    } as unknown as DmaeEngineService
+    const revisionClock = { next: vi.fn(), current: vi.fn(() => 0) }
+    const broadcaster = { notify: vi.fn(), flush: vi.fn(), dispose: vi.fn() }
+
+    const { hook } = createDmaeHook({
+      logger: makeLogger(),
+      dmaeService: service,
+      historyStore: historyStore as never,
+      getMemoryConfig: () => MEM_CFG,
+      revisionClock,
+      broadcaster
+    })
+
+    hook.fn({ event: 'turn.end' }, makeTurnEnd())
+    expect(recordTurnSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('C-γ-2 DMAE hook：activation 变化时广播（问题 B）', () => {
@@ -121,6 +255,15 @@ describe('C-γ-2 DMAE hook：activation 变化时广播（问题 B）', () => {
         active: 1,
         dormant: 0,
         archived: 0
+      },
+      diagnostics: {
+        entries: [],
+        modelRewardRawSum: 0,
+        modelRewardEffectiveSum: 0,
+        modelHitsGated: 0,
+        trueFloorRevivals: 0,
+        activationStats: { count: 0, sum: 0, mean: 0, median: 0 },
+        archivedTransitions: 0
       }
     }
     const { service } = makeDmaeService(result)
@@ -270,6 +413,11 @@ describe('C-γ-2 DMAE hook：硬门与 failOpen', () => {
       updateTurn: updateTurnSpy,
       getActivation: () => 0,
       getStats: () => ({ active: 0, dormant: 0, archived: 0 }),
+      get lastSaveOk() {
+        return true
+      },
+      getL2Total: () => 0,
+      seedActivation: () => false,
       get pendingUserHitSessions() {
         return 0
       },

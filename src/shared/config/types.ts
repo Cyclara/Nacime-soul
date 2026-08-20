@@ -3,6 +3,8 @@
 // 依据：S-005 §3.1-§3.7、S-002 §3.3、S-003 §3.5
 
 import type { ErrorCode } from '../errors'
+import type { DmaeAnomalyConfig, UserDmaePreset } from '../memory/dmae-config'
+import type { ThemeSetting } from './themes'
 
 // === 协议与枚举 ===
 
@@ -64,6 +66,12 @@ export interface MemoryConfig {
     wakeLambda: number
     decayAlpha: number
     decayBeta: number
+    /** P2-31.5A：只存用户预设；内置预设常驻代码（BUILTIN_PRESETS）。默认 [] */
+    presets: UserDmaePreset[]
+    /** P2-31.5A：异常检测静音/窗口，13 个键完整列。 */
+    anomaly: DmaeAnomalyConfig
+    /** P2-31.5A：每 N 个全局 DMAE turn 采样一次。1..10，默认 1。 */
+    historySampleEveryTurns: number
   }
 }
 
@@ -71,7 +79,7 @@ export interface MemoryConfig {
 
 export interface UiConfig {
   locale: 'zh-CN' | 'en-US'
-  theme: 'system' | 'light' | 'dark'
+  theme: ThemeSetting
   fontScale: number
   reduceMotion: boolean
   window: {
@@ -124,10 +132,14 @@ export interface AppConfigV1 {
 
 export interface PublicModelConfig {
   provider: string
+  protocol: Protocol
   baseUrl: string
   model: string
+  displayName: string
   temperature: number
+  topP: number
   maxTokens: number
+  timeoutMs: number
   /** 思考模式档位（UI toggle 只用 'off' 和 'high' 两值） */
   reasoningEffort: ReasoningEffort
   /**

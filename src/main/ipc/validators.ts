@@ -29,6 +29,11 @@ import type {
 } from '@shared/config/types'
 import type {
   DmaeHistoryRequest,
+  DmaeTrendRequest,
+  DmaeExplainRequest,
+  DmaeBenchmarkRequest,
+  DmaeQualitativeRequest,
+  DmaeMuteRequest,
   GrowthTimelineRequest,
   GrowthTrendRequest,
   MemoryDeleteRequest,
@@ -200,6 +205,102 @@ function isPartialTtsConfig(value: unknown): boolean {
   })
 }
 
+// === Phase 2 P2-31.5A：DMAE 预设/异常检测 validator（S-005-补充 §1.7）===
+
+import {
+  ANOMALY_RULE_IDS,
+  PRESET_ID_REGEX,
+  WINDOW_KEYS,
+  type AnomalyRuleId
+} from '@shared/memory/dmae-config'
+
+const ANOMALY_RULE_ID_SET = new Set<string>(ANOMALY_RULE_IDS)
+
+function isAnomalyRuleId(value: unknown): value is AnomalyRuleId {
+  return typeof value === 'string' && ANOMALY_RULE_ID_SET.has(value)
+}
+
+/** 可调参数 overrides（partial，允许空对象） */
+function isTunableOverrides(value: unknown): boolean {
+  return validatePartialFields(value, {
+    promptThreshold: (x) => isNumber(x, { min: 1, max: 99 }),
+    userRewardBase: (x) => isNumber(x, { min: 10, max: 30 }),
+    wakeGamma: (x) => isNumber(x, { min: 0.3, max: 0.8 }),
+    modelRewardBase: (x) => isNumber(x, { min: 5, max: 12 }),
+    wakeLambda: (x) => isNumber(x, { min: 0.1, max: 0.5 }),
+    decayAlpha: (x) => isNumber(x, { min: 0.3, max: 2 }),
+    decayBeta: (x) => isNumber(x, { min: 0.05, max: 0.5 })
+  })
+}
+
+function isDmaePreset(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (
+    !hasOnlyKeys(value, [
+      'id',
+      'name',
+      'description',
+      'baseline',
+      'overrides',
+      'builtin',
+      'createdAt',
+      'updatedAt'
+    ])
+  )
+    return false
+
+  return (
+    isString(value.id, { minLen: 13, maxLen: 76 }) &&
+    PRESET_ID_REGEX.test(value.id) &&
+    isString(value.name, { minLen: 1, maxLen: 40 }) &&
+    isString(value.description, { maxLen: 160 }) &&
+    value.baseline === 'default' &&
+    isTunableOverrides(value.overrides) &&
+    value.builtin === false &&
+    isNumber(value.createdAt, { min: 0, max: Number.MAX_SAFE_INTEGER, integer: true }) &&
+    isNumber(value.updatedAt, { min: 0, max: Number.MAX_SAFE_INTEGER, integer: true }) &&
+    value.updatedAt >= value.createdAt
+  )
+}
+
+function isDmaePresets(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 50) return false
+  if (!value.every(isDmaePreset)) return false
+  return new Set(value.map((preset) => (preset as { id: string }).id)).size === value.length
+}
+
+function isPartialMuted(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  return Object.entries(value).every(
+    ([ruleId, until]) =>
+      isAnomalyRuleId(ruleId) &&
+      isNumber(until, { min: 0, max: Number.MAX_SAFE_INTEGER, integer: true })
+  )
+}
+
+function isWindowPatch(ruleId: AnomalyRuleId, value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, [...WINDOW_KEYS[ruleId]])) return false
+  if ('days' in value && !isNumber(value.days, { min: 1, max: 365, integer: true })) return false
+  if ('turns' in value && !isNumber(value.turns, { min: 1, max: 10_000, integer: true }))
+    return false
+  return true
+}
+
+function isPartialWindows(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  return Object.entries(value).every(
+    ([ruleId, window]) => isAnomalyRuleId(ruleId) && isWindowPatch(ruleId as AnomalyRuleId, window)
+  )
+}
+
+function isPartialAnomalyConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    muted: isPartialMuted,
+    windows: isPartialWindows
+  })
+}
+
 /** MemoryConfig.dmae 子对象验证 */
 function isPartialDmaeConfig(value: unknown): boolean {
   return validatePartialFields(value, {
@@ -211,7 +312,11 @@ function isPartialDmaeConfig(value: unknown): boolean {
     modelRewardBase: (v) => isNumber(v, { min: 5, max: 12 }),
     wakeLambda: (v) => isNumber(v, { min: 0.1, max: 0.5 }),
     decayAlpha: (v) => isNumber(v, { min: 0.3, max: 2 }),
-    decayBeta: (v) => isNumber(v, { min: 0.05, max: 0.5 })
+    decayBeta: (v) => isNumber(v, { min: 0.05, max: 0.5 }),
+    // P2-31.5A：四字段 validator（S-005-补充 §1.7）
+    presets: isDmaePresets,
+    anomaly: isPartialAnomalyConfig,
+    historySampleEveryTurns: (v) => isNumber(v, { min: 1, max: 10, integer: true })
   })
 }
 
@@ -437,6 +542,51 @@ function isGrowthTrendRequest(value: unknown): value is GrowthTrendRequest {
   return typeof value.days === 'number' && DMAE_HISTORY_DAYS.has(value.days)
 }
 
+// === Phase 2 P2-32：DMAE 面板 invoke validator（F5-002 §3.7）===
+
+function isDmaeTrendRequest(value: unknown): value is DmaeTrendRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['days'])) return false
+  return typeof value.days === 'number' && DMAE_HISTORY_DAYS.has(value.days)
+}
+
+function isDmaeExplainRequest(value: unknown): value is DmaeExplainRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId'])) return false
+  return isMemoryId(value.memoryId)
+}
+
+// === Phase 2 P2-34：DMAE 基准体检 invoke validator（F5-002 §3.6）===
+
+function isDmaeBenchmarkRequest(value: unknown): value is DmaeBenchmarkRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['windowDays'])) return false
+  return typeof value.windowDays === 'number' && DMAE_HISTORY_DAYS.has(value.windowDays)
+}
+
+/** Q1~Q3 是 0..3 整数；note 可选字符串（≤200 字符） */
+function isDmaeQualitativeRequest(value: unknown): value is DmaeQualitativeRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['q1', 'q2', 'q3', 'note'])) return false
+  for (const k of ['q1', 'q2', 'q3'] as const) {
+    if (!isNumber(value[k], { min: 0, max: 3, integer: true })) return false
+  }
+  if ('note' in value && value.note !== undefined) {
+    if (!isString(value.note, { minLen: 0, maxLen: 200 })) return false
+  }
+  return true
+}
+
+/** M-26：DMAE 异常静音请求：ruleId 必须是注册表内规则，days 1-365 正整数 */
+function isDmaeMuteRequest(value: unknown): value is DmaeMuteRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['ruleId', 'days'])) return false
+  if (!isString(value.ruleId, { minLen: 3, maxLen: 16 })) return false
+  if (!(ANOMALY_RULE_IDS as readonly string[]).includes(value.ruleId as string)) return false
+  if (!isNumber(value.days, { min: 1, max: 365, integer: true })) return false
+  return true
+}
+
 // === IPC_VALIDATORS：satisfies Record 保证全覆盖 ===
 
 export const IPC_VALIDATORS = {
@@ -471,7 +621,16 @@ export const IPC_VALIDATORS = {
   // ── Phase 2：growth（3 invoke）──
   'companion:growth:get-profile': (v: unknown): v is undefined => v === undefined,
   'companion:growth:get-timeline': isGrowthTimelineRequest,
-  'companion:growth:get-trend': isGrowthTrendRequest
+  'companion:growth:get-trend': isGrowthTrendRequest,
+  // ── Phase 2 P2-32：DMAE 面板（F5-002 §3.7）──
+  'companion:dmae:get-panel': (v: unknown): v is undefined => v === undefined,
+  'companion:dmae:get-trend': isDmaeTrendRequest,
+  'companion:dmae:explain': isDmaeExplainRequest,
+  // ── Phase 2 P2-34：DMAE 基准体检（F5-002 §3.6）──
+  'companion:dmae:run-benchmark': isDmaeBenchmarkRequest,
+  'companion:dmae:record-qualitative': isDmaeQualitativeRequest,
+  // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道）──
+  'companion:dmae:mute-anomaly': isDmaeMuteRequest
 } satisfies { [K in IpcInvokeChannel]: Validator<IpcInvokeMap[K]['req']> }
 
 /**

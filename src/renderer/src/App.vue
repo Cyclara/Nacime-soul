@@ -8,10 +8,15 @@ import { useAppStore } from './stores/app'
 import { useConfigStore } from './stores/config'
 import { bootstrapApp } from './orchestrators/bootstrap'
 import type { Unsubscribe } from '@shared/ipc/contracts'
+import type { ThemeSetting } from '@shared/config/themes'
+import { isThemeId } from '@shared/config/themes'
 import DebugPanel from './components/debug/DebugPanel.vue'
+import SettingsDrawer from './components/settings/SettingsDrawer.vue'
+import AppErrorBanner from './components/common/AppErrorBanner.vue'
 
 const appStore = useAppStore()
 const configStore = useConfigStore()
+const isAutomatedTest = window.location.search.includes('automation-test=1')
 
 let bootstrapTeardown: Unsubscribe | null = null
 let bootstrapInFlight = false
@@ -19,17 +24,22 @@ let bootstrapAttempt = 0
 let isMounted = false
 let colorSchemeMedia: MediaQueryList | null = null
 
-function applyTheme(theme: 'system' | 'light' | 'dark' | undefined): void {
+/**
+ * 应用主题：把配置值映射到 documentElement.dataset.theme。
+ * 主题注册表在 @shared/config/themes（THEME_IDS）——新增主题只需注册表加 id + CSS 加一块。
+ * - 已知主题（light/dark/…）-> 直接设置
+ * - 'system' -> 跟随 OS prefers-color-scheme
+ * - undefined/未知 -> 默认浅色（config 加载前避免闪黑）
+ */
+function applyTheme(theme: ThemeSetting | undefined): void {
   const root = document.documentElement
-  if (theme === 'light') {
-    root.dataset.theme = 'light'
-  } else if (theme === 'dark' || theme === undefined) {
-    // config 加载前默认暗色，避免闪白
-    root.dataset.theme = 'dark'
-  } else {
-    // system
+  if (theme === 'system') {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     root.dataset.theme = prefersDark ? 'dark' : 'light'
+  } else if (theme !== undefined && isThemeId(theme)) {
+    root.dataset.theme = theme
+  } else {
+    root.dataset.theme = 'light'
   }
 }
 
@@ -96,6 +106,32 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <div v-if="isAutomatedTest" class="automation-test-banner" role="status">
+    自动化测试窗口 · 使用临时虚构数据 · 不写入正式资料
+  </div>
+  <!-- M-32：错误横幅提升到根组件，所有路由（聊天/记忆/成长/DMAE）都能看到全局错误 -->
+  <AppErrorBanner />
   <RouterView />
+  <SettingsDrawer />
   <DebugPanel />
 </template>
+
+<style scoped>
+.automation-test-banner {
+  position: fixed;
+  z-index: 1200;
+  top: 8px;
+  left: 50%;
+  padding: 6px 13px;
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-warning-bg) 88%, var(--color-surface-elevated));
+  box-shadow: var(--shadow-md);
+  color: var(--color-warning);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+</style>

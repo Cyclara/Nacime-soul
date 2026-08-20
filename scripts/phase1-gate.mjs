@@ -97,8 +97,10 @@ console.log('\n--- 安全扫描 ---')
 // 排除 .test.ts（测试中的 fake key 如 'sk-test' 是允许的）和 secret-store.ts（前缀常量定义）
 scanStep('源码无明文 API key', () => {
   const keyPatterns = [
-    /sk-[a-zA-Z0-9]{20,}/, // OpenAI 风格
-    /sk-ant-[a-zA-Z0-9]{20,}/, // Anthropic 风格
+    // sk- 后跟可选 proj-/ant-api03- 段 + 至少 16 个 key 字符（含连字符）。
+    // 覆盖 OpenAI 旧/新格式（sk-xxx / sk-proj-xxx）与 Anthropic（sk-ant-api03-xxx），
+    // 与日志脱敏规则（/sk-[A-Za-z0-9_-]{8,}/）对齐——拦截层不得弱于脱敏层。
+    /\bsk-(?:ant-api03-|proj-)?[A-Za-z0-9_-]{16,}/, // OpenAI/Anthropic 风格
     /\b[Aa]uthorization:\s*Bearer\s+[a-zA-Z0-9._-]{20,}/ // Bearer token
   ]
   const issues = []

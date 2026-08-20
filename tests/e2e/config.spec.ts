@@ -28,15 +28,15 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
   })
 
   try {
-    const window = await app.firstWindow()
+    const win = await app.firstWindow()
 
     // 等待引导表单出现（确认应用就绪）
-    await window.waitForSelector('input[placeholder="https://api.deepseek.com"]', {
+    await win.waitForSelector('input[placeholder="https://api.deepseek.com"]', {
       timeout: 30_000
     })
 
     // 通过 IPC 保存配置（含 apiKey）
-    await window.evaluate(async () => {
+    await win.evaluate(async () => {
       await window.companion.config.update({
         expectedSchemaVersion: 1,
         domains: {
@@ -63,14 +63,14 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
   })
 
   try {
-    const window = await app2.firstWindow()
+    const win = await app2.firstWindow()
 
     // 验证跳过引导（textarea 出现 = hasApiKey=true = 配置已保存）
-    await window.waitForSelector('textarea', { timeout: 30_000 })
-    expect(await window.isVisible('textarea')).toBe(true)
+    await win.waitForSelector('textarea', { timeout: 30_000 })
+    expect(await win.isVisible('textarea')).toBe(true)
 
     // 验证引导不再显示
-    const guideVisible = await window.isVisible('input[placeholder="https://api.deepseek.com"]')
+    const guideVisible = await win.isVisible('input[placeholder="https://api.deepseek.com"]')
     expect(guideVisible).toBe(false)
   } finally {
     await app2.close()

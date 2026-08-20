@@ -97,6 +97,9 @@ describe('P2-43 ChatService 跨重启幂等', () => {
     const messagesBeforeRestart = store1.getMessages(sessionId, 100)
     expect(messagesBeforeRestart.filter((m) => m.role === 'user')).toHaveLength(1)
 
+    // M-28：put 走防抖写盘，重启前 flushNow 落盘
+    ledger1.flushNow()
+
     // 模拟 main 重启：新 ChatService + 新账本实例（进程内 clientRequests 已空）
     const store2 = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
     const ledger2 = createIdempotencyLedger({ filePath: ledgerPath, logger: testNoopLogger })
@@ -129,6 +132,8 @@ describe('P2-43 ChatService 跨重启幂等', () => {
     const ack1 = await service1.send(request, collector1.sink)
     await collector1.done
     await vi.waitFor(() => expect(ledger1.get('client-failed')?.state).toBe('failed'))
+    // M-28：防抖写盘，重启前 flushNow 落盘（否则 ledger2 看不到 failed 记录，逃生门测不到）
+    ledger1.flushNow()
 
     // 模拟重启后用同 clientRequestId 重试：failed 不能返回死 ACK，必须真实跑一轮
     const store2 = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })

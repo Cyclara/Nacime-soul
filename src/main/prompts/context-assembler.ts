@@ -24,6 +24,7 @@ import type { L1Store } from '../memory/l1-store'
 import type { L2Store, L2Memory } from '../memory/l2-store'
 import type { EmbeddingClient } from '../memory/embedding'
 import type { VectorStore, VectorSearchHit } from '../memory/vector/types'
+import { isInstructionLikeContent } from './injection-guard'
 import type {
   HydratedHit,
   PromptBuildContext,
@@ -190,13 +191,26 @@ export function createPromptContextAssembler(
     // 3. hydrate（逐 ID 查 L2 元数据；丢弃不存在/非活跃态/sync failed）
     //    S-011 §1.2：只允许 lifecycleState=active/dormant 进 prompt。
     //    archived（被 supersede）/soft_deleted/purged 都不得出现，否则给模型矛盾信息。
+    //    M-06：丢弃命中指令注入模式的记忆（记忆投毒/间接注入防护），并记录计数。
     const hydrated: HydratedHit[] = []
+    let injectionDropped = 0
     for (const hit of hits) {
       const mem = l2.get(hit.memoryId)
       if (!mem) continue
       if (mem.lifecycleState !== 'active' && mem.lifecycleState !== 'dormant') continue
       if (mem.syncStatus === 'failed') continue
+      if (isInstructionLikeContent(mem.content)) {
+        injectionDropped++
+        continue
+      }
       hydrated.push({ memory: mem, retrievalScore: hit.score })
+    }
+    if (injectionDropped > 0) {
+      logger.warn('L2 injection-like memories dropped before prompt assembly', {
+        scope: 'memory',
+        code: 'UNKNOWN',
+        metrics: { dropped: injectionDropped }
+      })
     }
 
     // 4. select（默认 retrieval score 排序；P2-25 后 DMAE activation）

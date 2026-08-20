@@ -65,8 +65,8 @@ describe('DmaeStateStore load/save 往返', () => {
       ['m2', 0, 10, 10],
       ['m3', 100, 0, 0]
     ])
-    store.save(original)
-    const loaded = store.load()
+    store.save(original, 0)
+    const loaded = store.load().states
     expect(loaded.size).toBe(3)
     expect(loaded.get('m1')).toEqual({
       activation: 50,
@@ -91,10 +91,10 @@ describe('DmaeStateStore load/save 往返', () => {
   it('重启后 activation 延续（D-04 核心验收）', () => {
     const store = createDmaeStateStore({ filePath, logger: makeLogger() })
     // 模拟第 1 次运行：保存 activation=75
-    store.save(makeStates([['m1', 75, 5, 3]]))
+    store.save(makeStates([['m1', 75, 5, 3]]), 7)
     // 模拟重启：新 store 实例 load
     const store2 = createDmaeStateStore({ filePath, logger: makeLogger() })
-    const loaded = store2.load()
+    const loaded = store2.load().states
     expect(loaded.get('m1')!.activation).toBe(75)
     expect(loaded.get('m1')!.userSilence).toBe(5)
     expect(loaded.get('m1')!.modelSilence).toBe(3)
@@ -102,9 +102,36 @@ describe('DmaeStateStore load/save 往返', () => {
 
   it('save 空 Map 也能 load', () => {
     const store = createDmaeStateStore({ filePath, logger: makeLogger() })
-    store.save(new Map())
-    const loaded = store.load()
+    store.save(new Map(), 0)
+    const loaded = store.load().states
     expect(loaded.size).toBe(0)
+  })
+
+  it('P0: turn 与 states 同快照往返（重启延续的核心）', () => {
+    const store = createDmaeStateStore({ filePath, logger: makeLogger() })
+    store.save(makeStates([['m1', 42, 0, 0]]), 7)
+    const loaded = store.load()
+    expect(loaded.turn).toBe(7)
+    expect(loaded.states.get('m1')!.activation).toBe(42)
+
+    // 再存一个更大的 turn，模拟多轮递增
+    store.save(makeStates([['m1', 30, 1, 1]]), 9)
+    const loaded2 = store.load()
+    expect(loaded2.turn).toBe(9)
+  })
+
+  it('P0: 非法 turn（缺失/负数/非整数）回退 0，不污染加载', () => {
+    // 缺失 turn（防御旧文件）
+    fs.writeFileSync(filePath, JSON.stringify({ schemaVersion: 4, entries: {} }))
+    expect(createDmaeStateStore({ filePath, logger: makeLogger() }).load().turn).toBe(0)
+
+    // 负 turn
+    fs.writeFileSync(filePath, JSON.stringify({ schemaVersion: 4, turn: -5, entries: {} }))
+    expect(createDmaeStateStore({ filePath, logger: makeLogger() }).load().turn).toBe(0)
+
+    // 非整数
+    fs.writeFileSync(filePath, JSON.stringify({ schemaVersion: 4, turn: 1.5, entries: {} }))
+    expect(createDmaeStateStore({ filePath, logger: makeLogger() }).load().turn).toBe(0)
   })
 })
 
@@ -112,7 +139,7 @@ describe('DmaeStateStore 文件缺失 = 首次启动', () => {
   it('文件不存在 -> load 返回空 Map（不 warn）', () => {
     const logger = makeLogger()
     const store = createDmaeStateStore({ filePath, logger })
-    const loaded = store.load()
+    const loaded = store.load().states
     expect(loaded.size).toBe(0)
     expect(logger.warns).toHaveLength(0)
   })
@@ -160,7 +187,7 @@ describe('DmaeStateStore 损坏 = 阻断启动（C-α-2：不许静默清空）'
     }
     fs.writeFileSync(filePath, JSON.stringify(data))
     const store = createDmaeStateStore({ filePath, logger: makeLogger() })
-    const loaded = store.load()
+    const loaded = store.load().states
     expect(loaded.size).toBe(2)
     expect(loaded.has('m1')).toBe(true)
     expect(loaded.has('m4')).toBe(true)
@@ -178,7 +205,7 @@ describe('DmaeStateStore 损坏 = 阻断启动（C-α-2：不许静默清空）'
     }
     fs.writeFileSync(filePath, JSON.stringify(data))
     const store = createDmaeStateStore({ filePath, logger: makeLogger() })
-    const loaded = store.load()
+    const loaded = store.load().states
     expect(loaded.size).toBe(0)
   })
 })
@@ -244,5 +271,114 @@ describe('reconcileStates 孤儿清理 + 新增初始化', () => {
     for (const st of states.values()) {
       expect(st.activation).toBe(0)
     }
+  })
+})
+
+// === P2-31.5C1-9/C1-10：state-file 健康度（F5-002 §3.7 R11 数据源）===
+
+describe('P2-31.5C1: DmaeStateStore 健康度', () => {
+  it('C1-10a: 初始健康度全清零（lastLoadReset=null, lastSaveOk=true, lastSaveAt=null, saveFailures7d=0）', () => {
+    const store = createDmaeStateStore({ filePath, logger: makeLogger() })
+    const h = store.getHealth()
+    expect(h.lastLoadReset).toBeNull()
+    expect(h.lastSaveOk).toBe(true)
+    expect(h.lastSaveAt).toBeNull()
+    expect(h.saveFailures7d).toBe(0)
+  })
+
+  it('C1-10b: 成功 save 后 lastSaveOk=true, lastSaveAt 非空', () => {
+    const store = createDmaeStateStore({ filePath, logger: makeLogger() })
+    store.save(makeStates([['m1', 50, 0, 0]]), 0)
+    const h = store.getHealth()
+    expect(h.lastSaveOk).toBe(true)
+    expect(h.lastSaveAt).not.toBeNull()
+    expect(h.saveFailures7d).toBe(0)
+  })
+
+  it('C1-10c: save 失败 -> lastSaveOk=false, saveFailures7d 递增', () => {
+    const store = createDmaeStateStore({
+      filePath: '/nonexistent/path/dmae-state.json',
+      logger: makeLogger()
+    })
+    store.save(makeStates([['m1', 50, 0, 0]]), 0) // 写入不存在的目录 -> 失败
+    const h = store.getHealth()
+    expect(h.lastSaveOk).toBe(false)
+    expect(h.saveFailures7d).toBe(1)
+    expect(h.lastSaveAt).toBeNull() // 从未成功 save
+  })
+
+  it('C1-10d: 多次 save 失败累计 saveFailures7d', () => {
+    const store = createDmaeStateStore({
+      filePath: '/nonexistent/path/dmae-state.json',
+      logger: makeLogger()
+    })
+    store.save(makeStates([['m1', 50, 0, 0]]), 0)
+    store.save(makeStates([['m2', 30, 0, 0]]), 1)
+    store.save(makeStates([['m3', 10, 0, 0]]), 2)
+    expect(store.getHealth().saveFailures7d).toBe(3)
+  })
+
+  it('C1-10e: 坏 JSON -> load 抛错前 lastLoadReset 被设置', () => {
+    fs.writeFileSync(filePath, '{ not valid json }}}')
+    const store = createDmaeStateStore({ filePath, logger: makeLogger() })
+    try {
+      store.load()
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error)
+    }
+    // 即使 load 抛错，健康度记录了 load reset
+    const h = store.getHealth()
+    expect(h.lastLoadReset).not.toBeNull()
+  })
+
+  it('C1-10f: schemaVersion 不符 -> load 抛错前 lastLoadReset 被设置', () => {
+    fs.writeFileSync(filePath, JSON.stringify({ schemaVersion: 99, entries: {} }))
+    const store = createDmaeStateStore({ filePath, logger: makeLogger() })
+    try {
+      store.load()
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error)
+    }
+    expect(store.getHealth().lastLoadReset).not.toBeNull()
+  })
+
+  it('P2: reset 原因忠实记录（invalid-json / schema-mismatch / none）', () => {
+    // 坏 JSON -> invalid-json
+    fs.writeFileSync(filePath, '{ not valid json }}}')
+    const store1 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    try {
+      store1.load()
+    } catch {
+      /* expected */
+    }
+    expect(store1.getHealth().lastLoadResetReason).toBe('invalid-json')
+
+    // 版本不符 -> schema-mismatch
+    fs.writeFileSync(filePath, JSON.stringify({ schemaVersion: 99, entries: {} }))
+    const store2 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    try {
+      store2.load()
+    } catch {
+      /* expected */
+    }
+    expect(store2.getHealth().lastLoadResetReason).toBe('schema-mismatch')
+
+    // 正常 load -> none
+    const store3 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    store3.save(new Map(), 0)
+    const store4 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    store4.load()
+    expect(store4.getHealth().lastLoadResetReason).toBeNull()
+  })
+
+  it('C1-10g: 正常 load 不设置 lastLoadReset', () => {
+    const store = createDmaeStateStore({ filePath, logger: makeLogger() })
+    store.save(makeStates([['m1', 50, 0, 0]]), 0)
+    // 新 store 实例 load（模拟重启）
+    const store2 = createDmaeStateStore({ filePath, logger: makeLogger() })
+    store2.load()
+    expect(store2.getHealth().lastLoadReset).toBeNull()
   })
 })

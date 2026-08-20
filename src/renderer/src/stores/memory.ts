@@ -56,7 +56,10 @@ export const useMemoryStore = defineStore('memory', () => {
     l0: null,
     l2Items: [],
     l2Total: 0,
-    query: { limit: 50, offset: 0 },
+    // M-12：初始 query 带 state='active'，与 L2MemoryList 默认"活跃"标签一致。
+    // 修复前 query 无 state 过滤 -> 首屏 hydrate 拉全状态列表，但 UI 高亮"活跃"，
+    // 且再次点击"活跃"值未变不触发 watch，无法就地修正。
+    query: { limit: 50, offset: 0, state: 'active' },
     dmae: null,
     selectedDetail: null,
     loading: false,

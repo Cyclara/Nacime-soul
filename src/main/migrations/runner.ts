@@ -26,7 +26,7 @@ import {
   type PendingMigration,
   type StoreKind
 } from './types'
-import { readJsonVersion, setJsonVersion } from './atomic-json'
+import { readJsonVersion, setJsonVersion, getJsonVersion } from './atomic-json'
 import { createBackup, restoreBackup, type JsonStoreFile } from './backup'
 import { clearSentinel, readSentinel, writeSentinel, validateSentinel } from './sentinel'
 
@@ -211,6 +211,20 @@ export function createMigrationRunner(deps: MigrationRunnerDeps): MigrationRunne
       // dry-run 时文件在 scratchDir 副本，真跑时在 jsonStore.filePath 原位
       const targetPath = dryRun ? path.join(ctxDataDir, path.basename(js.filePath)) : js.filePath
       setJsonVersion(targetPath, m.id)
+      // C0-1（F5-013 勘误 3b）：后置断言--验证版本号确实落盘且等于 m.id。
+      // setJsonVersion 成功时版本号必然为 m.id，此断言是 defense-in-depth：
+      // 捕获 setJsonVersion 静默失败、文件系统竞态、或迁移 up() 事后回写错误版本等极端情况。
+      // 在 dry-run 阶段触发 -> 真身未动 -> 干净中止（F5-013 勘误 §3 第 1 条）。
+      const actualVersion = getJsonVersion(targetPath)
+      if (actualVersion !== m.id) {
+        throw new AppError({
+          code: 'MEM_MIGRATE_FAIL',
+          userMessage: `迁移 ${m.id} 完成后 ${path.basename(targetPath)} 版本号校验失败（期望 ${m.id}，实际 ${actualVersion}）`,
+          severity: 'error',
+          retryable: false,
+          cause: { file: targetPath, expected: m.id, actual: actualVersion }
+        })
+      }
     }
   }
 
@@ -389,6 +403,8 @@ export function createMigrationRunner(deps: MigrationRunnerDeps): MigrationRunne
             })
           }
           if (db.open) db.close()
+          // `dry.failedAt ?? -1`：dry-run 在迁移循环前失败（scratch 打开失败）时 failedAt 为 undefined；
+          // 属防御性 fallback，正常失败路径 failedAt 必已赋值
           logger.error('migration dry-run failed; aborting (real data untouched)', {
             scope: 'migrate',
             code: 'MEM_MIGRATE_FAIL',
@@ -428,6 +444,7 @@ export function createMigrationRunner(deps: MigrationRunnerDeps): MigrationRunne
                 detail: re instanceof Error ? re.message : String(re)
               })
             }
+            // backupPath 为 null 时必然是 fresh 路径（非 fresh 必先建备份），isFresh=false 假分支不可达
           } else if (isFresh) {
             // C-α-3：fresh 路径无备份可恢复。删除本次运行创建的所有文件，回到 fresh 状态。
             // isFresh 保证这些文件迁移前不存在，删除安全。
@@ -509,7 +526,9 @@ function targetVersions(
   versions: Partial<Record<StoreKind, number>>
 ): Record<string, number> {
   const to: Record<string, number> = {}
-  for (const [k, v] of Object.entries(versions)) if (v !== undefined) to[k] = v
+  // readVersions 保证每个 key 都有确定值（getDbVersion / readJsonVersionOrThrow 均返回 number），
+  // 无 undefined 值，直接断言类型（消除恒真防御分支，P2-45 100% branch）。
+  for (const [k, v] of Object.entries(versions)) to[k] = v as number
   for (const m of pending) to[m.store] = m.id
   return to
 }

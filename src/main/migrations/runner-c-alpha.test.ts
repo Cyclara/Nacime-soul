@@ -11,8 +11,8 @@ import type { Migration } from './types'
 import { createMigrationRunner } from './runner'
 import { MIGRATIONS } from './registry'
 import { writeSentinel, clearSentinel, validateSentinel, sentinelPath } from './sentinel'
-import { createBackup } from './backup'
-import { atomicWriteJson } from './atomic-json'
+import { createBackup, restoreBackup } from './backup'
+import { atomicWriteJson, getJsonVersion } from './atomic-json'
 import { migration as m001 } from './scripts/001_init'
 import { migration as m002 } from './scripts/002_extraction_key'
 import { migration as m004 } from './scripts/004_dmae_state_v2'
@@ -23,6 +23,18 @@ import { migration as m004 } from './scripts/004_dmae_state_v2'
 vi.mock('./sentinel', async (importOriginal) => {
   const mod = await importOriginal<typeof import('./sentinel')>()
   return { ...mod, clearSentinel: vi.fn(mod.clearSentinel) }
+})
+
+// C-α-4（P2-45 补测）：createBackup / restoreBackup 失败分支同样用 mock 包装注入。
+vi.mock('./backup', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('./backup')>()
+  return { ...mod, createBackup: vi.fn(mod.createBackup), restoreBackup: vi.fn(mod.restoreBackup) }
+})
+
+// C-α-4：runOne JSON 版本后置断言失败分支（runner.ts :218-227）用 getJsonVersion mock 注入。
+vi.mock('./atomic-json', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('./atomic-json')>()
+  return { ...mod, getJsonVersion: vi.fn(mod.getJsonVersion) }
 })
 
 const noop: Logger = {
@@ -114,7 +126,7 @@ describe('C-α 约束 2：JSON 迁移版本写入对称', () => {
     atomicWriteJson(dmaeFile, { schemaVersion: 1, entries: {} })
 
     const dmaeMig: Migration = {
-      id: 5,
+      id: 7,
       store: 'dmae',
       title: 'test dmae upgrade',
       up({ dataDir: dd }) {
@@ -139,11 +151,11 @@ describe('C-α 约束 2：JSON 迁移版本写入对称', () => {
     )
     const report = await runner.run()
     expect(report.ok).toBe(true)
-    expect(report.ran).toContain(5)
+    expect(report.ran).toContain(7)
 
     const after = JSON.parse(readFileSync(dmaeFile, 'utf8')) as Record<string, unknown>
     // 关键断言：runner 在 JSON 迁移成功后写入版本号（= 迁移 id），与 db 分支 setDbVersion 对称
-    expect(after.schemaVersion).toBe(5)
+    expect(after.schemaVersion).toBe(7)
     expect(after.migrated).toBe(true)
   })
 
@@ -384,7 +396,7 @@ describe('C-α-3：registry 校验 + fresh 重置 + 回滚删新文件', () => {
     const dmaeFile = join(dataDir, 'dmae-state.json')
 
     const failing: Migration = {
-      id: 5,
+      id: 7,
       store: 'db',
       title: 'fails on real run',
       up() {
@@ -404,7 +416,7 @@ describe('C-α-3：registry 校验 + fresh 重置 + 回滚删新文件', () => {
     )
     const report = await runner.run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(5)
+    expect(report.failedAt).toBe(7)
     expect(report.restored).toBe(true)
     // fresh 重置：db 和 JSON 文件都应被删除
     expect(existsSync(dbPath)).toBe(false)
@@ -459,5 +471,420 @@ describe('C-α-3：registry 校验 + fresh 重置 + 回滚删新文件', () => {
       content: 'rowA'
     })
     db.close()
+  })
+})
+
+// C-α-4（P2-45）：补齐 runner.ts 剩余未覆盖分支（openDb 损坏 / createBackup 失败 /
+//   dry-run 失败清哨兵失败 warn / 真跑失败 restore 失败 / 真跑失败清哨兵失败 warn）。
+describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
+  it('openDb：db 文件损坏（非 SQLite）-> 抛 MEM_DB_CORRUPT fatal', async () => {
+    const { dataDir, dbPath } = paths()
+    mkdirSync(dataDir, { recursive: true })
+    writeFileSync(dbPath, 'this is definitely not a sqlite database file')
+    await expect(makeRunner(dbPath, dataDir, MIGRATIONS).run()).rejects.toMatchObject({
+      code: 'MEM_DB_CORRUPT',
+      severity: 'fatal'
+    })
+  })
+
+  it('createBackup 失败 -> 抛 MEM_MIGRATE_FAIL fatal，真身不动', async () => {
+    const { dataDir, dbPath } = paths()
+    await makeRunner(dbPath, dataDir, MIGRATIONS).run()
+    let db = new Database(dbPath)
+    db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
+    db.close()
+
+    vi.mocked(createBackup).mockImplementationOnce(() => {
+      throw new Error('disk full')
+    })
+    // 追加一条 id=7 迁移触发备份路径
+    const extra: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'needs backup',
+      up() {
+        /* noop */
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    await expect(
+      makeRunner(dbPath, dataDir, [...MIGRATIONS, extra], () => 2_000).run()
+    ).rejects.toMatchObject({ code: 'MEM_MIGRATE_FAIL', severity: 'fatal' })
+    // 真身未动
+    db = new Database(dbPath)
+    expect(db.pragma('user_version', { simple: true })).toBe(6)
+    expect(db.prepare(`SELECT content FROM l2_memories WHERE id='A'`).get()).toEqual({
+      content: 'rowA'
+    })
+    db.close()
+  })
+
+  it('dry-run 失败 + 清哨兵也失败 -> 返回 ok:false 且 warn（不 throw）', async () => {
+    const { dataDir, dbPath } = paths()
+    await makeRunner(dbPath, dataDir, MIGRATIONS).run()
+    const db = new Database(dbPath)
+    db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
+    db.close()
+
+    const alwaysFails: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'always throws',
+      up() {
+        throw new Error('always fails')
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    // 清哨兵失败：mock 一次性返回 false（dry-run 失败路径 :399 只 warn 不 throw）
+    vi.mocked(clearSentinel).mockReturnValueOnce(false)
+    const report = await makeRunner(
+      dbPath,
+      dataDir,
+      [...MIGRATIONS, alwaysFails],
+      () => 2_000
+    ).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+    expect(report.ran).toEqual([])
+    expect(clearSentinel(dataDir)).toBe(true) // 一次性 mock 已消耗
+  })
+
+  it('真跑失败 + 恢复备份也失败 -> report.restored=false，warn 恢复失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await makeRunner(dbPath, dataDir, MIGRATIONS).run()
+    const db = new Database(dbPath)
+    db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
+    db.close()
+
+    let calls = 0
+    const failing: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'passes dry-run, throws on real run, restore breaks',
+      up() {
+        calls++
+        if (calls >= 2) throw new Error('boom on real run')
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    vi.mocked(restoreBackup).mockImplementationOnce(() => {
+      throw new Error('backup file corrupt')
+    })
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+    expect(report.restored).toBe(false)
+    expect(restoreBackup).toHaveBeenCalled()
+  })
+
+  it('fresh 路径真跑失败 + 清哨兵失败 -> ok:false 且 warn（restore 分支之外）', async () => {
+    const { dataDir, dbPath } = paths()
+    const failing: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'fails on fresh real run',
+      up() {
+        throw new Error('boom on fresh')
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    // fresh 路径（无既有数据）真跑失败 -> 删除文件 + clearSentinel。mock 失败只 warn。
+    vi.mocked(clearSentinel).mockReturnValueOnce(false)
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+    expect(report.restored).toBe(true) // fresh 重置也算 restored
+    expect(clearSentinel(dataDir)).toBe(true) // 一次性 mock 已消耗
+  })
+})
+
+// C-α-5（P2-45）：runOne 内部错误分支 100%（async up / async validate / validate 失败 /
+//   JSON store 未注册 / JSON 版本后置断言失败）。
+describe('C-α-5：runOne 内部错误分支（P2-45 补测）', () => {
+  async function seedV6(dataDir: string, dbPath: string): Promise<void> {
+    await makeRunner(dbPath, dataDir, MIGRATIONS).run()
+    const db = new Database(dbPath)
+    db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
+    db.close()
+  }
+
+  function dbMig(id: number, opts: Partial<Migration>): Migration {
+    return {
+      id,
+      store: 'db',
+      title: `t${id}`,
+      up() {
+        void 0
+      },
+      validate() {
+        return { ok: true }
+      },
+      ...opts
+    }
+  }
+
+  it('db 迁移 up 返回 Promise（异步）-> dry-run 失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    const mig = dbMig(7, {
+      up: async () => {
+        void 0
+      }
+    })
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+  })
+
+  it('db 迁移 validate 返回 Promise -> dry-run 失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    const mig = dbMig(7, {
+      validate: async () => ({ ok: true }) as const
+    })
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+  })
+
+  it('db 迁移 validate 返回 not ok -> dry-run 失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    const mig = dbMig(7, {
+      validate: () => ({ ok: false, detail: 'schema mismatch' })
+    })
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+  })
+
+  it('JSON 迁移 validate 返回 not ok -> dry-run 失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    const mig: Migration = {
+      id: 7,
+      store: 'dmae',
+      title: 'bad json validate',
+      async up() {
+        void 0
+      },
+      async validate() {
+        return { ok: false, detail: 'bad state' }
+      }
+    }
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+  })
+
+  it('JSON 迁移 store 未在 jsonStores 注册 -> dry-run 失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    const mig: Migration = {
+      id: 7,
+      store: 'l0',
+      title: 'l0 not registered',
+      async up() {
+        void 0
+      },
+      async validate() {
+        return { ok: true }
+      }
+    }
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+  })
+
+  it('JSON 版本后置断言失败（getJsonVersion != m.id）-> dry-run 失败', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    const mig: Migration = {
+      id: 7,
+      store: 'dmae',
+      title: 'version mismatch',
+      async up() {
+        void 0
+      },
+      async validate() {
+        return { ok: true }
+      }
+    }
+    // dry-run 里 setJsonVersion(7) 后 getJsonVersion 被 mock 成 8 -> 断言失败
+    vi.mocked(getJsonVersion).mockReturnValueOnce(8)
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+    // 一次性 mock 已消耗，恢复真实实现（后续调用走真实 getJsonVersion）
+    vi.mocked(getJsonVersion).mockClear()
+  })
+})
+
+// C-α-6（P2-45）：registry 非法 store（runner.ts :66）分支补测。
+describe('C-α-6：registry 非法 store（P2-45 补测）', () => {
+  it('registry store 非法 -> 抛 MEM_MIGRATE_FAIL fatal', () => {
+    const { dataDir, dbPath } = paths()
+    const bad: Migration[] = [
+      {
+        id: 1,
+        store: 'weird' as never,
+        title: 'bad store',
+        up() {
+          void 0
+        },
+        validate() {
+          return { ok: true }
+        }
+      }
+    ]
+    expect(() => makeRunner(dbPath, dataDir, bad)).toThrow(/store.*不合法/)
+  })
+})
+
+// C-α-7（P2-45）：可达剩余分支——非 Error 抛错（instanceof Error 假分支）、
+//   writeMigrationsLog 无 migrations_log 表。
+describe('C-α-7：runner 可达剩余分支（P2-45 补测）', () => {
+  async function seedV6(dataDir: string, dbPath: string): Promise<void> {
+    await makeRunner(dbPath, dataDir, MIGRATIONS).run()
+    const db = new Database(dbPath)
+    db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
+    db.close()
+  }
+
+  it('真跑失败抛非 Error（字符串）-> 失败日志走 String(re) 分支', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    let calls = 0
+    const failing: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'throws string on real run',
+      up() {
+        calls++
+        if (calls >= 2) throw 'boom-string-not-error'
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+    expect(report.restored).toBe(true)
+  })
+
+  it('restoreBackup 抛非 Error -> 恢复失败日志走 String(re) 分支', async () => {
+    const { dataDir, dbPath } = paths()
+    await seedV6(dataDir, dbPath)
+    let calls = 0
+    const failing: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'passes dry-run throws on real',
+      up() {
+        calls++
+        if (calls >= 2) throw new Error('boom on real')
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    // 覆盖行 442 `re instanceof Error` 的 false 分支
+    vi.mocked(restoreBackup).mockImplementationOnce(() => {
+      throw 'backup-corrupt-string'
+    })
+    const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
+    expect(report.ok).toBe(false)
+    expect(report.restored).toBe(false)
+  })
+
+  it('迁移链不含 001_init -> writeMigrationsLog 无表早退（!exists 分支）', async () => {
+    const { dataDir, dbPath } = paths()
+    const custom: Migration = {
+      id: 1,
+      store: 'db',
+      title: 'custom no-init chain',
+      up() {
+        /* noop */
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    // fresh 路径：只跑 custom，migrations_log 表不存在 -> writeMigrationsLog 早退
+    const report = await makeRunner(dbPath, dataDir, [custom]).run()
+    expect(report.ok).toBe(true)
+    expect(report.ran).toEqual([1])
+    const db = new Database(dbPath)
+    const tbl = db
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='migrations_log'`)
+      .get()
+    expect(tbl).toBeUndefined() // 无 migrations_log 表
+    db.close()
+  })
+})
+
+// C-α-8（P2-45）：readVersions/plan 跳过未知 kind 的 jsonStore + dry-run 非 Error 抛错。
+describe('C-α-8：jsonStore kind 防御 + dry-run 非 Error（P2-45 补测）', () => {
+  it('jsonStores 含未知 kind -> 版本跟踪跳过（readVersions 与 plan 两条路径）', async () => {
+    const { dataDir, dbPath } = paths()
+    const bogusStores: Array<{ kind: string; filePath: string }> = [
+      { kind: 'bogus-kind', filePath: join(dataDir, 'bogus.json') }
+    ]
+    const custom: Migration = {
+      id: 1,
+      store: 'db',
+      title: 'custom',
+      up() {
+        /* noop */
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    // plan()：db 不存在路径（line 287 的 isStoreKind 假分支）
+    const runner = makeRunnerWithJson(dbPath, dataDir, [custom], bogusStores)
+    expect(runner.plan().map((p) => p.id)).toEqual([1])
+    // run()：readVersions（line 146 的 isStoreKind 假分支）跳过 bogus kind
+    const report = await runner.run()
+    expect(report.ok).toBe(true)
+    expect(report.ran).toEqual([1])
+  })
+
+  it('dry-run 失败抛非 Error 字符串 -> dryRun catch 的 instanceof Error 假分支', async () => {
+    const { dataDir, dbPath } = paths()
+    await makeRunner(dbPath, dataDir, MIGRATIONS).run()
+    const db = new Database(dbPath)
+    db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
+    db.close()
+
+    const alwaysFailsString: Migration = {
+      id: 7,
+      store: 'db',
+      title: 'always throws string',
+      up() {
+        throw 'string-fail-not-error'
+      },
+      validate() {
+        return { ok: true }
+      }
+    }
+    const report = await makeRunner(
+      dbPath,
+      dataDir,
+      [...MIGRATIONS, alwaysFailsString],
+      () => 2_000
+    ).run()
+    expect(report.ok).toBe(false)
+    expect(report.failedAt).toBe(7)
+    expect(report.ran).toEqual([])
   })
 })

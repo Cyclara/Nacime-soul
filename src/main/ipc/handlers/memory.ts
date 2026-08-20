@@ -19,6 +19,7 @@ import { AppError } from '@shared/errors'
 import type { L0Store } from '../../memory/l0-store'
 import type { L2Store, MemoryLifecycleState } from '../../memory/l2-store'
 import type { DmaeEngineService } from '../../memory/dmae/service'
+import type { DmaeDiagnosticsService } from '../../memory/dmae/diagnostics'
 import type { MemoryRevisionClock } from '../../memory/revision-clock'
 import type { MemoryEventBroadcaster } from '../../memory/event-broadcaster'
 import {
@@ -42,6 +43,8 @@ export interface MemoryServices {
   l0Store: L0Store
   l2Store: L2Store
   dmaeService: DmaeEngineService | null // null = dmae.enabled=false
+  /** P2-32：DMAE 诊断服务（dmae.enabled=false 时为 null；get-dmae-history 真实实现委托给它） */
+  dmaeDiagnostics: DmaeDiagnosticsService | null
   revisionClock: MemoryRevisionClock
   broadcaster: MemoryEventBroadcaster
 }
@@ -164,7 +167,9 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
     const mem = l2Store.get(input.memoryId)
     if (!mem || mem.lifecycleState === 'purged') throw memNotFound()
     // 用户意志高于状态机建议；soft_deleted 由 GC（Phase 3+）或 user 写入（F5-004 TRANSITIONS）
-    l2Store.update(input.memoryId, { lifecycleState: 'soft_deleted' })
+    // S-06 修复：软删时写入 archivedAt 作为删除时间戳，供 GC 判定保留期（F5-004 softDeleteToPurgeDays）。
+    // restore 路径同样写 archivedAt=Date.now()，语义一致。
+    l2Store.update(input.memoryId, { lifecycleState: 'soft_deleted', archivedAt: Date.now() })
     revisionClock.next()
     broadcaster.notify('l2')
     logger.debug('memory soft-deleted', {
@@ -203,14 +208,29 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
   )
 
   // === companion:memory:get-dmae-history ===
-  // P2-29: DTO/validator 已定义；handler 返回空 points（历史追踪 P2-32/F5-002 后实现）。
-  // S-012 §3.1：handler 不伪造业务数据，返回空是诚实的"无历史数据"。
+  // P2-32: 真实实现--委托给 DmaeDiagnosticsService.getMemoryHistory（读 dmae_samples）。
+  // dmaeDiagnostics=null（dmae 关闭）时返回空 points（诚实无历史）。
+  // memory.enabled=false 同样返回空 points（S-012 §3.3：query 返回空 data，不抛 MEM_DISABLED）。
   registerValidatedHandler(
     'companion:memory:get-dmae-history',
     async (_ctx, input): Promise<DmaeHistoryResponse> => {
-      if (disabled()) throw memDisabled()
-      // 历史追踪尚未实现（P2-32 后）；返回空 points
-      return { memoryId: input.memoryId, points: [] }
+      if (disabled()) {
+        return { memoryId: input.memoryId, points: [] }
+      }
+      const { dmaeDiagnostics } = services!
+      if (!dmaeDiagnostics) {
+        // dmae.enabled=false：返回空 points（不伪造历史）
+        return { memoryId: input.memoryId, points: [] }
+      }
+      const result = dmaeDiagnostics.getMemoryHistory(input.memoryId, input.days)
+      return {
+        memoryId: result.memoryId,
+        points: result.points.map((p) => ({
+          ts: p.ts,
+          activation: p.activation,
+          state: p.state
+        }))
+      }
     }
   )
 

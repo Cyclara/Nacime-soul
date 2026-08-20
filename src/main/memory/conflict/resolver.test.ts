@@ -61,7 +61,41 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     modelRewardBase: 30,
     wakeLambda: 0.3,
     decayAlpha: 1.5,
-    decayBeta: 0.3
+    decayBeta: 0.3,
+    presets: [],
+    anomaly: {
+      muted: {
+        R01: 0,
+        R02: 0,
+        R03: 0,
+        R04: 0,
+        R05: 0,
+        R06: 0,
+        R07: 0,
+        R08: 0,
+        R09: 0,
+        R10: 0,
+        R11: 0,
+        R12: 0,
+        R13: 0
+      },
+      windows: {
+        R01: { days: 3 },
+        R02: { days: 7 },
+        R03: { days: 3 },
+        R04: { turns: 50 },
+        R05: { turns: 100 },
+        R06: {},
+        R07: { turns: 50 },
+        R08: { turns: 200 },
+        R09: { days: 3 },
+        R10: { days: 3, turns: 100 },
+        R11: { days: 7 },
+        R12: {},
+        R13: {}
+      }
+    },
+    historySampleEveryTurns: 1
   }
 }
 
@@ -82,7 +116,8 @@ describe('P2-20 ConflictResolver (LLM 裁决)', () => {
       type: 'stable',
       importance: 8,
       archivedAt: null,
-      extractionKey: null
+      extractionKey: null,
+      source: 'user_explicit'
     }
     const existingMemory: L2Memory = {
       id: 'l2_old1',
@@ -99,7 +134,8 @@ describe('P2-20 ConflictResolver (LLM 裁决)', () => {
       type: 'stable',
       importance: 8,
       archivedAt: null,
-      extractionKey: null
+      extractionKey: null,
+      source: 'user_explicit'
     }
     return {
       newMemory,
@@ -195,7 +231,8 @@ describe('P2-20 computeConflictSignals (启发式信号)', () => {
       type: 'stable',
       importance: 8,
       archivedAt: null,
-      extractionKey: null
+      extractionKey: null,
+      source: 'user_explicit'
     }
     return {
       newMemory: { ...base, id: 'l2_new', content: newContent, triggerText: trigger },
@@ -391,6 +428,30 @@ describe('P2-20/21 ConflictService (检测 + 解决 + 日志)', () => {
     expect(l2Store.get(newMem.id)?.lifecycleState).toBe('soft_deleted')
   })
 
+  it('reject 短路：resolver 判新记忆错误后，剩余冲突对不再处理（用已删记忆 supersede 其他旧记忆）', async () => {
+    // 预置两条与"新记忆"冲突的旧记忆（都满足 high band，需与 newMem 语义相似）
+    const oldMemA = await writeL2('用户喜欢咖啡', '我喜欢咖啡')
+    const oldMemB = await writeL2('用户喝咖啡加糖', '我喜欢喝咖啡加糖')
+    const newMem = await writeL2('用户不喝咖啡了', '其实我不喝咖啡了')
+
+    // 队列只有 1 条响应：reject。修复前循环会继续消费空队列抛错（Faux 空队列报错），
+    // 或若队列给第二条则会错误地继续处理；修复后 reject 即 break，只消费 1 条。
+    faux.setResponses([JSON.stringify({ resolution: 'reject', rationale: '新记忆错误' })])
+
+    const results = await service.checkAndResolve(newMem, { sessionId: 's1', turnId: 't2' })
+
+    // 只产生 1 条结果（reject 短路）
+    expect(results).toHaveLength(1)
+    expect(results[0].resolution).toBe('reject')
+    // 新记忆被软删
+    expect(l2Store.get(newMem.id)?.lifecycleState).toBe('soft_deleted')
+    // 但旧记忆都未被 supersede（reject 后不再用已删新记忆去归档其他旧记忆）
+    expect(l2Store.get(oldMemA.id)?.lifecycleState).not.toBe('archived')
+    expect(l2Store.get(oldMemB.id)?.lifecycleState).not.toBe('archived')
+    // Faux 只消费了 1 条响应（短路成立）
+    expect(faux.pending()).toBe(0)
+  })
+
   it('resolver 失败 -> fail-safe coexist，不删任何记忆', async () => {
     const oldMem = await writeL2('用户喜欢咖啡', '我喜欢咖啡')
     const newMem = await writeL2('用户不喝咖啡了', '其实我不喝咖啡了')
@@ -554,6 +615,41 @@ describe('P2-20/21 ConflictService (检测 + 解决 + 日志)', () => {
     }
   })
 
+  it('M-04 回归：同一事实跨轮（不同 newMemory id）再次纠正 -> 命中 recentlyResolved，不再重复解决', async () => {
+    const oldMem = await writeL2('用户喜欢咖啡', '我喜欢咖啡')
+    const newMem1 = await writeL2('用户不喝咖啡了', '其实我不喝咖啡了')
+    faux.setResponses([JSON.stringify({ resolution: 'supersede', rationale: '' })])
+
+    // 第一次检测 -> 解决并记录"最近已解决"（进程内稳定键缓存）
+    const results1 = await service.checkAndResolve(newMem1, { sessionId: 's1', turnId: 't2' })
+    expect(results1).toHaveLength(1)
+    expect(results1[0].pair.score.breakdown.recentlyResolved).toBe(0) // 首次无 -25
+    expect(logStore.count()).toBe(1)
+
+    // 恢复旧记忆状态；移除 newMem1 的向量，让第二次检测只面对 oldMem
+    l2Store.update(oldMem.id, { lifecycleState: 'active', archivedAt: null })
+    vectorStore.remove(newMem1.id)
+
+    // 下一轮再次纠正同一事实：新 L2（id 必然不同，content 相同）
+    const newMem2 = l2Store.add({
+      content: '用户不喝咖啡了',
+      confidence: 0.8,
+      syncStatus: 'synced',
+      type: 'stable',
+      importance: 8
+    })
+    faux.setResponses([JSON.stringify({ resolution: 'coexist', rationale: '' })])
+
+    const results2 = await service.checkAndResolve(newMem2, { sessionId: 's1', turnId: 't3' })
+
+    // 旧实现按 new_memory_id 精确匹配 conflict_log：newMem2.id != newMem1.id -> recentlyResolved
+    // 恒 false（死代码），该 pair 会以 idle 档重新记录一条 coexist（logStore.count 变 2）。
+    // 修复后按稳定键（existing.id + 归一化 content）命中 -> -25 -> 降到 none 档被跳过：
+    expect(results2).toHaveLength(0) // oldMem 对被降级跳过，不进入解决流程
+    expect(logStore.count()).toBe(1) // 未新增解决记录（不再重复解决同一对）
+    expect(l2Store.get(oldMem.id)!.lifecycleState).toBe('active') // 未被再次归档
+  })
+
   it('日志不含记忆正文（F5-011 白名单）', async () => {
     await writeL2('用户喜欢咖啡', '我喜欢咖啡')
     const newMem = await writeL2('用户不喝咖啡了', '其实我不喝咖啡了')
@@ -590,7 +686,8 @@ describe('P2-20/21 ConflictService (检测 + 解决 + 日志)', () => {
       type: 'one_off',
       importance: 3,
       archivedAt: null,
-      extractionKey: null
+      extractionKey: null,
+      source: 'user_explicit'
     }
     const oldMem = { ...baseMem, id: 'l2_old_manual', content: '用户去过北京' }
     const newMem = { ...baseMem, id: 'l2_new_manual', content: '用户去过上海' }

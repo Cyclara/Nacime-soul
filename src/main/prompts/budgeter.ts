@@ -32,6 +32,10 @@ import { estimateTokens } from './token-estimator'
 
 const DEFAULT_SAFETY_MARGIN = 256
 
+/** M-21：每条消息的 framing 开销（role 标记 + JSON 结构 + 分隔符，估算 ~4-8 token/条）。
+ *  旧实现只按 content 字符估算，总 token 会低估；加这层让预算更贴近真实 usage。 */
+const MESSAGE_FRAMING_TOKENS = 4
+
 /**
  * 历史按 turn 分组。允许 [user] 或 [user,assistant]；不得 assistant 开头。
  * isCurrent turn 恰好一个，且含当前 user，永不裁。
@@ -119,12 +123,12 @@ function calcSystemTokens(layers: readonly (PromptLayer | WorkingLayer)[]): numb
   return sum
 }
 
-/** 计算历史 turns 总 token */
+/** 计算历史 turns 总 token（M-21：每条消息含 framing 开销） */
 function calcHistoryTokens(turns: readonly BudgetHistoryTurn[]): number {
   let sum = 0
   for (const turn of turns) {
     for (const msg of turn.messages) {
-      sum += estimateTokens(msg.content)
+      sum += estimateTokens(msg.content) + MESSAGE_FRAMING_TOKENS
     }
   }
   return sum
@@ -239,7 +243,10 @@ export function applyBudget(input: BudgetInput): BudgetReport {
       const oldestIdx = workingTurns.findIndex((t) => !t.isCurrent)
       if (oldestIdx < 0) break
       const removed = workingTurns.splice(oldestIdx, 1)[0]
-      const removedTokens = removed.messages.reduce((s, m) => s + estimateTokens(m.content), 0)
+      const removedTokens = removed.messages.reduce(
+        (s, m) => s + estimateTokens(m.content) + MESSAGE_FRAMING_TOKENS,
+        0
+      )
       historyRemoved++
       trimmed.push({
         target: 'history',

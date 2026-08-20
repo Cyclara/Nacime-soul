@@ -58,6 +58,8 @@ export interface IdempotencyLedger {
   get(clientRequestId: RequestId): PersistedIdempotencyRecord | null
   put(clientRequestId: RequestId, record: PersistedIdempotencyRecord): void
   remove(clientRequestId: RequestId): void
+  /** M-28：把挂起的防抖写立即落盘（app 退出前调用，避免丢最后一批） */
+  flushNow(): void
   /** 当前记录数（诊断/测试用） */
   readonly size: number
 }
@@ -113,7 +115,12 @@ export function createIdempotencyLedger(deps: IdempotencyLedgerDeps): Idempotenc
     }
   }
 
-  function persist(): void {
+  // M-28：防抖写盘——put/remove 只标记待写，setImmediate 合并一次落盘。
+  // 账本定性"可再生缓存"（corrupt/missing 不拦启动），崩溃丢最后一批可接受；
+  // 正常退出由 flushNow() 保证落盘（before-quit 调用）。
+  let persistTimer: NodeJS.Immediate | null = null
+
+  function writeNow(): void {
     try {
       fs.mkdirSync(path.dirname(filePath), { recursive: true })
       atomicWriteJson(filePath, {
@@ -127,6 +134,22 @@ export function createIdempotencyLedger(deps: IdempotencyLedgerDeps): Idempotenc
         detail: e instanceof Error ? e.message : String(e)
       })
     }
+  }
+
+  function persist(): void {
+    if (persistTimer) return
+    persistTimer = setImmediate(() => {
+      persistTimer = null
+      writeNow()
+    })
+  }
+
+  function flushNow(): void {
+    if (persistTimer) {
+      clearImmediate(persistTimer)
+      persistTimer = null
+    }
+    writeNow()
   }
 
   return {
@@ -157,6 +180,8 @@ export function createIdempotencyLedger(deps: IdempotencyLedgerDeps): Idempotenc
 
     remove(clientRequestId: RequestId): void {
       if (records.delete(clientRequestId)) persist()
-    }
+    },
+
+    flushNow
   }
 }

@@ -39,6 +39,11 @@ import type {
   DmaeHistoryRequest,
   DmaeHistoryResponse,
   DmaeSnapshotView,
+  DmaeTrendRequest,
+  DmaeExplainRequest,
+  DmaeBenchmarkRequest,
+  DmaeQualitativeRequest,
+  DmaeMuteRequest,
   GrowthProfileView,
   GrowthTimelineEntryView,
   GrowthTimelineRequest,
@@ -55,6 +60,9 @@ import type {
   MemoryRestoreRequest,
   MemoryUpdatedEvent
 } from '../shared/memory/types'
+import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../main/memory/dmae/diagnostics'
+import type { DmaeDailyAggregate } from '../main/memory/dmae/history-types'
+import type { DmaeBenchmarkReport } from '../main/memory/dmae/benchmark-types'
 import { validateEventPayload } from '../shared/ipc/validators'
 
 /**
@@ -224,6 +232,29 @@ export const companionApi: CompanionApi = Object.freeze({
     },
     getTrend(input: GrowthTrendRequest): Promise<IpcResult<GrowthTrendPoint[]>> {
       return typedInvoke('companion:growth:get-trend', input)
+    }
+  },
+
+  // ── Phase 2 P2-32：DMAE 面板（3 invoke，F5-002 §3.7）──
+  dmae: {
+    getPanel(): Promise<IpcResult<DmaePanelSnapshot>> {
+      return typedInvoke('companion:dmae:get-panel', undefined)
+    },
+    getTrend(input: DmaeTrendRequest): Promise<IpcResult<readonly DmaeDailyAggregate[]>> {
+      return typedInvoke('companion:dmae:get-trend', input)
+    },
+    explain(input: DmaeExplainRequest): Promise<IpcResult<DmaeTurnExplanation | null>> {
+      return typedInvoke('companion:dmae:explain', input)
+    },
+    runBenchmark(input: DmaeBenchmarkRequest): Promise<IpcResult<DmaeBenchmarkReport>> {
+      return typedInvoke('companion:dmae:run-benchmark', input)
+    },
+    recordQualitative(input: DmaeQualitativeRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:dmae:record-qualitative', input)
+    },
+    // M-26：静音某条 DMAE 异常规则 N 天
+    muteAnomaly(input: DmaeMuteRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:dmae:mute-anomaly', input)
     }
   }
 })

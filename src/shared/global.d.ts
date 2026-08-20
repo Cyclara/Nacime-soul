@@ -21,9 +21,14 @@ import type {
 } from './config/types'
 import type { DebugSnapshot } from './observability/types'
 import type {
+  DmaeBenchmarkRequest,
   DmaeHistoryRequest,
   DmaeHistoryResponse,
+  DmaeQualitativeRequest,
+  DmaeMuteRequest,
   DmaeSnapshotView,
+  DmaeTrendRequest,
+  DmaeExplainRequest,
   GrowthProfileView,
   GrowthTimelineEntryView,
   GrowthTimelineRequest,
@@ -40,6 +45,9 @@ import type {
   MemoryRestoreRequest,
   MemoryUpdatedEvent
 } from './memory/types'
+import type { DmaePanelSnapshot, DmaeTurnExplanation } from '../main/memory/dmae/diagnostics'
+import type { DmaeDailyAggregate } from '../main/memory/dmae/history-types'
+import type { DmaeBenchmarkReport } from '../main/memory/dmae/benchmark-types'
 
 /** preload 暴露的 typed API。依据 S-003 §3.7、S-003-补充 §3.6 */
 export interface CompanionApi {
@@ -95,6 +103,16 @@ export interface CompanionApi {
     getProfile(): Promise<IpcResult<GrowthProfileView>>
     getTimeline(input: GrowthTimelineRequest): Promise<IpcResult<GrowthTimelineEntryView[]>>
     getTrend(input: GrowthTrendRequest): Promise<IpcResult<GrowthTrendPoint[]>>
+  }
+  // Phase 2 P2-32/P2-34：DMAE 面板（F5-002 §3.7/§3.6）
+  dmae: {
+    getPanel(): Promise<IpcResult<DmaePanelSnapshot>>
+    getTrend(input: DmaeTrendRequest): Promise<IpcResult<readonly DmaeDailyAggregate[]>>
+    explain(input: DmaeExplainRequest): Promise<IpcResult<DmaeTurnExplanation | null>>
+    runBenchmark(input: DmaeBenchmarkRequest): Promise<IpcResult<DmaeBenchmarkReport>>
+    recordQualitative(input: DmaeQualitativeRequest): Promise<IpcResult<void>>
+    // M-26：静音某条 DMAE 异常规则 N 天
+    muteAnomaly(input: DmaeMuteRequest): Promise<IpcResult<void>>
   }
 }
 

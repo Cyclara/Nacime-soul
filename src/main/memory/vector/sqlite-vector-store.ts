@@ -16,6 +16,10 @@
 //   - worker 复用单例，避免反复创建开销
 
 import { Worker } from 'node:worker_threads'
+// electron-vite 5 `?modulePath`：构建时返回打包后的 worker 文件路径（官方推荐的 node worker 方式）。
+// 依据 https://electron-vite.org/guide/dev —— Node worker 用 ?modulePath / ?nodeWorker 后缀，
+// 否则 `new Worker(new URL('./ivf-worker.ts'))` 指向源码 .ts，构建产物中不存在 → 静默回退主线程。
+import ivfWorkerPath from './ivf-worker?modulePath'
 import type { Database } from 'better-sqlite3'
 import { AppError } from '@shared/errors'
 import type { Logger } from '@shared/observability/types'
@@ -95,23 +99,40 @@ export interface WorkerKmeansHandle {
  *
  * worker 文件：src/main/memory/vector/ivf-worker.ts
  * 如果 worker 创建失败（如测试环境），回退到同步 buildIvfIndex（败而不崩）。
+ * 回退会记 warn 日志（F5-011：只记 reason 名，不记内容/数据）。
  *
  * 返回 { builder, terminate }：terminate 必须在 app 退出时调用，
  * 否则 worker 线程保活导致进程不退出（Node.js worker_threads 语义）。
  */
-export function createWorkerKmeansBuilder(): WorkerKmeansHandle {
+export function createWorkerKmeansBuilder(logger?: Logger): WorkerKmeansHandle {
   let worker: Worker | null = null
   let workerFailed = false
+  /** 是否已记录过回退日志（避免每次重建都刷一条） */
+  let loggedFallback = false
+
+  function markWorkerFailed(reason: string): void {
+    workerFailed = true
+    if (!loggedFallback) {
+      loggedFallback = true
+      logger?.warn('ivf kmeans worker unavailable; falling back to synchronous build', {
+        scope: 'memory',
+        code: 'UNKNOWN',
+        tags: { reason }
+      })
+    }
+  }
 
   function getWorker(): Worker | null {
     if (workerFailed) return null
     if (worker) return worker
     try {
-      worker = new Worker(new URL('./ivf-worker.ts', import.meta.url))
+      worker = new Worker(ivfWorkerPath)
       return worker
     } catch {
-      // worker 创建失败 -> 标记失败，后续都用同步
-      workerFailed = true
+      // worker 创建失败 -> 标记失败，后续都用同步（败而不崩）
+      // 注意：`new Worker` 对不存在的文件抛的是异步 error 事件而非同步 throw，
+      // 这里的 catch 只兜同步失败（如无效路径类型）；异步加载失败由下方 on('error') 捕获。
+      markWorkerFailed('create-failed')
       return null
     }
   }
@@ -161,7 +182,7 @@ export function createWorkerKmeansBuilder(): WorkerKmeansHandle {
       })
     } catch {
       // worker 执行失败 -> 标记失败，回退同步（败而不崩）
-      workerFailed = true
+      markWorkerFailed('run-failed')
       return buildIvfIndex({ vectors, dim, K, maxIterations, seed })
     }
   }

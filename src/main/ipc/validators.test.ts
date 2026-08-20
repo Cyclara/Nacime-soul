@@ -23,9 +23,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（Phase 1: 17 + Phase 2: 12 + P2-43: 1 = 30）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(30)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(30)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（35 invoke + M-26 mute-anomaly = 36）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(36)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(36)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -1053,6 +1053,153 @@ describe('P1-11 ConfigUpdateRequest 子对象非法值拒绝（100% branch 补�
   })
   it('memory.dmae.decayBeta 超范围被拒绝', () => {
     reject('memory', { dmae: { decayBeta: 5 } })
+  })
+
+  // === P2-31.5A：四字段 IPC validator（S-005-补充 §1.7 / §3.3）===
+
+  // CFG-DMAE-05（IPC 部分）：windows R14 / R06.days -> IPC validator 拒绝
+  it('CFG-DMAE-05: anomaly.windows R14 -> IPC 拒绝', () => {
+    reject('memory', {
+      dmae: { anomaly: { windows: { R14: { days: 3 } } } }
+    })
+  })
+  it('CFG-DMAE-05: anomaly.windows R06.days -> IPC 拒绝（R06 不支持 days）', () => {
+    reject('memory', {
+      dmae: { anomaly: { windows: { R06: { days: 3 } } } }
+    })
+  })
+  it('CFG-DMAE-05: anomaly.windows R10.days 合法 -> IPC 接受', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: {
+          memory: { dmae: { anomaly: { windows: { R10: { days: 5 } } } } }
+        }
+      })
+    ).toBe(true)
+  })
+  it('CFG-DMAE-05: anomaly.muted.R07 合法 -> IPC 接受', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: {
+          memory: { dmae: { anomaly: { muted: { R07: 9999999999 } } } }
+        }
+      })
+    ).toBe(true)
+  })
+  it('CFG-DMAE-05: anomaly.muted.R14 -> IPC 拒绝（未知规则 ID）', () => {
+    reject('memory', {
+      dmae: { anomaly: { muted: { R14: 100 } } }
+    })
+  })
+
+  // CFG-DMAE-06（IPC 部分）：historySampleEveryTurns 边界
+  it('CFG-DMAE-06: historySampleEveryTurns=10 -> IPC 接受', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { memory: { dmae: { historySampleEveryTurns: 10 } } }
+      })
+    ).toBe(true)
+  })
+  it('CFG-DMAE-06: historySampleEveryTurns=0 -> IPC 拒绝', () => {
+    reject('memory', { dmae: { historySampleEveryTurns: 0 } })
+  })
+  it('CFG-DMAE-06: historySampleEveryTurns=11 -> IPC 拒绝', () => {
+    reject('memory', { dmae: { historySampleEveryTurns: 11 } })
+  })
+
+  // CFG-DMAE-08（IPC 部分）：第 51 个预设、重复 id、builtin:true -> IPC 拒绝
+  it('CFG-DMAE-08: presets 含 builtin:true -> IPC 拒绝', () => {
+    reject('memory', {
+      dmae: {
+        presets: [
+          {
+            id: 'preset.user.test',
+            name: 't',
+            description: '',
+            baseline: 'default',
+            overrides: {},
+            builtin: true,
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ]
+      }
+    })
+  })
+  it('CFG-DMAE-08: presets 重复 id -> IPC 拒绝', () => {
+    reject('memory', {
+      dmae: {
+        presets: [
+          {
+            id: 'preset.user.dup',
+            name: 'a',
+            description: '',
+            baseline: 'default',
+            overrides: {},
+            builtin: false,
+            createdAt: 1,
+            updatedAt: 1
+          },
+          {
+            id: 'preset.user.dup',
+            name: 'b',
+            description: '',
+            baseline: 'default',
+            overrides: {},
+            builtin: false,
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ]
+      }
+    })
+  })
+  it('CFG-DMAE-08: preset id 不匹配命名空间 -> IPC 拒绝', () => {
+    reject('memory', {
+      dmae: {
+        presets: [
+          {
+            id: 'bad-id',
+            name: 't',
+            description: '',
+            baseline: 'default',
+            overrides: {},
+            builtin: false,
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ]
+      }
+    })
+  })
+  it('CFG-DMAE-08: preset updatedAt < createdAt -> IPC 拒绝', () => {
+    reject('memory', {
+      dmae: {
+        presets: [
+          {
+            id: 'preset.user.test',
+            name: 't',
+            description: '',
+            baseline: 'default',
+            overrides: {},
+            builtin: false,
+            createdAt: 100,
+            updatedAt: 50
+          }
+        ]
+      }
+    })
+  })
+  it('CFG-DMAE-08: presets 空数组合法 -> IPC 接受', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { memory: { dmae: { presets: [] } } }
+      })
+    ).toBe(true)
   })
 
   // === memory 域 ===

@@ -3,7 +3,7 @@
 // invoke 走 ipcRenderer.invoke/ipcMain.handle；event 走 webContents.send
 // 依据：S-003 §3.2、§3.3、S-003-补充 §3.1（Phase 2 新增 12 invoke + 1 event）
 
-/** Phase 1 的 17 个 invoke 通道 */
+/** Phase 1 的 18 个 invoke 通道（P2-43 插入 chat:get-last-session） */
 export const IPC_INVOKE_CHANNELS = [
   'companion:app:get-info',
   'companion:app:open-user-data',
@@ -35,7 +35,16 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:memory:get-dmae-history',
   'companion:growth:get-profile',
   'companion:growth:get-timeline',
-  'companion:growth:get-trend'
+  'companion:growth:get-trend',
+  // ── Phase 2 P2-32：DMAE 面板（F5-002 §3.7：get-panel/get-trend/explain）──
+  'companion:dmae:get-panel',
+  'companion:dmae:get-trend',
+  'companion:dmae:explain',
+  // ── Phase 2 P2-34：DMAE 基准体检（F5-002 §3.6）──
+  'companion:dmae:run-benchmark',
+  'companion:dmae:record-qualitative',
+  // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道，S-005-补充 §1.7）──
+  'companion:dmae:mute-anomaly'
 ] as const
 
 /** Phase 1 + Phase 2 的 main->renderer event 通道 */

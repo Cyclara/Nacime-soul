@@ -3,7 +3,7 @@
 // 依据：S-006 §1.2、S-006 §1.4（空态人格化"你们还没有共同记忆"、方向键导航）。
 // 功能版（视觉待前端模型美化）。
 
-import { ref, computed, watch, useTemplateRef } from 'vue'
+import { ref, computed, watch, useTemplateRef, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMemoryStore } from '../../stores/memory'
 import L2MemoryItem from './L2MemoryItem.vue'
@@ -25,14 +25,28 @@ const listRef = useTemplateRef<HTMLUListElement>('itemList')
 
 const pageSize = 50
 
-// 切换 Tab 或搜索 -> 重置 offset 并 loadL2
-watch([activeTab, searchInput], () => {
+// 重置 offset 并 loadL2（Tab/搜索共用）
+function loadList(): void {
   void memoryStore.loadL2({
     state: activeTab.value === 'all' ? undefined : activeTab.value,
     search: searchInput.value.trim() || undefined,
     offset: 0,
     limit: pageSize
   })
+}
+
+// 切换 Tab：立即加载
+watch(activeTab, () => loadList())
+
+// M-30：搜索 150ms 防抖（旧实现每字符触发一次 loadL2 = 一次 IPC + LIKE 查询）
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchInput, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(loadList, 150)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
 })
 
 // C-β：store 已累计前页，下一 offset 就是当前唯一条目数；不能再叠加 query.offset。
@@ -153,80 +167,87 @@ function onListKeydown(e: KeyboardEvent): void {
 
 <style scoped>
 .l2-list {
-  flex: 1;
   display: flex;
-  flex-direction: column;
   min-height: 0;
-  background: var(--color-bg);
+  flex: 1;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
 }
 
 .list-controls {
   display: flex;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-bottom: 1px solid var(--color-border);
   flex-wrap: wrap;
-  background: var(--color-bg-secondary);
+  align-items: center;
+  gap: 10px;
+  padding: 13px clamp(14px, 3vw, 28px);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-secondary) 72%, transparent);
 }
 
 .tabs {
   display: inline-flex;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs);
-  background: var(--color-surface);
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
 }
 
 .tab {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  min-height: 32px;
+  padding: 5px 11px;
   border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
 }
 
 .tab:hover {
-  color: var(--color-text);
   background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .tab.active {
+  border-color: color-mix(in srgb, var(--color-accent) 25%, transparent);
   background: var(--color-accent);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.2),
+    var(--shadow-sm);
   color: var(--color-text-on-accent);
-  border-color: var(--color-accent-hover);
-  box-shadow: var(--shadow-sm);
 }
 
 .search-box {
-  flex: 1;
-  min-width: 160px;
   position: relative;
+  min-width: 190px;
+  flex: 1;
 }
 
 .search-icon {
   position: absolute;
-  left: var(--spacing-sm);
   top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
+  left: 12px;
+  width: 15px;
+  height: 15px;
   color: var(--color-text-muted);
   pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .search-input {
   width: 100%;
-  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-xs) 36px;
-  border-radius: var(--radius);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
+  min-height: 38px;
+  padding: 8px 12px 8px 37px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-translucent);
   color: var(--color-text);
   font-size: var(--font-size-sm);
+  user-select: text;
   transition:
     border-color 0.15s ease,
-    background-color 0.15s ease;
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .search-input::placeholder {
@@ -234,75 +255,118 @@ function onListKeydown(e: KeyboardEvent): void {
 }
 
 .search-input:hover {
-  border-color: var(--color-text-muted);
+  border-color: var(--color-border);
 }
 
 .search-input:focus {
-  border-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 54%, var(--color-border));
   background: var(--color-bg-secondary);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
 .l2-empty {
-  flex: 1;
   display: flex;
+  min-height: 260px;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-xs);
-  color: var(--color-text-secondary);
+  gap: 5px;
   padding: var(--spacing-2xl) var(--spacing-md);
+  color: var(--color-text-secondary);
   text-align: center;
 }
 
 .empty-icon {
-  font-size: var(--font-size-2xl);
-  opacity: 0.6;
-  margin-bottom: var(--spacing-sm);
+  position: relative;
+  display: block;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 18px 18px 18px 7px;
+  background: var(--color-surface-translucent);
+  color: transparent;
+  font-size: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.empty-icon::before,
+.empty-icon::after {
+  position: absolute;
+  content: '';
+  border-radius: var(--radius-full);
+  background: var(--color-sage);
+  transform-origin: bottom center;
+}
+
+.empty-icon::before {
+  bottom: 13px;
+  left: 26px;
+  width: 2px;
+  height: 26px;
+  transform: rotate(-18deg);
+}
+
+.empty-icon::after {
+  top: 15px;
+  left: 18px;
+  width: 18px;
+  height: 10px;
+  border-radius: 100% 0 100% 0;
+  background: var(--color-sage);
+  transform: rotate(-28deg);
 }
 
 .empty-text {
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-display);
   font-size: var(--font-size-lg);
-  font-style: italic;
 }
 
 .empty-hint {
-  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
 }
 
 .item-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
   flex: 1;
+  margin: 0;
+  padding: 8px clamp(8px, 2vw, 18px) 18px;
+  overflow-y: auto;
   outline: none;
+  list-style: none;
 }
 
 .load-more {
-  padding: var(--spacing-md);
+  padding: 12px var(--spacing-md);
+  border-top: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-secondary) 76%, transparent);
   text-align: center;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
 }
 
 .load-more-btn {
-  padding: var(--spacing-xs) var(--spacing-lg);
-  border-radius: var(--radius);
+  min-height: 36px;
+  padding: 6px 18px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
   background: var(--color-surface);
-  color: var(--color-text);
+  color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  border: 1px solid var(--color-border);
 }
 
 .load-more-btn:hover {
-  background: var(--color-bg-tertiary);
-  border-color: var(--color-text-muted);
+  border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  background: var(--color-accent-soft);
+  color: var(--color-text);
 }
 
 @media (max-width: 640px) {
   .list-controls {
     flex-direction: column;
+    align-items: stretch;
+    padding-inline: 12px;
   }
 
   .tabs {

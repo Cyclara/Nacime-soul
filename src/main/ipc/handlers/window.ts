@@ -14,6 +14,20 @@ export interface WindowHandlerDeps {
 }
 
 /**
+ * 在指定窗口上挂 maximize/unmaximize 状态监听。
+ * 独立导出：窗口可能被 CrashGuard 重建（renderer 崩溃）或 macOS activate 重建，
+ * 每次重建后必须重新挂载——修复前监听器只挂初始窗口，重建后 window-state 事件永久失效。
+ */
+export function attachWindowStateListeners(win: BrowserWindow): void {
+  win.on('maximize', () => {
+    sendEvent(win.webContents, 'companion:event:window-state', { maximized: true })
+  })
+  win.on('unmaximize', () => {
+    sendEvent(win.webContents, 'companion:event:window-state', { maximized: false })
+  })
+}
+
+/**
  * 注册所有 window IPC handler。
  * 在 main/index.ts 中调用，需在 configureIpcGuard 之后。
  */
@@ -57,15 +71,10 @@ export function registerWindowHandlers(deps: WindowHandlerDeps): void {
     return { maximized: win.isMaximized() }
   })
 
-  // 在窗口 maximize/unmaximize 时推送事件
+  // 初始窗口挂载状态监听（重建路径由 index.ts 在 CrashGuard/activate 处重新调用）
   const win = getMainWindow()
   if (win) {
-    win.on('maximize', () => {
-      sendEvent(win.webContents, 'companion:event:window-state', { maximized: true })
-    })
-    win.on('unmaximize', () => {
-      sendEvent(win.webContents, 'companion:event:window-state', { maximized: false })
-    })
+    attachWindowStateListeners(win)
   }
 
   logger.debug('window handlers registered', { scope: 'ipc' })

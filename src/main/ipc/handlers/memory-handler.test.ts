@@ -73,6 +73,7 @@ function makeMemory(overrides: Partial<L2Memory> = {}): L2Memory {
     importance: 5,
     archivedAt: null,
     extractionKey: null,
+    source: 'user_explicit',
     ...overrides
   }
 }
@@ -107,6 +108,7 @@ describe('C-β memory:list-l2 handler', () => {
         l0Store: {} as never,
         l2Store,
         dmaeService: null,
+        dmaeDiagnostics: null,
         revisionClock: { current: () => 7, next: () => 8 },
         broadcaster: { notify: vi.fn(), flush: vi.fn(), dispose: vi.fn() }
       },
@@ -134,5 +136,33 @@ describe('C-β memory:list-l2 handler', () => {
       lifecycleState: visibleStates,
       search: '100%'
     })
+  })
+})
+
+describe('memory handler disabled 语义（S-012 §3.3）', () => {
+  beforeEach(() => {
+    vi.mocked(ipcMain.handle).mockClear()
+    vi.mocked(ipcMain.removeHandler).mockClear()
+    configureIpcGuard(
+      { trustedOrigins: new Set(['http://localhost:5173']), trustedWebContentsIds: new Set([1]) },
+      noopLogger()
+    )
+  })
+
+  it('get-dmae-history: memory.enabled=false 返回空 points（query 空 data，不抛 MEM_DISABLED）', async () => {
+    registerMemoryHandlers({
+      logger: noopLogger(),
+      services: null,
+      getMemoryConfig: () => ({ enabled: false }) as never
+    })
+
+    const handler = getHandler('companion:memory:get-dmae-history')
+    const result = (await handler(trustedEvent(), {
+      memoryId: 'l2_1710000000000_a1',
+      days: 30
+    })) as { ok: boolean; data?: { memoryId: string; points: unknown[] } }
+
+    expect(result.ok).toBe(true)
+    expect(result.data).toEqual({ memoryId: 'l2_1710000000000_a1', points: [] })
   })
 })

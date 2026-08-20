@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 import type { Logger } from '@shared/observability/types'
 import { AppError } from '@shared/errors'
-import type { L2Store, MemoryType } from './l2-store'
+import type { L2Store, MemoryType, MemorySource } from './l2-store'
 import type { VectorStore } from './vector/types'
 import type { EmbeddingClient } from './embedding'
 import type { MemoryRevisionClock } from './revision-clock'
@@ -33,6 +33,8 @@ export interface WriteL2Input {
   triggerText: string | null
   type: MemoryType
   importance: number
+  /** P2-37: 记忆来源；默认 'user_explicit'（dispatch 按 attribution 映射） */
+  source?: MemorySource
   /** 当前 turn 的 user message ID（extractionKey 输入） */
   sourceMessageId: string
   /** L2 的 memoryType；L0 降级时为原声明值。extractionKey 输入 */
@@ -154,17 +156,23 @@ export function createMemoryWriter(deps: MemoryWriterDeps): MemoryWriter {
 
     // 事务内写入 L2 metadata + vector
     const txn = db.transaction(() => {
-      const mem = l2Store.add({
-        content: input.content,
-        confidence: input.confidence,
-        evidenceIds: input.evidenceIds,
-        sourceMessageIds: input.sourceMessageIds,
-        triggerText: input.triggerText,
-        syncStatus: pending ? 'pending' : 'synced',
-        type: input.type,
-        importance: input.importance,
-        extractionKey
-      })
+      const mem = l2Store.add(
+        {
+          content: input.content,
+          confidence: input.confidence,
+          evidenceIds: input.evidenceIds,
+          sourceMessageIds: input.sourceMessageIds,
+          triggerText: input.triggerText,
+          syncStatus: pending ? 'pending' : 'synced',
+          type: input.type,
+          importance: input.importance,
+          source: input.source ?? 'user_explicit',
+          extractionKey
+        },
+        // emit=false：add() 不在事务内 emit（S-010 §1.6"commit 后才 emit"）；
+        // 若事务回滚，订阅者不应收到指向不存在行的幽灵事件。commit 后由下方 emitAdded 统一发射。
+        false
+      )
       if (embeddingVec && !pending) {
         vectorStore.upsert(mem.id, embeddingVec)
       }

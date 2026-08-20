@@ -8,7 +8,12 @@
 //   - 成长投影（GrowthProfileView）是白名单脱敏投影，不含 A/B/C 原始指标（F5-006 决策 2）。
 //   - MemoryUpdatedEvent 只带 revision + hint + ts，不带数据（隐私 + IPC 带宽）。
 
-import type { MemoryLifecycleState, MemoryType } from '../../main/memory/l2-store'
+import type { AnomalyRuleId } from './dmae-config'
+
+// M-20：L2 生命周期/类型枚举下沉到 shared（此前 shared 反向 import main/l2-store，
+// 违反"shared 不能反向 import main"契约）。main 侧 l2-store 从此处 re-export，兼容既有导入。
+export type MemoryLifecycleState = 'active' | 'dormant' | 'archived' | 'soft_deleted' | 'purged'
+export type MemoryType = 'one_off' | 'situational' | 'stable'
 
 // === MemoryId ===
 
@@ -170,4 +175,38 @@ export interface MemoryQuery {
   search?: string
   limit: number // 1..200
   offset: number
+}
+
+// === P2-32：DMAE 面板 IPC 请求类型（F5-002 §3.7）===
+
+export interface DmaeTrendRequest {
+  days: 7 | 30 | 90
+}
+
+export interface DmaeExplainRequest {
+  memoryId: MemoryId
+}
+
+// === P2-34：DMAE 基准体检（F5-002 §3.6） ===
+
+export interface DmaeBenchmarkRequest {
+  windowDays: 7 | 30 | 90
+}
+
+export interface DmaeQualitativeRequest {
+  /** 突兀感 0-3 */
+  q1: number
+  /** 失忆感 0-3 */
+  q2: number
+  /** 关心感 0-3 */
+  q3: number
+  note?: string
+}
+
+// === M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道，S-005-补充 §1.7） ===
+
+/** 静音某条异常规则 N 天：写入 anomaly.muted[ruleId] = now + days（绝对解除时间戳） */
+export interface DmaeMuteRequest {
+  ruleId: AnomalyRuleId
+  days: number
 }

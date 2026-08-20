@@ -36,52 +36,85 @@ const { fillRateLabel } = storeToRefs(memoryStore)
       </div>
     </div>
 
-    <button class="growth-btn" aria-label="进入成长页" @click="router.push('/growth')">
-      <span>成长</span>
-      <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M9 5l7 7-7 7"
-          stroke="currentColor"
-          stroke-width="2"
-          fill="none"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-    </button>
+    <div class="header-actions">
+      <button
+        class="dmae-btn"
+        aria-label="查看记忆引擎"
+        title="记忆引擎"
+        @click="router.push('/dmae')"
+      >
+        <span>引擎</span>
+      </button>
+      <button class="growth-btn" aria-label="进入成长页" @click="router.push('/growth')">
+        <span>成长</span>
+        <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M9 5l7 7-7 7"
+            stroke="currentColor"
+            stroke-width="2"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
   </header>
 </template>
 
 <style scoped>
 .memory-header {
-  display: flex;
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   gap: var(--spacing-md);
-  padding: var(--spacing-md) var(--spacing-lg);
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border);
+  min-height: 72px;
+  padding: 11px clamp(14px, 2.4vw, 28px);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-translucent);
+  backdrop-filter: blur(18px) saturate(112%);
   flex-shrink: 0;
 }
 
 .back-btn,
-.growth-btn {
+.growth-btn,
+.dmae-btn {
   display: inline-flex;
+  min-height: 38px;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  border-radius: var(--radius);
-  background: var(--color-surface);
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-surface) 74%, transparent);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-  border: 1px solid var(--color-border);
+}
+
+.back-btn {
+  justify-self: start;
 }
 
 .back-btn:hover,
-.growth-btn:hover {
-  background: var(--color-bg-tertiary);
+.growth-btn:hover,
+.dmae-btn:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border));
+  background: var(--color-accent-soft);
   color: var(--color-text);
-  border-color: var(--color-text-muted);
+  transform: translateY(-1px);
+}
+
+.header-actions {
+  display: flex;
+  justify-self: end;
+  gap: 6px;
+}
+
+.dmae-btn {
+  background: var(--color-companion-soft);
 }
 
 .btn-icon {
@@ -90,34 +123,58 @@ const { fillRateLabel } = storeToRefs(memoryStore)
 }
 
 .header-center {
-  flex: 1;
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-md);
-  min-width: 0;
+  gap: 12px;
 }
 
 .header-title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
   color: var(--color-text);
+  font-family: var(--font-family-display);
+  font-size: clamp(20px, 2.2vw, 25px);
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
 }
 
 .fill-badge {
+  position: relative;
   display: inline-flex;
+  min-height: 32px;
   align-items: center;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-accent-soft-hover);
+  gap: 6px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border));
   border-radius: var(--radius-full);
-  font-size: var(--font-size-sm);
+  background: var(--color-accent-soft);
+  font-size: var(--font-size-xs);
+}
+
+.fill-badge::after {
+  position: absolute;
+  right: -12px;
+  bottom: -16px;
+  width: 48px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-companion-soft);
+  content: '';
+  pointer-events: none;
+}
+
+.fill-icon,
+.fill-label,
+.fill-value {
+  position: relative;
+  z-index: 1;
 }
 
 .fill-icon {
-  color: var(--color-accent);
-  font-size: var(--font-size-xs);
+  color: var(--color-companion);
+  font-size: 10px;
 }
 
 .fill-label {
@@ -125,26 +182,41 @@ const { fillRateLabel } = storeToRefs(memoryStore)
 }
 
 .fill-value {
-  font-weight: 600;
   color: var(--color-accent);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .memory-header {
-    padding: var(--spacing-sm) var(--spacing-md);
+    min-height: 64px;
+    padding-inline: 12px;
   }
 
   .header-center {
     flex-direction: column;
-    gap: var(--spacing-xs);
-    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .header-title {
+    font-size: var(--font-size-lg);
+  }
+
+  .fill-badge {
+    min-height: 24px;
+    padding-block: 2px;
+  }
+
+  .back-btn,
+  .growth-btn,
+  .dmae-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
   }
 
   .back-btn span,
-  .growth-btn span {
-    display: none;
-  }
-
+  .growth-btn span,
   .fill-label {
     display: none;
   }

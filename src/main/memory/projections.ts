@@ -13,10 +13,13 @@ import type { DmaeEngineService } from './dmae/service'
 import type { MemoryConfig } from '@shared/config/types'
 import type {
   DmaeSnapshotView,
+  GrowthProfileView,
+  GrowthTimelineEntryView,
   L0ProfileView,
   L2MemoryDetail,
   L2MemoryView
 } from '@shared/memory/types'
+import type { GrowthProfile, GrowthTimelineEntry } from '../growth/types'
 
 /** L0_FIELD_DESCRIPTIONS 的固定 key 顺序（S-011 §1.3：不按对象插入顺序） */
 const L0_FIELD_ORDER: readonly L0FieldKey[] = [
@@ -54,11 +57,18 @@ export function projectL0(l0Store: L0Store): L0ProfileView {
   }
 }
 
+/** 面向伙伴的 UI 文案：历史行可能以“用户…”开头，界面统一转换成自然的“你…”。 */
+export function humanizeMemoryContent(content: string): string {
+  return content
+    .replace(/^用户(?=的|是|在|曾|会|不|喜欢|希望|想|要|有|没有|正在|偏好|讨厌|叫|来自)/, '你')
+    .replace(/^伙伴(?=的|是|在|曾|会|不|喜欢|希望|想|要|有|没有|正在|偏好|讨厌|叫|来自)/, '你')
+}
+
 /** L2Memory -> L2MemoryView（列表轻量投影，不含 embedding） */
 export function projectL2View(mem: L2Memory, activation: number): L2MemoryView {
   return {
     id: mem.id,
-    content: mem.content,
+    content: humanizeMemoryContent(mem.content),
     type: mem.type,
     // purged 不暴露给 renderer（S-003-补充 不在 list 状态白名单）
     lifecycleState: mem.lifecycleState === 'purged' ? 'archived' : mem.lifecycleState,
@@ -129,4 +139,43 @@ export function projectDmaeSnapshot(
     promptThreshold: threshold,
     activeSet: entries.slice(0, maxActive)
   }
+}
+
+// === Growth 投影（S-003-补充 §3.7：投影集中在此，保证"哪些字段出 IPC"只有一处定义）===
+
+/**
+ * GrowthProfile -> GrowthProfileView（F5-006 决策 2 白名单投影）。
+ * 只暴露 U 值/阶段/相处天数/记忆数/起始时间/里程碑（id+title），A/B/C 原始指标不外泄。
+ *
+ * @param milestoneTitles 里程碑 id -> title 映射（F5-006 MILESTONES_V1 或自定义 json 的 title 表）。
+ *   查不到时回退 milestoneId（避免 title 缺口导致 UI 空白）。
+ */
+export function projectGrowthProfile(
+  p: GrowthProfile,
+  milestoneTitles: ReadonlyMap<string, string>
+): GrowthProfileView {
+  return {
+    understanding: p.current.understanding,
+    stage: p.stage,
+    activeDays: p.current.activeDays,
+    l2Total: p.current.l2Total,
+    startedAt: p.startedAt,
+    milestonesReached: p.milestonesReached.map((m) => ({
+      id: m.id,
+      title: milestoneTitles.get(m.id) ?? m.id,
+      ts: m.ts
+    }))
+  }
+}
+
+/** GrowthTimelineEntry -> GrowthTimelineEntryView（kind/title/text 脱敏投影） */
+export function projectGrowthTimeline(
+  entries: readonly GrowthTimelineEntry[]
+): GrowthTimelineEntryView[] {
+  return entries.map((e) => ({
+    ts: e.ts,
+    kind: e.kind,
+    title: e.title,
+    text: e.text
+  }))
 }

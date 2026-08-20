@@ -206,5 +206,53 @@ describe('P2-10/11/12 integration: I-01 "我叫小明" full chain', () => {
       turnId: 'turn_1'
     })
     expect(l2Store.count()).toBe(1) // 没有重复写入
+    // P2-37: attribution='user_explicit' -> source='user_explicit'
+    const written = l2Store.get(result.writtenMemoryIds[0])
+    expect(written?.source).toBe('user_explicit')
+  })
+
+  it('P2-37: L2 candidate attribution=assistant_inferred -> source=inferred', async () => {
+    const faux = createFauxExtractionProvider()
+    faux.setResponses([
+      JSON.stringify({
+        schemaVersion: 1,
+        candidates: [
+          {
+            targetLayer: 'l2',
+            content: '用户似乎偏好安静的环境',
+            confidence: 0.6,
+            certainty: 'inferred',
+            attribution: 'assistant_inferred',
+            evidence: [{ messageId: 'msg_1', role: 'user', quote: '我不喜欢太吵' }],
+            memoryType: 'situational',
+            importance: 'medium',
+            forbiddenOverclaims: []
+          }
+        ]
+      })
+    ])
+    const svc = createExtractionService({ provider: faux, logger: testNoopLogger })
+    const judge = createMemoryJudge()
+
+    const { candidates } = await svc.extract({
+      turnId: 'turn_1',
+      userMessageId: 'msg_1',
+      userContent: '我不喜欢太吵'
+    })
+    const decisions = judge.judgeBatch(candidates, {
+      turnId: 'turn_1',
+      userMessageId: 'msg_1',
+      userContent: '我不喜欢太吵'
+    })
+    expect(decisions[0].action).toBe('accept')
+
+    const result = await dispatcher.dispatchBatch(decisions, {
+      sessionId: 's1',
+      turnId: 'turn_1'
+    })
+    expect(result.writtenMemoryIds.length).toBe(1)
+    // P2-37: attribution='assistant_inferred' -> source='inferred'（保守降权）
+    const written = l2Store.get(result.writtenMemoryIds[0])
+    expect(written?.source).toBe('inferred')
   })
 })

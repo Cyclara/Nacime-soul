@@ -69,7 +69,19 @@ export async function testConnection(
       break
     }
 
-    // 走到这里：要么收到了 chunk（成功），要么流自然结束（空响应也视为连接成功）
+    // S-03 修复：超时 abort 且从未收到任何 chunk -> 报超时，而不是"流自然结束=成功"。
+    // 真实 provider（openai-compatible）把外部 abort 当"用户取消"静默返回（不抛错），
+    // 于是挂起端点超时后 for-await 循环自然结束走到这里；若只看"循环结束"会误报成功。
+    if (!gotChunk && controller.signal.aborted) {
+      logger.warn('model connection test: timeout', {
+        scope: 'llm',
+        code: 'NET_TIMEOUT',
+        tags: { ...tags, timeoutMs: String(timeoutMs) }
+      })
+      return { ok: false, code: 'NET_TIMEOUT' }
+    }
+
+    // 走到这里：要么收到了 chunk（成功），要么非超时的空流（空响应也视为连接成功）
     const latencyMs = Date.now() - start
     logger.info('model connection test passed', {
       scope: 'llm',
@@ -87,17 +99,8 @@ export async function testConnection(
       return { ok: true, latencyMs }
     }
 
-    // 超时（controller 被 timeout 触发 abort）
-    if (controller.signal.aborted) {
-      logger.warn('model connection test: timeout', {
-        scope: 'llm',
-        code: 'NET_TIMEOUT',
-        tags: { ...tags, timeoutMs: String(timeoutMs) }
-      })
-      return { ok: false, code: 'NET_TIMEOUT' }
-    }
-
-    // Provider 错误（401、5xx 等已映射为 AppError）
+    // Provider 错误（401、5xx 等已映射为 AppError）。先于超时判断：
+    // 避免"401 与超时几乎同时发生"时超时掩盖真实的认证问题。
     if (isAppError(e)) {
       logger.warn('model connection test failed', {
         scope: 'llm',
@@ -105,6 +108,16 @@ export async function testConnection(
         tags
       })
       return { ok: false, code: e.code }
+    }
+
+    // 超时（controller 被 timeout 触发 abort，且 provider 抛了错——如 fetch AbortError）
+    if (controller.signal.aborted) {
+      logger.warn('model connection test: timeout', {
+        scope: 'llm',
+        code: 'NET_TIMEOUT',
+        tags: { ...tags, timeoutMs: String(timeoutMs) }
+      })
+      return { ok: false, code: 'NET_TIMEOUT' }
     }
 
     // 未知错误（非 AppError 的异常）

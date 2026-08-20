@@ -85,6 +85,73 @@ describe('P2-12 MemoryWriter', () => {
     expect(vectorStore.count()).toBe(1)
   })
 
+  it('I-03a 补强：成功写入恰好发射一次 l2.added（commit 后），无事务内幽灵事件', async () => {
+    const writer = createMemoryWriter({
+      db: t.db,
+      l2Store,
+      vectorStore,
+      embedding: makeFauxEmbedding(4),
+      revisionClock,
+      logger: testNoopLogger
+    })
+    const added: string[] = []
+    l2Store.on('l2.added', (m) => added.push(m.id))
+
+    const result = await writer.writeL2(
+      {
+        content: '用户喜欢咖啡',
+        confidence: 0.8,
+        evidenceIds: ['msg_1'],
+        sourceMessageIds: ['msg_1'],
+        triggerText: '我喜欢咖啡',
+        type: 'stable' as const,
+        importance: 8,
+        sourceMessageId: 'msg_1',
+        fieldOrType: 'stable'
+      },
+      { sessionId: 's1', turnId: 't1' }
+    )
+
+    expect(result.memoryId).not.toBeNull()
+    // 恰好一次（修复前 add() 事务内 emit + emitAdded commit 后 = 两次）
+    expect(added).toEqual([result.memoryId])
+  })
+
+  it('I-03a 补强：事务回滚（vector upsert 抛错）不产生 l2.added 幽灵事件', async () => {
+    const writer = createMemoryWriter({
+      db: t.db,
+      l2Store,
+      vectorStore, // dim=4
+      embedding: makeFauxEmbedding(8), // dim=8 mismatch -> upsert 抛 MEM_EMBED_FAIL
+      revisionClock,
+      logger: testNoopLogger
+    })
+    const added: string[] = []
+    l2Store.on('l2.added', (m) => added.push(m.id))
+
+    await expect(
+      writer.writeL2(
+        {
+          content: '用户喜欢咖啡',
+          confidence: 0.8,
+          evidenceIds: ['msg_1'],
+          sourceMessageIds: ['msg_1'],
+          triggerText: '我喜欢咖啡',
+          type: 'stable' as const,
+          importance: 8,
+          sourceMessageId: 'msg_1',
+          fieldOrType: 'stable'
+        },
+        { sessionId: 's1', turnId: 't1' }
+      )
+    ).rejects.toThrow()
+
+    // 事务回滚：订阅者不应收到任何事件（修复前 add() 在事务内 emit 会先发一条幽灵事件）
+    expect(added).toEqual([])
+    // 且无 L2 行残留
+    expect(l2Store.count()).toBe(0)
+  })
+
   it('I-03b: embedding not configured -> metadata 1 row pending, vector 0 rows, revision+1', async () => {
     const writer = createMemoryWriter({
       db: t.db,

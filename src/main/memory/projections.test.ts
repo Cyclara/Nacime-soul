@@ -40,6 +40,7 @@ function makeL2(over: Partial<L2Memory> = {}): L2Memory {
     importance: 8,
     archivedAt: null,
     extractionKey: null,
+    source: 'user_explicit',
     ...over
   }
 }
@@ -60,7 +61,41 @@ const MEM_CFG: MemoryConfig = {
     modelRewardBase: 8,
     wakeLambda: 0.3,
     decayAlpha: 1.5,
-    decayBeta: 0.3
+    decayBeta: 0.3,
+    presets: [],
+    anomaly: {
+      muted: {
+        R01: 0,
+        R02: 0,
+        R03: 0,
+        R04: 0,
+        R05: 0,
+        R06: 0,
+        R07: 0,
+        R08: 0,
+        R09: 0,
+        R10: 0,
+        R11: 0,
+        R12: 0,
+        R13: 0
+      },
+      windows: {
+        R01: { days: 3 },
+        R02: { days: 7 },
+        R03: { days: 3 },
+        R04: { turns: 50 },
+        R05: { turns: 100 },
+        R06: {},
+        R07: { turns: 50 },
+        R08: { turns: 200 },
+        R09: { days: 3 },
+        R10: { days: 3, turns: 100 },
+        R11: { days: 7 },
+        R12: {},
+        R13: {}
+      }
+    },
+    historySampleEveryTurns: 1
   }
 }
 
@@ -96,13 +131,21 @@ describe('P2-29 projections', () => {
     it('列表投影含 activation/importance，不含 evidence', () => {
       const view = projectL2View(makeL2(), 42.5)
       expect(view.id).toBe('l2_1700000000000_abc123')
-      expect(view.content).toBe('用户喜欢咖啡')
+      expect(view.content).toBe('你喜欢咖啡')
       expect(view.activation).toBe(42.5)
       expect(view.importance).toBe(8)
       expect(view.isPinned).toBe(false)
       expect(view.createdAt).toBe(1700000000000)
       // 列表投影不含 evidenceIds
       expect((view as unknown as Record<string, unknown>).evidenceIds).toBeUndefined()
+    })
+
+    it('历史“用户/伙伴”前缀在 UI 投影中转换为“你”', () => {
+      expect(projectL2View(makeL2({ content: '用户不喝咖啡了' }), 0).content).toBe('你不喝咖啡了')
+      expect(projectL2View(makeL2({ content: '伙伴希望被叫星河' }), 0).content).toBe(
+        '你希望被叫星河'
+      )
+      expect(projectL2View(makeL2({ content: '咖啡店在楼下' }), 0).content).toBe('咖啡店在楼下')
     })
 
     it('purged 状态降级为 archived（不暴露 purged）', () => {
@@ -117,7 +160,7 @@ describe('P2-29 projections', () => {
       expect(detail.evidenceIds).toEqual(['msg_1'])
       expect(detail.sourceMessageIds).toEqual(['msg_1'])
       expect(detail.triggerText).toBe('触发文本')
-      expect(detail.content).toBe('用户喜欢咖啡')
+      expect(detail.content).toBe('你喜欢咖啡')
     })
 
     it('triggerText null -> 空字符串', () => {
@@ -156,15 +199,35 @@ describe('P2-29 projections', () => {
             active: 0,
             dormant: 0,
             archived: 0
+          },
+          diagnostics: {
+            entries: [],
+            modelRewardRawSum: 0,
+            modelRewardEffectiveSum: 0,
+            modelHitsGated: 0,
+            trueFloorRevivals: 0,
+            activationStats: { count: 0, sum: 0, mean: 0, median: 0 },
+            archivedTransitions: 0
           }
         }),
         getActivation: (id: string) => states.get(id)?.activation ?? 0,
         getStats: () => ({ active: 2, dormant: 1, archived: 1 }),
+        getL2Total: () => 4,
+        seedActivation: () => false,
+        get lastSaveOk() {
+          return true
+        },
         get pendingUserHitSessions() {
           return 0
         },
         get states() {
           return states
+        },
+        get lastSelection() {
+          return null
+        },
+        get turn() {
+          return 0
         }
       }
       const view = projectDmaeSnapshot(svc, MEM_CFG)

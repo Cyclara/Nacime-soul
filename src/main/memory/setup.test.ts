@@ -1,7 +1,7 @@
 // src/main/memory/setup.test.ts
 // P2-10~15 接线验证：memory.enabled 旁路、无 API Key 降级、正常接线。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setupMemoryInfrastructure } from './setup'
@@ -27,11 +27,13 @@ describe('P2-10~15 memory infrastructure setup', () => {
   let configStore: ReturnType<typeof createConfigStore>
   let secretStore: ReturnType<typeof createSecretStore>
   let sessionStore: ReturnType<typeof createMemorySessionStore>
+  let growthMilestonesPath: string
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'nacime-setup-'))
     dataDir = join(dir, 'data')
     dbPath = join(dataDir, 'memory.db')
+    growthMilestonesPath = join(dir, 'milestones.json') // 不存在 -> 回退 MILESTONES_V1
     mkdirSync(dataDir, { recursive: true })
 
     // 跑迁移建表
@@ -68,11 +70,13 @@ describe('P2-10~15 memory infrastructure setup', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  it('memory.enabled=false -> hook=null, no hooks registered', () => {
+  it('memory.enabled=false -> hook=null, no hooks registered', async () => {
     expect(configStore.get().memory.enabled).toBe(false) // 默认 false
-    const infra = setupMemoryInfrastructure({
+    const infra = await setupMemoryInfrastructure({
       dbPath,
       dataDir,
+      seedsDir: join(dir, 'seeds'),
+      growthMilestonesPath,
       configStore,
       secretStore,
       sessionStore,
@@ -90,9 +94,11 @@ describe('P2-10~15 memory infrastructure setup', () => {
     expect(configStore.get().memory.enabled).toBe(true)
     expect(secretStore.has('modelApiKey')).toBe(false)
 
-    const infra = setupMemoryInfrastructure({
+    const infra = await setupMemoryInfrastructure({
       dbPath,
       dataDir,
+      seedsDir: join(dir, 'seeds'),
+      growthMilestonesPath,
       configStore,
       secretStore,
       sessionStore,
@@ -100,9 +106,9 @@ describe('P2-10~15 memory infrastructure setup', () => {
       isDev: false,
       getWebContents: () => null
     })
-    // 无 API key -> extraction hook 不注册；但 DMAE hook 仍注册（dmae.enabled=true 默认）
+    // 无 API key -> extraction hook 不注册；但 DMAE hook + growth bridge + reference-tracker 仍注册
     expect(infra.hook).toBeNull()
-    expect(hookCount()).toBe(1) // DMAE hook（extraction 需 API key）
+    expect(hookCount()).toBe(3) // reference-tracker（chat.message 150）+ growth-bridge（220）+ DMAE（300）；extraction 需 API key
     infra.cleanup()
   })
 
@@ -110,9 +116,11 @@ describe('P2-10~15 memory infrastructure setup', () => {
     await configStore.update({ memory: { enabled: true } })
     secretStore.set('modelApiKey', 'sk-test-key-12345678')
 
-    const infra = setupMemoryInfrastructure({
+    const infra = await setupMemoryInfrastructure({
       dbPath,
       dataDir,
+      seedsDir: join(dir, 'seeds'),
+      growthMilestonesPath,
       configStore,
       secretStore,
       sessionStore,
@@ -120,10 +128,10 @@ describe('P2-10~15 memory infrastructure setup', () => {
       isDev: false,
       getWebContents: () => null
     })
-    // 有 API key -> extraction hook 注册；DMAE hook 也注册（dmae.enabled=true 默认）
+    // 有 API key -> extraction hook 注册；DMAE + growth bridge + reference-tracker 也注册
     expect(infra.hook).not.toBeNull()
     expect(infra.hook?.event).toBe('turn.end')
-    expect(hookCount()).toBe(2) // extraction（250）+ dmae（300）
+    expect(hookCount()).toBe(4) // reference-tracker（chat.message 150）+ growth-bridge（220）+ extraction（250）+ dmae（300）
     // cleanup 不抛错（含 worker terminate + DB close）
     expect(() => infra.cleanup()).not.toThrow()
     // cleanup 后 hook 已注销（registry 清空）
@@ -133,9 +141,11 @@ describe('P2-10~15 memory infrastructure setup', () => {
   it('cleanup terminates worker (no resource leak)', async () => {
     await configStore.update({ memory: { enabled: true } })
     secretStore.set('modelApiKey', 'sk-test-key-12345678')
-    const infra = setupMemoryInfrastructure({
+    const infra = await setupMemoryInfrastructure({
       dbPath,
       dataDir,
+      seedsDir: join(dir, 'seeds'),
+      growthMilestonesPath,
       configStore,
       secretStore,
       sessionStore,
@@ -154,9 +164,11 @@ describe('P2-10~15 memory infrastructure setup', () => {
     secretStore.set('modelApiKey', 'sk-test-key-12345678')
 
     // 第一次 setup：写入 embeddingModel=bge-m3, dim=1024
-    const infra1 = setupMemoryInfrastructure({
+    const infra1 = await setupMemoryInfrastructure({
       dbPath,
       dataDir,
+      seedsDir: join(dir, 'seeds'),
+      growthMilestonesPath,
       configStore,
       secretStore,
       sessionStore,
@@ -176,9 +188,11 @@ describe('P2-10~15 memory infrastructure setup', () => {
     })
 
     // 第二次 setup：应检测到模型变更，阻断 embedding
-    const infra2 = setupMemoryInfrastructure({
+    const infra2 = await setupMemoryInfrastructure({
       dbPath,
       dataDir,
+      seedsDir: join(dir, 'seeds'),
+      growthMilestonesPath,
       configStore,
       secretStore,
       sessionStore,
@@ -191,5 +205,146 @@ describe('P2-10~15 memory infrastructure setup', () => {
     // cleanup 不抛错
     expect(() => infra2.cleanup()).not.toThrow()
     clearHooks()
+  })
+
+  it('P2-36/37: seed 文件加载为 L2 条目（source=creator, importance=10, extractionKey 幂等）', async () => {
+    await configStore.update({ memory: { enabled: true } })
+    const seedsDir = join(dir, 'seeds')
+    mkdirSync(seedsDir, { recursive: true })
+    writeFileSync(
+      join(seedsDir, 'nacime-test.md'),
+      `---
+type: seed
+importance: 10
+confidence: 1.0
+source: creator
+tags: [test]
+---
+
+Nacime 喜欢测试。`,
+      'utf-8'
+    )
+
+    const infra = await setupMemoryInfrastructure({
+      dbPath,
+      dataDir,
+      seedsDir,
+      growthMilestonesPath,
+      configStore,
+      secretStore,
+      sessionStore,
+      logger: testNoopLogger,
+      isDev: false,
+      getWebContents: () => null
+    })
+
+    const l2Store = infra.services!.l2Store
+    const created = l2Store.list({})
+    // seed 条目 + 可能存在的其他条目；至少 1 条 seed
+    const seedMem = l2Store.getByExtractionKey('seed:nacime-test')
+    expect(seedMem).not.toBeNull()
+    expect(seedMem!.source).toBe('creator')
+    expect(seedMem!.importance).toBe(10)
+    expect(seedMem!.content).toBe('Nacime 喜欢测试。')
+    expect(seedMem!.lifecycleState).toBe('active')
+    // DMAE 引擎：seed 条目 activation 应为 maxScore（100）
+    if (infra.services!.dmaeService) {
+      expect(infra.services!.dmaeService.getActivation(seedMem!.id)).toBe(100)
+    }
+    void created
+    infra.cleanup()
+  })
+
+  it('P2-36/37: seed 重复启动幂等（extractionKey 已存在则跳过）', async () => {
+    await configStore.update({ memory: { enabled: true } })
+    const seedsDir = join(dir, 'seeds')
+    mkdirSync(seedsDir, { recursive: true })
+    writeFileSync(
+      join(seedsDir, 'nacime-dup.md'),
+      `---
+type: seed
+importance: 10
+confidence: 1.0
+source: creator
+tags: [test]
+---
+
+重复记忆`,
+      'utf-8'
+    )
+
+    const infra1 = await setupMemoryInfrastructure({
+      dbPath,
+      dataDir,
+      seedsDir,
+      growthMilestonesPath,
+      configStore,
+      secretStore,
+      sessionStore,
+      logger: testNoopLogger,
+      isDev: false,
+      getWebContents: () => null
+    })
+    infra1.cleanup()
+    clearHooks()
+
+    const infra2 = await setupMemoryInfrastructure({
+      dbPath,
+      dataDir,
+      seedsDir,
+      growthMilestonesPath,
+      configStore,
+      secretStore,
+      sessionStore,
+      logger: testNoopLogger,
+      isDev: false,
+      getWebContents: () => null
+    })
+    const l2Store = infra2.services!.l2Store
+    // 同一 extractionKey 只应有 1 行
+    const matches = l2Store.list({}).filter((m) => m.extractionKey === 'seed:nacime-dup')
+    expect(matches).toHaveLength(1)
+    expect(matches[0].source).toBe('creator')
+    infra2.cleanup()
+  })
+
+  it('P2-36: 坏 seed 文件跳过不崩', async () => {
+    await configStore.update({ memory: { enabled: true } })
+    const seedsDir = join(dir, 'seeds')
+    mkdirSync(seedsDir, { recursive: true })
+    writeFileSync(
+      join(seedsDir, 'good.md'),
+      `---
+type: seed
+importance: 10
+confidence: 1.0
+source: creator
+tags: [test]
+---
+
+好记忆`,
+      'utf-8'
+    )
+    writeFileSync(join(seedsDir, 'bad.md'), 'no frontmatter')
+
+    const infra = await setupMemoryInfrastructure({
+      dbPath,
+      dataDir,
+      seedsDir,
+      growthMilestonesPath,
+      configStore,
+      secretStore,
+      sessionStore,
+      logger: testNoopLogger,
+      isDev: false,
+      getWebContents: () => null
+    })
+    const l2Store = infra.services!.l2Store
+    const seedMem = l2Store.getByExtractionKey('seed:good')
+    expect(seedMem).not.toBeNull()
+    // 坏文件不产生条目
+    const badMem = l2Store.getByExtractionKey('seed:bad')
+    expect(badMem).toBeNull()
+    infra.cleanup()
   })
 })

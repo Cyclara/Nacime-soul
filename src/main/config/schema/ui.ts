@@ -3,6 +3,7 @@
 // 依据：S-005 §3.5
 
 import * as v from 'valibot'
+import { THEME_SETTING_IDS } from '@shared/config/themes'
 
 const WindowConfigSchema = v.object({
   width: v.pipe(v.number(), v.integer(), v.minValue(480), v.maxValue(3840)),
@@ -31,7 +32,7 @@ const Live2dConfigSchema = v.object({
  */
 export const UiConfigSchema = v.object({
   locale: v.picklist(['zh-CN', 'en-US']),
-  theme: v.picklist(['system', 'light', 'dark']),
+  theme: v.picklist(THEME_SETTING_IDS),
   fontScale: v.pipe(v.number(), v.finite(), v.minValue(0.8), v.maxValue(1.5)),
   reduceMotion: v.boolean(),
   window: WindowConfigSchema,

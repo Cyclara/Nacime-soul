@@ -20,6 +20,12 @@ const router = createRouter({
       path: '/growth',
       name: 'growth',
       component: () => import('./views/GrowthView.vue')
+    },
+    {
+      path: '/dmae',
+      name: 'dmae',
+      // P2-32: DMAE 可视化面板（F5-002）。懒加载非首屏
+      component: () => import('./views/DmaePanelView.vue')
     }
   ]
 })

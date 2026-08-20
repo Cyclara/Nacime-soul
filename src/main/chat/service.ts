@@ -423,7 +423,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
 
       // === 构建 prompt + budget ===
       // P2-27: prompt.build span（含 context assemble + buildPrompt + applyBudget）
-      const promptSpan = tracer.startSpan('prompt.build')
+      const promptSpan = tracer.startSpan('prompt.build', turnId)
       // S-011 §1.6：memory.enabled=true 但 dynamicPrompt 缺失 -> CFG_INVALID
       // memory.enabled=false（默认）-> Phase 1 五层静态路径
       const memoryConfig = getMemoryConfig ? getMemoryConfig() : undefined
@@ -532,7 +532,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       // P2-26/27: llm.call span + LLM 指标（calls/errors/latencyMs/tokens）
       const metrics = getMetrics()
       metrics.counter('llm.calls').inc()
-      const llmSpan = tracer.startSpan('llm.call')
+      const llmSpan = tracer.startSpan('llm.call', turnId)
       const llmStartMs = performance.now()
       try {
         for await (const chunk of provider.stream(finalRequest, controller.signal)) {
@@ -746,7 +746,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       }
 
       // P2-27: 结束 trace（推入环形缓冲，供 debug:get-snapshot 拉取）
-      tracer.endTurn(accumulated.length)
+      // P2（2026-08-10 审计）：传 turnId，跨会话并发时各自收尾互不覆盖
+      tracer.endTurn(accumulated.length, turnId)
     }
   }
 
@@ -768,8 +769,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
  *   - 允许 [user] 或 [user,assistant]；不得 assistant 开头（孤立 assistant -> 跳过该 turn）
  *   - 当前 turnId 标 isCurrent=true（永不裁）
  *   - 按时间升序排列（最旧在前，最旧先裁）
+ *   - M-03：合并跨轮的连续 user（孤立失败轮并入下一轮首条 user）
  */
-function buildBudgetHistoryTurns(
+export function buildBudgetHistoryTurns(
   messages: readonly ChatMessage[],
   currentTurnId: string,
   assistantPlaceholderId: MessageId
@@ -804,5 +806,50 @@ function buildBudgetHistoryTurns(
       isCurrent: tid === currentTurnId
     })
   }
-  return turns
+
+  // M-03 修复：合并跨轮的连续 user 消息。
+  // 失败/取消轮会留下"孤立 user 轮"（assistant 是 failed 被排除、无 complete 配对），
+  // 用户点重试后历史里出现 [user(失败)] 紧邻 [user(重试), assistant]——发给 provider 就是
+  // 连续两条 user 消息（部分严格端点 400、模型困惑）。
+  // 当上一轮以 user 结尾（必然是孤立轮）且本轮以 user 开头时，把上一轮的 user 文本并入本轮
+  // 首条 user（用换行连接），既保留全部文本又不出现连续 user。
+  // 用可变中间结构操作（BudgetHistoryTurn.messages 是 readonly），最后转回。
+  interface MutableTurn {
+    turnId: string
+    messages: LlmMessage[]
+    isCurrent: boolean
+  }
+  const mutableTurns: MutableTurn[] = turns.map((t) => ({
+    turnId: t.turnId,
+    messages: [...t.messages],
+    isCurrent: t.isCurrent
+  }))
+  const mergedTurns: MutableTurn[] = []
+  for (const turn of mutableTurns) {
+    const last = mergedTurns[mergedTurns.length - 1]
+    const lastEndsWithUser =
+      last && last.messages.length > 0 && last.messages[last.messages.length - 1].role === 'user'
+    const curStartsWithUser = turn.messages.length > 0 && turn.messages[0].role === 'user'
+    if (lastEndsWithUser && curStartsWithUser) {
+      const lastUser = last.messages[last.messages.length - 1]
+      turn.messages[0] = {
+        role: 'user',
+        content: `${lastUser.content}\n${turn.messages[0].content}`
+      }
+      if (last.messages.length === 1) {
+        // 上一轮是纯孤立 user 轮 -> 整轮并入本轮，移除
+        mergedTurns.pop()
+      } else {
+        // 防御分支：上一轮末尾是 user 但前面还有 assistant（正常不会发生）-> 只并入 user
+        last.messages = last.messages.slice(0, -1)
+      }
+    }
+    mergedTurns.push(turn)
+  }
+
+  return mergedTurns.map((t) => ({
+    turnId: t.turnId,
+    messages: t.messages as readonly LlmMessage[],
+    isCurrent: t.isCurrent
+  }))
 }

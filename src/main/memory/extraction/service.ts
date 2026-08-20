@@ -15,10 +15,15 @@
 import type { ErrorCode } from '@shared/errors'
 import type { Logger } from '@shared/observability/types'
 import { isAppError } from '@shared/errors'
+import type { LlmMessage } from '../../llm/types'
 import type { MemoryCandidate } from './candidate'
 import { parseCandidateEnvelope, type CandidateParseResult } from './parse'
 import { buildExtractionMessages } from './prompt'
-import { defaultExtractionRequest, type ExtractionProvider } from './provider'
+import {
+  defaultExtractionRequest,
+  type ExtractionProvider,
+  type ExtractionRequest
+} from './provider'
 
 export interface ExtractionInput {
   turnId: string
@@ -39,6 +44,11 @@ export interface ExtractionServiceDeps {
   logger: Logger
   /** 注入时钟（测试确定性）。默认 performance.now */
   now?: () => number
+  /**
+   * 请求构建器。默认 defaultExtractionRequest（P2-10 画像：maxOutputTokens=800）。
+   * P2-38 sync_turn 用 buildSyncTurnRequest 覆盖为便宜画像（低 maxOutputTokens）。
+   */
+  buildRequest?: (messages: readonly LlmMessage[]) => ExtractionRequest
 }
 
 /** ExtractionService 接口：extract(input) -> ExtractionOutput */
@@ -53,8 +63,9 @@ export interface ExtractionService {
  * 失败/超时/解析失败均返回空候选（fail-closed），不 throw。
  */
 export function createExtractionService(deps: ExtractionServiceDeps): ExtractionService {
-  const { provider, logger } = deps
+  const { provider, logger, buildRequest } = deps
   const now = deps.now ?? (() => performance.now())
+  const buildReq = buildRequest ?? defaultExtractionRequest
 
   async function extract(input: ExtractionInput): Promise<ExtractionOutput> {
     const start = now()
@@ -62,7 +73,7 @@ export function createExtractionService(deps: ExtractionServiceDeps): Extraction
 
     // 构建提取 messages（assistant 正文不发送）
     const messages = buildExtractionMessages(userMessageId, userContent)
-    const request = defaultExtractionRequest(messages)
+    const request = buildReq(messages)
 
     let rawOutput: string
     try {

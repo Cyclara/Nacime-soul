@@ -27,8 +27,10 @@ import { registerNavigationGuard, registerPermissionDenial } from '../security/n
 export function createChatWindow(): BrowserWindow {
   // 注册 CSP（幂等：onHeadersReceived 再次调用会替换旧监听器，重建窗口时安全）
   registerCsp(session.defaultSession, is.dev)
+  const isAutomatedTest = process.env['COMPANION_TEST_MODE'] === 'faux'
 
   const win = new BrowserWindow({
+    title: isAutomatedTest ? 'Nacime [自动化测试 · 临时数据]' : 'Nacime',
     width: 900,
     // 与 S-005 §3.7 ui.window.height 默认值（720）保持一致；
     // Phase 2 实现窗口尺寸持久化后从 config 读取，届时移除此处硬编码。
@@ -53,9 +55,14 @@ export function createChatWindow(): BrowserWindow {
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    const rendererUrl = isAutomatedTest
+      ? `${process.env['ELECTRON_RENDERER_URL']}?automation-test=1`
+      : process.env['ELECTRON_RENDERER_URL']
+    win.loadURL(rendererUrl)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: isAutomatedTest ? { 'automation-test': '1' } : undefined
+    })
   }
 
   return win

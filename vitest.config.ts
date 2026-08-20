@@ -1,16 +1,25 @@
 import { defineConfig } from 'vitest/config'
+import vue from '@vitejs/plugin-vue'
 import path from 'node:path'
 
 export default defineConfig({
+  plugins: [vue()], // M-31：组件测试需要转换 .vue SFC
   resolve: {
-    alias: {
-      '@shared': path.resolve('src/shared'),
-      '@renderer': path.resolve('src/renderer/src')
-    }
+    alias: [
+      { find: '@shared', replacement: path.resolve('src/shared') },
+      { find: '@renderer', replacement: path.resolve('src/renderer/src') },
+      // electron-vite 的 `?modulePath` worker 后缀只在构建时生效（apply:'build'），
+      // vitest 环境不处理它；映射到测试 stub，避免源码里的 worker import 在测试中崩。
+      // 生产构建仍由 electron-vite 注入真实 worker bundle 路径（F5-003 §5 worker_thread）。
+      {
+        find: /\.\/ivf-worker\?modulePath$/,
+        replacement: path.resolve('src/test/fixtures/ivf-worker-stub.ts')
+      }
+    ]
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.integration.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.integration.test.ts', 'tests/evals/**/*.test.ts'],
     exclude: ['node_modules', 'out', 'dist', 'tests/e2e'],
     coverage: {
       provider: 'istanbul',

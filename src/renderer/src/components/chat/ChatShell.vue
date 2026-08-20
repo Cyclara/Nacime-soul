@@ -6,52 +6,296 @@
 import { useRouter } from 'vue-router'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
+import { useSettingsUiStore } from '../../stores/settings-ui'
+import { useChatStore } from '../../stores/chat'
 
 const router = useRouter()
+const settingsUi = useSettingsUiStore()
+const chatStore = useChatStore()
 </script>
 
 <template>
   <div class="chat-shell">
-    <button
-      class="memory-entry"
-      aria-label="查看她的记忆"
-      title="她的记忆"
-      @click="router.push('/memory')"
-    >
-      🧠
-    </button>
+    <div class="ambient-glow" aria-hidden="true"></div>
+    <header class="chat-header">
+      <div class="header-inner">
+        <div class="companion-identity">
+          <span class="companion-avatar" aria-hidden="true">N</span>
+          <span class="identity-copy">
+            <strong>Nacime</strong>
+            <span class="presence"><i aria-hidden="true"></i>慢慢听你说</span>
+          </span>
+        </div>
+        <div class="header-actions">
+          <button
+            class="memory-entry"
+            aria-label="查看她的记忆"
+            title="她的记忆"
+            @click="router.push('/memory')"
+          >
+            <span class="memory-glyph" aria-hidden="true">◌</span>
+            <span>她的记忆</span>
+          </button>
+          <button
+            class="settings-entry"
+            aria-label="打开设置"
+            title="设置"
+            @click="settingsUi.open('appearance')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 8.35A3.65 3.65 0 1 0 12 15.65 3.65 3.65 0 0 0 12 8.35Zm8.1 4.7v-2.1l-2.02-.72a6.7 6.7 0 0 0-.65-1.55l.92-1.94-1.49-1.49-1.94.92a6.7 6.7 0 0 0-1.55-.65L12.65 3h-2.1l-.72 2.02a6.7 6.7 0 0 0-1.55.65l-1.94-.92-1.49 1.49.92 1.94a6.7 6.7 0 0 0-.65 1.55l-2.02.72v2.1l2.02.72c.15.55.37 1.07.65 1.55l-.92 1.94 1.49 1.49 1.94-.92c.48.28 1 .5 1.55.65l.72 2.02h2.1l.72-2.02a6.7 6.7 0 0 0 1.55-.65l1.94.92 1.49-1.49-.92-1.94c.28-.48.5-1 .65-1.55l2.02-.72Z"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
     <MessageList />
+    <!-- M-18：发送/流式失败错误条（此前 lastError 只写不渲染，用户看不到失败原因） -->
+    <div v-if="chatStore.state.lastError" class="send-error" role="alert">
+      <span class="send-error-text">{{ chatStore.state.lastError.message }}</span>
+      <button
+        class="send-error-close"
+        aria-label="关闭提示"
+        title="关闭"
+        @click="chatStore.clearLastError()"
+      >
+        ×
+      </button>
+    </div>
     <Composer />
   </div>
 </template>
 
 <style scoped>
 .chat-shell {
+  position: relative;
   display: flex;
+  flex: 1;
   flex-direction: column;
   height: 100%;
-  flex: 1;
-  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.035) 100%);
 }
-.memory-entry {
+
+.ambient-glow {
   position: absolute;
-  top: var(--spacing-sm);
-  right: var(--spacing-sm);
-  z-index: 10;
-  width: 36px;
-  height: 36px;
+  z-index: 0;
+  top: 8%;
+  left: 50%;
+  width: min(52vw, 620px);
+  aspect-ratio: 1;
   border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 1.1rem;
+  background: radial-gradient(circle, var(--color-companion-soft), transparent 68%);
+  filter: blur(26px);
+  opacity: 0.62;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: breathe 9s ease-in-out infinite;
+}
+
+.chat-header {
+  position: relative;
+  z-index: 5;
+  min-height: 64px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-translucent);
+  backdrop-filter: blur(18px) saturate(115%);
+}
+
+.header-inner {
+  display: flex;
+  width: min(100%, 1040px);
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  margin-inline: auto;
+}
+
+.companion-identity {
   display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  gap: 11px;
 }
+
+.companion-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-companion) 34%, var(--color-border));
+  border-radius: 14px 14px 14px 6px;
+  background:
+    linear-gradient(145deg, var(--color-companion-soft), var(--color-accent-soft)),
+    var(--color-surface-elevated);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.08),
+    var(--shadow-sm);
+  color: var(--color-companion);
+  font-family: var(--font-family-display);
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.identity-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.identity-copy strong {
+  color: var(--color-text);
+  font-family: var(--font-family-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.presence {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.presence i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-companion);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-companion) 12%, transparent);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.memory-glyph {
+  color: var(--color-companion);
+  font-family: var(--font-family-display);
+  font-size: 19px;
+  line-height: 1;
+  transform: rotate(-8deg);
+}
+
 .memory-entry:hover {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  background: var(--color-accent-soft-hover);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  transform: translateY(-1px);
+}
+
+.settings-entry {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 50%;
+  background: var(--color-surface-elevated);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+  color: var(--color-text-muted);
+}
+
+.settings-entry svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.settings-entry:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  background: var(--color-accent-soft);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-accent);
+  transform: translateY(-1px) rotate(5deg);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.48;
+    transform: translateX(-50%) scale(0.96);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateX(-50%) scale(1.04);
+  }
+}
+
+@media (max-width: 520px) {
+  .chat-header {
+    min-height: 58px;
+    padding-inline: 14px;
+  }
+
+  .memory-entry {
+    width: 38px;
+    padding-inline: 0;
+  }
+
+  .memory-entry > span:last-child {
+    display: none;
+  }
+}
+
+/* M-18：发送/流式失败错误条 */
+.send-error {
+  display: flex;
+  width: min(100%, 1040px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 auto 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius);
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
+}
+
+.send-error-text {
+  line-height: 1.5;
+}
+
+.send-error-close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-error);
+  font-family: var(--font-family-display);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.send-error-close:hover {
+  background: color-mix(in srgb, var(--color-error) 14%, transparent);
 }
 </style>

@@ -13,6 +13,10 @@ const snapshot = ref<DebugSnapshot | null>(null)
 const loading = ref(false)
 let timer: number | null = null
 
+// M-05：生产构建（打包后）禁用调试面板——不注册快捷键、不拉取、不展示。
+// main 侧 debug:get-snapshot/open-log-folder 也已按 app.isPackaged 拒绝（双保险）。
+const isProduction = import.meta.env.PROD
+
 async function refresh(): Promise<void> {
   loading.value = true
   try {
@@ -50,6 +54,7 @@ const uptimeStr = computed(() => {
 })
 
 onMounted(() => {
+  if (isProduction) return
   window.addEventListener('keydown', onKeyDown)
   // 面板可见时每 2 秒拉取一次快照（F5-011 wireframe "实时"）
   timer = window.setInterval(() => {
@@ -64,7 +69,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="visible" class="debug-panel">
+  <div v-if="visible && !isProduction" class="debug-panel">
     <div class="debug-header">
       <span class="debug-meta"> v{{ snapshot?.appVersion ?? '...' }} · 运行 {{ uptimeStr }} </span>
       <span class="debug-logpath" :title="snapshot?.logFilePath">

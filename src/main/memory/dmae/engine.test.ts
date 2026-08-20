@@ -388,3 +388,238 @@ describe('集成：多条目混合 turn', () => {
     expect(res.stats.archived).toBe(c.archived)
   })
 })
+
+// === P2-31.5D：引擎诊断 ABI（F5-002 §3.2/§3.7）===
+
+describe('P2-31.5D: 引擎诊断 ABI', () => {
+  it('diagnostics.entries 包含全部条目，逐条带 raw/effective/gated/decay', () => {
+    const { states, importances } = makeStates([
+      { id: 'active1', activation: 50, us: 0, ms: 0, importance: 5 },
+      { id: 'silent1', activation: 30, us: 2, ms: 2, importance: 5 }
+    ])
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(['active1']), modelHitIds: new Set(['active1']) },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    expect(res.diagnostics.entries).toHaveLength(2)
+    const active1Diag = res.diagnostics.entries.find((d) => d.memoryId === 'active1')!
+    expect(active1Diag.userHit).toBe(true)
+    expect(active1Diag.modelHit).toBe(true)
+    expect(active1Diag.modelHitGated).toBe(false) // aOld=50 >= 30 -> Active -> 不 gated
+    expect(active1Diag.modelRewardRaw).toBeGreaterThan(0) // rawRm = Bm * e^0 = 8
+    expect(active1Diag.modelRewardEffective).toBeGreaterThanOrEqual(0)
+    expect(active1Diag.modelRewardEffective).toBeLessThanOrEqual(active1Diag.modelRewardRaw)
+    // active1 被 user+model 命中 -> usNew=0, msNew=0 -> decay=0（不是 >0）
+    expect(active1Diag.decay).toBe(0)
+    // silent1 未被命中 -> usNew=3, msNew=3 -> decay>0
+    const silent1Diag = res.diagnostics.entries.find((d) => d.memoryId === 'silent1')!
+    expect(silent1Diag.decay).toBeGreaterThan(0)
+    // raw 由引擎带出（S-F02：禁止在诊断层重算）
+    expect(active1Diag.modelRewardRaw).toBeCloseTo(
+      P.modelRewardBase * Math.exp(-P.wakeLambda * 0),
+      5
+    )
+  })
+
+  it('modelHit 但 aOld 非 Active -> modelHitGated=true, rawRm=0', () => {
+    const { states, importances } = makeStates([
+      { id: 'dormant1', activation: 15, us: 0, ms: 0, importance: 5 } // Dormant (< 30)
+    ])
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(), modelHitIds: new Set(['dormant1']) },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    const d = res.diagnostics.entries[0]
+    expect(d.modelHit).toBe(true)
+    expect(d.modelHitGated).toBe(true) // aOld=15 < 30 -> Dormant -> gated
+    expect(d.modelRewardRaw).toBe(0) // 没走到 clamp
+    expect(d.modelRewardEffective).toBe(0)
+    expect(res.diagnostics.modelHitsGated).toBe(1)
+  })
+
+  it('modelRewardRawSum / modelRewardEffectiveSum 只累加真正进了 clamp 的', () => {
+    const { states, importances } = makeStates([
+      { id: 'active1', activation: 50, us: 0, ms: 0, importance: 5 }, // Active, modelHit
+      { id: 'dormant1', activation: 15, us: 0, ms: 0, importance: 5 } // Dormant, modelHit -> gated
+    ])
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(), modelHitIds: new Set(['active1', 'dormant1']) },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    // 只有 active1 贡献 raw/effective sum
+    expect(res.diagnostics.modelRewardRawSum).toBeGreaterThan(0)
+    expect(res.diagnostics.modelRewardEffectiveSum).toBeGreaterThanOrEqual(0)
+    expect(res.diagnostics.modelHitsGated).toBe(1)
+  })
+
+  it('everActivated 翻转：aNew > 0 时置 true，一旦为 true 不再回落', () => {
+    const { states, importances } = makeStates([
+      { id: 'new1', activation: 0, us: 0, ms: 0, importance: 5 } // Archived, everActivated=false
+    ])
+    // 首次 userHit -> Floor 复活到 importance=5 -> aNew=5 > 0 -> everActivated 翻 true
+    const res1 = updateTurn(
+      states,
+      { userHitIds: new Set(['new1']), modelHitIds: new Set() },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    expect(states.get('new1')!.everActivated).toBe(true)
+    expect(res1.diagnostics.entries[0].firstActivation).toBe(true)
+    expect(res1.diagnostics.entries[0].everActivatedBefore).toBe(false)
+
+    // 下一轮沉默 -> activation 衰减但可能仍 > 0，everActivated 保持 true
+    const res2 = updateTurn(
+      states,
+      { userHitIds: new Set(), modelHitIds: new Set() },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    expect(states.get('new1')!.everActivated).toBe(true) // 不回落
+    expect(res2.diagnostics.entries[0].everActivatedBefore).toBe(true)
+    expect(res2.diagnostics.entries[0].firstActivation).toBe(false)
+  })
+
+  it('trueFloorRevivals 剔除 firstActivation（R09 口径）', () => {
+    // 两条 Archived 记忆：
+    // - new1: everActivated=false -> 首次命中 = firstActivation，floorRevivals++ 但不是 trueFloorRevival
+    // - old1: everActivated=true -> 真实复活，floorRevivals++ 且是 trueFloorRevival
+    const states = new Map<string, DmaeEntryState>([
+      ['new1', { activation: 0, userSilence: 5, modelSilence: 5, everActivated: false }],
+      ['old1', { activation: 0, userSilence: 5, modelSilence: 5, everActivated: true }]
+    ])
+    const importances = new Map<string, number>([
+      ['new1', 5],
+      ['old1', 5]
+    ])
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(['new1', 'old1']), modelHitIds: new Set() },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    // 原始 floorRevivals = 2（两条都复活）
+    expect(res.stats.floorRevivals).toBe(2)
+    // trueFloorRevivals = 1（只有 old1 是真实复活）
+    expect(res.diagnostics.trueFloorRevivals).toBe(1)
+    // new1 是首次激活
+    const new1Diag = res.diagnostics.entries.find((d) => d.memoryId === 'new1')!
+    expect(new1Diag.firstActivation).toBe(true)
+    const old1Diag = res.diagnostics.entries.find((d) => d.memoryId === 'old1')!
+    expect(old1Diag.firstActivation).toBe(false)
+  })
+
+  it('改变 clamp 测试常数时采样结果同步（无第二份公式）', () => {
+    // 用不同参数跑两轮，验证 diagnostics 的 rawRm 与公式一致
+    const { states, importances } = makeStates([
+      { id: 'a1', activation: 50, us: 0, ms: 0, importance: 5 }
+    ])
+    const paramsA: typeof P = { ...P, modelRewardBase: 10, wakeLambda: 0.4 }
+    // modelHit 但不 userHit -> usNew=1, msNew=0
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(), modelHitIds: new Set(['a1']) },
+      paramsA,
+      importanceOf(importances),
+      () => NOW
+    )
+    const d = res.diagnostics.entries[0]
+    // rawRm = Bm * e^(-λ * usOld) = 10 * e^(-0.4 * 0) = 10
+    expect(d.modelRewardRaw).toBeCloseTo(10 * Math.exp(-0.4 * 0), 5)
+    // usNew=1, msNew=0 -> decay = (α*1² + β*0²) / √5 = 1.5/√5
+    const expectedDecay = (paramsA.decayAlpha * 1 * 1) / Math.sqrt(5)
+    // effective = min(rawRm, decay - ε)
+    expect(d.modelRewardEffective).toBeCloseTo(Math.max(0, Math.min(10, expectedDecay - 0.01)), 5)
+  })
+})
+
+describe('P1（2026-08-10 审计）：engine 诊断带 stateBefore/stateAfter + activationStats + archivedTransitions', () => {
+  it('entry diagnostics 记录 stateBefore/stateAfter/权威 before 值', () => {
+    const { states, importances } = makeStates([
+      { id: 'm1', activation: 20, us: 3, ms: 2, importance: 5 } // Dormant
+    ])
+    // userHit -> Ru -> aNew 上升可能到 Active
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(['m1']), modelHitIds: new Set() },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    const d = res.diagnostics.entries[0]
+    expect(d.stateBefore).toBe('Dormant')
+    expect(d.activationBefore).toBe(20)
+    expect(d.userSilenceBefore).toBe(3)
+    expect(d.modelSilenceBefore).toBe(2)
+    expect(d.activationAfter).toBe(states.get('m1')!.activation)
+    // us=3 -> Ru=20*(1+0.5·ln4)≈33.9，decay=0（userHit 重置 us/ms）-> aNew≈53.9 >= 30 -> Active
+    expect(d.stateAfter).toBe('Active' as const)
+  })
+
+  it('activationStats: count/sum/mean/median 来自本轮全部条目', () => {
+    const { states, importances } = makeStates([
+      { id: 'a', activation: 50, us: 0, ms: 0, importance: 5 },
+      { id: 'b', activation: 10, us: 0, ms: 0, importance: 5 },
+      { id: 'c', activation: 0, us: 0, ms: 0, importance: 5 }
+    ])
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(), modelHitIds: new Set() },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    const s = res.diagnostics.activationStats
+    expect(s.count).toBe(3)
+    // 无 hit 只有衰减：aNew = aOld - decay(us=1, ms=1, I=5)
+    // decay(1,1) = (1.5*1 + 0.3*1)/√5 = 1.8/√5 ≈ 0.805
+    const decay = (P.decayAlpha + P.decayBeta) / Math.sqrt(5)
+    const expected = [50 - decay, 10 - decay, 0].sort((x, y) => x - y)
+    expect(s.sum).toBeCloseTo(
+      expected.reduce((x, v) => x + v, 0),
+      5
+    )
+    expect(s.mean).toBeCloseTo(s.sum / 3, 5)
+    expect(s.median).toBeCloseTo(expected[1], 5) // 中位数
+  })
+
+  it('archivedTransitions 只统计迁入 Archived 的条目（不是总迁移数）', () => {
+    // dormant -> archived（计 1），active -> dormant（不计）
+    const { states, importances } = makeStates([
+      { id: 'toArchived', activation: 5, us: 50, ms: 50, importance: 5 }, // Dormant -> 衰减到 0
+      { id: 'toDormant', activation: 31, us: 0, ms: 0, importance: 5 } // Active -> 衰减到 <30
+    ])
+    const res = updateTurn(
+      states,
+      { userHitIds: new Set(), modelHitIds: new Set() },
+      P,
+      importanceOf(importances),
+      () => NOW
+    )
+    // toArchived: 5 - decay -> 0 -> Archived；toDormant: 31 - decay -> ~30.2 仍 Active 或 Dormant
+    expect(res.diagnostics.archivedTransitions).toBe(1)
+  })
+
+  it('无条目时 activationStats 全 0，archivedTransitions=0', () => {
+    const res = updateTurn(
+      new Map(),
+      { userHitIds: new Set(), modelHitIds: new Set() },
+      P,
+      () => 5,
+      () => NOW
+    )
+    expect(res.diagnostics.activationStats).toEqual({ count: 0, sum: 0, mean: 0, median: 0 })
+    expect(res.diagnostics.archivedTransitions).toBe(0)
+  })
+})
