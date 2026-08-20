@@ -43,6 +43,12 @@ interface OpenAIStreamChunk {
   }
 }
 
+// V-03c：思考模式首字节预算下限。思考档（尤其 max）在首个 token 前可能有较长的
+// 推理静默期；单一 timeoutMs 兼任"连接+首字节"与"流中空闲"两种语义，会把这种正常
+// 静默误判为 NET_TIMEOUT。此处仅在首个 SSE chunk 到达前把预算抬到至少 120s；
+// 首字节到达后即恢复 timeoutMs 的流中空闲语义（见 stream() 内 firstChunkSeen）。
+const THINKING_FIRST_BYTE_FLOOR_MS = 120_000
+
 /** adapter 构造参数（从 ModelConfig 提取的运行时配置） */
 export interface OpenAICompatibleConfig {
   baseUrl: string
@@ -119,14 +125,22 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
     }
 
-    // idle timeout：timeoutMs 内无数据则 abort
+    // idle timeout：预算内无数据则 abort。
+    // V-03c：首个 SSE chunk 到达前，思考模式（reasoningEffort !== 'off'）预算抬到
+    // max(timeoutMs, THINKING_FIRST_BYTE_FLOOR_MS)，覆盖长推理静默期；
+    // 首字节到达后 firstChunkSeen=true，恢复 timeoutMs 的流中空闲语义。
+    let firstChunkSeen = false
     let idleTimer: ReturnType<typeof setTimeout> | undefined
     const resetIdleTimer = (): void => {
       if (idleTimer) clearTimeout(idleTimer)
+      const budgetMs =
+        !firstChunkSeen && this.config.reasoningEffort !== 'off'
+          ? Math.max(this.config.timeoutMs, THINKING_FIRST_BYTE_FLOOR_MS)
+          : this.config.timeoutMs
       idleTimer = setTimeout(() => {
         timedOut = true
         controller.abort()
-      }, this.config.timeoutMs)
+      }, budgetMs)
     }
 
     resetIdleTimer()
@@ -179,6 +193,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       for await (const data of parseSseStream(response, {
         signal: controller.signal
       })) {
+        firstChunkSeen = true // V-03c：首字节已到，后续 resetIdleTimer 恢复常规 idle 语义
         resetIdleTimer()
 
         // [DONE] 标记流结束

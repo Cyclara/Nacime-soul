@@ -217,6 +217,11 @@ export function createSQLiteVectorStore(opts: SQLiteVectorStoreOptions): VectorS
   let ivf: IvfIndex | null = null
   let ivfBuilding = false
   let driftSinceBuild = 0
+  // V-03b 修复（2026-08-20）：构建窗口期的增删暂存。
+  // 构建快照只含窗口前的 mem；窗口期 upsert/remove 记录在此，
+  // 构建结束后在 finally 里重放到新索引（或构建失败时的旧索引），消除检索盲区。
+  // 值 null 表示窗口期被 remove（新索引快照含该 id，需从重放的索引中移除）。
+  const pendingDuringBuild = new Map<string, Float32Array | null>()
   // C-γ-1: kmeans 连续失败计数，超阈值停止自动重建（避免忙循环）
   let consecutiveBuildFailures = 0
   const IVF_BUILD_FAILURE_LIMIT = 3
@@ -359,7 +364,8 @@ export function createSQLiteVectorStore(opts: SQLiteVectorStoreOptions): VectorS
       }
       // 原子替换
       ivf = newIvf
-      // 漂移 = 构建期间新增的向量数（它们不在倒排列表中，需要后续 rebuild 或增量加入）
+      // 漂移 = 构建期间净新增的向量数（用于 rebuild 阈值判断；
+      // 这些条目已由 finally 中的 pendingDuringBuild 重放补进新索引）
       driftSinceBuild = Math.max(0, mem.size - nAtBuildStart)
       // 持久化
       const stateJson = serializeIvfState(result, nAtBuildStart, newIvf.builtAt)
@@ -380,6 +386,16 @@ export function createSQLiteVectorStore(opts: SQLiteVectorStoreOptions): VectorS
       })
     } finally {
       ivfBuilding = false
+      // V-03b 修复：重放构建窗口期的增删（构建快照不含它们）。
+      // 此处 ivfBuilding=false，addToIvf/removeFromIvf 生效：
+      //   - 构建成功 -> 补进新索引（消除盲区 upsert / 移除陈旧 remove）
+      //   - 构建失败且旧索引仍在 -> 补进旧索引（等价于未触发构建时的原生行为）
+      //   - 早退路径 ivf=null -> addToIvf 自然跳过（flat 阶段暴力扫描覆盖，无害）
+      for (const [id, vec] of pendingDuringBuild) {
+        if (vec) addToIvf(id, vec)
+        else removeFromIvf(id)
+      }
+      pendingDuringBuild.clear()
       // C-γ-1: 防抖 + 退避
       // 1. 重新检查条目数 >= minEntries（早退路径已清 ivf=null，这里不会误触发）
       // 2. 连续失败超阈值 -> 停止自动重建
@@ -518,8 +534,13 @@ export function createSQLiteVectorStore(opts: SQLiteVectorStoreOptions): VectorS
       insVec.run(memoryId, encode(embedding), dim)
       const copy = Float32Array.from(embedding)
       mem.set(memoryId, { vec: copy, norm: norm(copy) })
-      // IVF 已存在 -> 增量加入最近质心的桶（即时可检索）
-      addToIvf(memoryId, copy)
+      // IVF 已存在 -> 增量加入最近质心的桶（即时可检索）；
+      // 构建窗口期暂存 pendingDuringBuild，构建结束后重放（V-03b）
+      if (ivfBuilding) {
+        pendingDuringBuild.set(memoryId, copy)
+      } else {
+        addToIvf(memoryId, copy)
+      }
       driftSinceBuild++
       rev++
       // 检查是否需要构建或重建 IVF（惰性，不阻塞）
@@ -529,7 +550,12 @@ export function createSQLiteVectorStore(opts: SQLiteVectorStoreOptions): VectorS
     remove(memoryId) {
       delVec.run(memoryId)
       mem.delete(memoryId)
-      removeFromIvf(memoryId)
+      // 构建窗口期暂存删除（新索引快照可能含该 id，结束后需从重放的索引移除；V-03b）
+      if (ivfBuilding) {
+        pendingDuringBuild.set(memoryId, null)
+      } else {
+        removeFromIvf(memoryId)
+      }
       driftSinceBuild++
       rev++
       checkDrift()

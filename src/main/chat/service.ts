@@ -562,16 +562,27 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         status = 'failed'
         errorCode = isAppError(err) ? err.code : 'UNKNOWN'
 
-        sessionStore.appendMessage(sessionId, {
-          id: assistantMessageId,
-          sessionId,
-          role: 'assistant',
-          content: accumulated,
-          createdAt: Date.now(),
-          status: 'failed',
-          errorCode,
-          turnId
-        })
+        // V-03a：failed 标记写盘失败（如窗口关闭竞态 DB 已 close）不得吞掉下面的 failed 事件——
+        // 事件必须先到达 UI，持久化尽力而为
+        try {
+          sessionStore.appendMessage(sessionId, {
+            id: assistantMessageId,
+            sessionId,
+            role: 'assistant',
+            content: accumulated,
+            createdAt: Date.now(),
+            status: 'failed',
+            errorCode,
+            turnId
+          })
+        } catch (writeErr) {
+          chatLogger.warn('failed-marker persist skipped', {
+            scope: 'chat',
+            turnId,
+            tags: { requestId },
+            detail: writeErr instanceof Error ? writeErr.message : String(writeErr)
+          })
+        }
 
         chatLogger.warn('turn failed', {
           scope: 'chat',
@@ -662,17 +673,27 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       // 内层 catch（provider stream 错误）已有 return，不会到达这里
       status = 'failed'
       errorCode = isAppError(err) ? err.code : 'UNKNOWN'
-      sessionStore.appendMessage(sessionId, {
-        id: assistantMessageId,
-        sessionId,
-        role: 'assistant',
-        content: accumulated,
-        ...(accumulatedReasoning.length > 0 ? { reasoning: accumulatedReasoning } : {}),
-        createdAt: Date.now(),
-        status: 'failed',
-        errorCode,
-        turnId
-      })
+      // V-03a：同内层 catch——写盘失败不得吞掉 failed 事件（窗口关闭竞态下 UI 必须收到终止事件）
+      try {
+        sessionStore.appendMessage(sessionId, {
+          id: assistantMessageId,
+          sessionId,
+          role: 'assistant',
+          content: accumulated,
+          ...(accumulatedReasoning.length > 0 ? { reasoning: accumulatedReasoning } : {}),
+          createdAt: Date.now(),
+          status: 'failed',
+          errorCode,
+          turnId
+        })
+      } catch (writeErr) {
+        chatLogger.warn('failed-marker persist skipped (outer catch)', {
+          scope: 'chat',
+          turnId,
+          tags: { requestId },
+          detail: writeErr instanceof Error ? writeErr.message : String(writeErr)
+        })
+      }
       chatLogger.error('turn failed (outer catch)', {
         scope: 'chat',
         turnId,

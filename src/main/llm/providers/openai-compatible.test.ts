@@ -717,10 +717,12 @@ describe('M-02 回归：流中错误不再被吞', () => {
 
 describe('V-03c 复现：首字节时延超过 idle timeout（思考模型场景）', () => {
   // 审计待验证项 V-03c（修复清单第四部分）：
-  //   openai-compatible.ts:132 在 fetch 前就启动 idle 计时器，
+  //   openai-compatible.ts 在 fetch 前就启动 idle 计时器，
   //   无论"响应头未达"还是"头已达但首 chunk 未达"，超过 timeoutMs 一律 abort → NET_TIMEOUT。
   //   思考模型（尤其 max 档）首字节时延系统性地长，同一 timeoutMs 兼任
-  //   "连接/首字节超时"和"流中空闲超时"两种语义——本测试存档该机制的当前行为。
+  //   "连接/首字节超时"和"流中空闲超时"两种语义。
+  // 修复后（见下方修复 describe）：reasoningEffort !== 'off' 时首字节前预算放宽到
+  // max(timeoutMs, 120s)。本 describe 两条用默认 effort='off'，锁定未放宽路径行为不变。
 
   it('变体1：响应头超过 timeoutMs 未到达 → NET_TIMEOUT', async () => {
     // fetch 永不主动返回响应头（模拟慢思考服务端），仅响应 abort
@@ -768,6 +770,89 @@ describe('V-03c 复现：首字节时延超过 idle timeout（思考模型场景
       'sk-test-key',
       DEEPSEEK_COMPAT,
       mockFetch(hangingBody),
+      noopLogger()
+    )
+
+    let caught: unknown
+    try {
+      await collectChunks(provider, SIMPLE_REQUEST)
+    } catch (e) {
+      caught = e
+    }
+    expect(isAppError(caught)).toBe(true)
+    expect((caught as { code?: string }).code).toBe('NET_TIMEOUT')
+  })
+})
+
+// ── V-03c 修复：思考模式首字节预算放宽（2026-08-20）──
+
+describe('V-03c：思考模式首字节预算下限 max(timeoutMs, 120s)（2026-08-20 修复）', () => {
+  // V-03c 修复（修复清单第四部分）：
+  //   reasoningEffort !== 'off' 时，首个 SSE chunk 到达前的预算抬到
+  //   max(timeoutMs, THINKING_FIRST_BYTE_FLOOR_MS=120s)，覆盖思考档（尤其 max）的
+  //   长推理静默期；首字节到达后恢复 timeoutMs 的流中空闲语义。
+  //   上面"复现"describe 用 effort='off' 锁定未放宽路径；本 describe 锁定放宽路径。
+
+  it('思考模式：首字节 80ms 到达（超 timeoutMs=50 但在放宽预算内）→ 正常完成', async () => {
+    // fetch 延迟 80ms 才返回响应头（模拟思考模型首字节慢）——
+    // 无放宽时 50ms 即 NET_TIMEOUT；放宽后预算 120s，正常走完流
+    const delayedFetch = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 80))
+      return sseResponse([
+        'data: {"choices":[{"delta":{"reasoning_content":"想"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"答"}}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    }) as unknown as typeof globalThis.fetch
+
+    const provider = new OpenAICompatibleProvider(
+      makeConfig({ timeoutMs: 50, reasoningEffort: 'low' }),
+      'sk-test-key',
+      DEEPSEEK_COMPAT,
+      delayedFetch,
+      noopLogger()
+    )
+
+    const chunks = await collectChunks(provider, SIMPLE_REQUEST)
+    expect(
+      chunks
+        .filter((c) => c.type === 'reasoning')
+        .map((c) => c.text)
+        .join('')
+    ).toBe('想')
+    expect(
+      chunks
+        .filter((c) => c.type === 'delta')
+        .map((c) => c.text)
+        .join('')
+    ).toBe('答')
+  })
+
+  it('思考模式：首字节到达后 idle 语义恢复——第二 chunk 超 timeoutMs 未达 → NET_TIMEOUT', async () => {
+    // 首 chunk 立即到达（触发 firstChunkSeen=true，预算回落到 timeoutMs=50），
+    // 第二 chunk 延迟 80ms（> 50ms）→ 流中空闲超时，证明放宽不渗漏到稳态流
+    const encoder = new TextEncoder()
+    const slowBody = new Response(
+      new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"先"}}]}\n\n'))
+          await new Promise((r) => setTimeout(r, 80))
+          try {
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"到"}}]}\n\n'))
+            controller.close()
+          } catch {
+            /* 流已被 abort 取消，enqueue/close 可能抛错——忽略 */
+          }
+        }
+      }),
+      { status: 200 }
+    )
+    const provider = new OpenAICompatibleProvider(
+      makeConfig({ timeoutMs: 50, reasoningEffort: 'low' }),
+      'sk-test-key',
+      DEEPSEEK_COMPAT,
+      mockFetch(slowBody),
       noopLogger()
     )
 
