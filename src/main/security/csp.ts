@@ -56,6 +56,12 @@ export const CSP_HEADER_VALUE_DEV =
  * 使用 session.webRequest.onHeadersReceived 设置 CSP 头，
  * 比 HTML meta 标签更安全（无法被 DOM 移除）。
  *
+ * ⚠️ 生效范围：onHeadersReceived 只对 http(s) 请求触发。
+ * 生产环境主文档走 loadFile(file://)，此回调不会触发（Electron 官方行为，
+ * 见 electron/electron#23485）——生产 CSP 由构建期注入的 <meta> 兜底
+ *（V-01，见 electron.vite.config.ts 的 injectCspMeta）。
+ * 本函数实际覆盖：开发环境（http://localhost HMR URL）+ 页面发起的 http(s) 子资源响应。
+ *
  * 生产环境用严格 CSP；开发环境放宽 ws://localhost HMR 连接。
  */
 export function registerCsp(session: Session, isDev: boolean): void {

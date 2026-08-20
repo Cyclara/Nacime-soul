@@ -552,6 +552,47 @@ describe('OpenAICompatibleProvider DeepSeek 兼容', () => {
     expect(capturedBody['thinking']).toEqual({ type: 'enabled' })
   })
 
+  // === V-02②：思考力度档位映射（官方档位 low/high/max，无 medium）===
+  // 依据：https://api-docs.deepseek.com/guides/thinking_mode（2026-08-20 查证）
+  // 此前 low/medium/high 一律只发 enabled，端点按默认 high 跑，用户选择被静默忽略。
+
+  it('thinking_type + low/medium/high → 发 reasoning_effort low/high/max', async () => {
+    const cases = [
+      ['low', 'low'],
+      ['medium', 'high'],
+      ['high', 'max']
+    ] as const
+    for (const [effort, expected] of cases) {
+      const response = sseResponse(['data: [DONE]\n\n'])
+      let capturedBody: Record<string, unknown> = {}
+      const provider = new OpenAICompatibleProvider(
+        makeConfig({ reasoningEffort: effort }),
+        'sk-test',
+        DEEPSEEK_COMPAT,
+        mockFetch(response, (b) => (capturedBody = b)),
+        noopLogger()
+      )
+      await collectChunks(provider, SIMPLE_REQUEST)
+      expect(capturedBody['thinking']).toEqual({ type: 'enabled' })
+      expect(capturedBody['reasoning_effort']).toBe(expected)
+    }
+  })
+
+  it('thinking_type + reasoningEffort=off → 不发 reasoning_effort（仅 disabled）', async () => {
+    const response = sseResponse(['data: [DONE]\n\n'])
+    let capturedBody: Record<string, unknown> = {}
+    const provider = new OpenAICompatibleProvider(
+      makeConfig({ reasoningEffort: 'off' }),
+      'sk-test',
+      DEEPSEEK_COMPAT,
+      mockFetch(response, (b) => (capturedBody = b)),
+      noopLogger()
+    )
+    await collectChunks(provider, SIMPLE_REQUEST)
+    expect(capturedBody['thinking']).toEqual({ type: 'disabled' })
+    expect('reasoning_effort' in capturedBody).toBe(false)
+  })
+
   it('enable_thinking + reasoningEffort=off → 发 enable_thinking:false', async () => {
     const response = sseResponse(['data: [DONE]\n\n'])
     let capturedBody: Record<string, unknown> = {}
@@ -608,5 +649,66 @@ describe('OpenAICompatibleProvider DeepSeek 兼容', () => {
     )
     await collectChunks(provider, SIMPLE_REQUEST)
     expect(capturedBody['reasoning_split']).toBeUndefined()
+  })
+})
+
+// ── M-02 回归：流中 error 事件 ──
+
+describe('M-02 回归：流中错误不再被吞', () => {
+  it('流中 {"error":{...}} 事件抛 LLM_SERVER（而非静默当 complete）', async () => {
+    const response = sseResponse([
+      'data: {"choices":[{"delta":{"content":"半截"}}]}\n\n',
+      'data: {"error":{"message":"context length exceeded"}}\n\n',
+      'data: [DONE]\n\n'
+    ])
+    const provider = new OpenAICompatibleProvider(
+      makeConfig(),
+      'sk-test-key',
+      DEFAULT_COMPAT,
+      mockFetch(response),
+      noopLogger()
+    )
+    await expect(collectChunks(provider, SIMPLE_REQUEST)).rejects.toMatchObject({
+      code: 'LLM_SERVER'
+    })
+  })
+
+  it('finish_reason="error" 抛 LLM_SERVER', async () => {
+    const response = sseResponse([
+      'data: {"choices":[{"delta":{"content":"半截"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"error"}]}\n\n'
+    ])
+    const provider = new OpenAICompatibleProvider(
+      makeConfig(),
+      'sk-test-key',
+      DEFAULT_COMPAT,
+      mockFetch(response),
+      noopLogger()
+    )
+    await expect(collectChunks(provider, SIMPLE_REQUEST)).rejects.toMatchObject({
+      code: 'LLM_SERVER'
+    })
+  })
+
+  it('finish_reason="length"（maxTokens 截断）仍正常完成不抛错', async () => {
+    const response = sseResponse([
+      'data: {"choices":[{"delta":{"content":"被截断的回复"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+      'data: [DONE]\n\n'
+    ])
+    const provider = new OpenAICompatibleProvider(
+      makeConfig(),
+      'sk-test-key',
+      DEFAULT_COMPAT,
+      mockFetch(response),
+      noopLogger()
+    )
+    const chunks = await collectChunks(provider, SIMPLE_REQUEST)
+    expect(
+      chunks
+        .filter((c) => c.type === 'delta')
+        .map((c) => c.text)
+        .join('')
+    ).toBe('被截断的回复')
   })
 })

@@ -367,6 +367,26 @@ describe('P1-08 边界情况', () => {
     expect(store.get('modelApiKey')).toBe(null)
   })
 
+  it('M-34：未知前缀打 SEC_KEYSTORE_UNREADABLE 警告，且同进程同字段只报一次', () => {
+    writeSecrets({
+      schemaVersion: 1,
+      xorKey: crypto.randomBytes(32).toString('base64'),
+      modelApiKey: 'unknown:somevalue'
+    })
+    const { logger, warns } = createSpyLogger()
+    const store = createSecretStore({
+      secretsPath,
+      safeStorage: createFakeSafeStorage(true),
+      logger
+    })
+    store.setup()
+    expect(store.get('modelApiKey')).toBe(null)
+    expect(store.get('modelApiKey')).toBe(null) // 第二次读取不重复告警
+    const unreadableWarns = warns.filter((w) => w.fields?.code === 'SEC_KEYSTORE_UNREADABLE')
+    expect(unreadableWarns).toHaveLength(1)
+    expect(unreadableWarns[0].fields?.tags).toEqual({ name: 'modelApiKey' })
+  })
+
   it('空字符串 key 可存储和回读', () => {
     const store = createSecretStore({
       secretsPath,

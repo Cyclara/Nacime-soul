@@ -156,7 +156,11 @@ class SecretStoreImpl implements SecretStore {
       return stored.slice(PREFIX_PLAIN.length)
     }
 
-    // 未知前缀
+    // 未知前缀（历史版本/外部写入的无法识别格式）。
+    // M-34：此前静默返回 null——has() 仍为 true，设置页显示"已安全保存"，
+    // 但聊天报"未配置 API Key"，用户被两条矛盾信息夹击且无任何线索
+    //（2026-08-20 真实用户数据踩坑：早期版本写入的无前缀残留）。
+    this.warnUnreadableOnce(name)
     return null
   }
 
@@ -212,6 +216,19 @@ class SecretStoreImpl implements SecretStore {
 
   private persist(): void {
     atomicWriteJson(this.secretsPath, this.secrets)
+  }
+
+  /** M-34：同一进程内同一字段只警告一次，避免 config:get 每次轮询都刷日志 */
+  private readonly warnedUnreadable = new Set<string>()
+
+  private warnUnreadableOnce(name: string): void {
+    if (this.warnedUnreadable.has(name)) return
+    this.warnedUnreadable.add(name)
+    this.logger.warn('stored secret has unknown prefix and is unreadable', {
+      scope: 'security',
+      code: 'SEC_KEYSTORE_UNREADABLE',
+      tags: { name }
+    })
   }
 }
 

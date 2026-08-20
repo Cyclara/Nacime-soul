@@ -34,6 +34,8 @@ interface OpenAIStreamChunk {
     }
     finish_reason?: string | null
   }>
+  /** M-02：部分端点（OpenAI/OpenRouter/网关）在流中通过该字段回传错误 */
+  error?: { message?: string; type?: string; code?: string } | string
   usage?: {
     prompt_tokens?: number
     completion_tokens?: number
@@ -197,9 +199,35 @@ export class OpenAICompatibleProvider implements LLMProvider {
           continue
         }
 
+        // M-02 修复：厂商在流中发 {"error":{...}}——不再静默吞掉、把半截回复当 complete 落库，
+        // 而是抛 AppError 让 ChatService 走 failed 路径（用户能看到错误并可重试）。
+        if (chunk.error) {
+          const message =
+            typeof chunk.error === 'string'
+              ? chunk.error
+              : chunk.error.message || '模型在回复中途报错'
+          throw new AppError({
+            code: 'LLM_SERVER',
+            userMessage: message,
+            severity: 'error',
+            retryable: true
+          })
+        }
+
         // 映射到 LlmStreamChunk
         const choice = chunk.choices?.[0]
         const delta = choice?.delta
+
+        // finish_reason='error'：回复被厂商异常终止（半截）——抛错而非静默完成。
+        // 'length'（达到 maxTokens 截断）是正常产出，保持 completed 不抛错。
+        if (choice?.finish_reason === 'error') {
+          throw new AppError({
+            code: 'LLM_SERVER',
+            userMessage: '模型回复异常终止',
+            severity: 'error',
+            retryable: true
+          })
+        }
 
         if (delta?.content) {
           yield { type: 'delta', text: delta.content }
@@ -265,10 +293,25 @@ export class OpenAICompatibleProvider implements LLMProvider {
     // thinkingFormat='none' 时厂商不支持思考模式，两种情况都不发参数。
     const wantThinking = this.config.reasoningEffort !== 'off'
     switch (this.compat.thinkingFormat) {
-      case 'thinking_type':
+      case 'thinking_type': {
         // DeepSeek V4 风格：{"thinking":{"type":"enabled/disabled"}}
         body['thinking'] = { type: wantThinking ? 'enabled' : 'disabled' }
+        // V-02②：思考力度映射——此前 low/medium/high 一律只发 enabled，
+        // 端点按默认 high 跑，用户选择被静默忽略（2026-08-20 对照官方文档发现）。
+        // 官方档位为 low/high/max（无 medium），映射：low→low、medium→high、high→max。
+        // 仅在开启时发送；关闭时 thinking.type=disabled 已足够。
+        // 来源：https://api-docs.deepseek.com/guides/thinking_mode（2026-08-20 查证）
+        if (wantThinking) {
+          const effortMap: Record<Exclude<ReasoningEffort, 'off'>, string> = {
+            low: 'low',
+            medium: 'high',
+            high: 'max'
+          }
+          body['reasoning_effort'] =
+            effortMap[this.config.reasoningEffort as Exclude<ReasoningEffort, 'off'>]
+        }
         break
+      }
       case 'enable_thinking':
         // DashScope 风格：{"enable_thinking": true/false}
         body['enable_thinking'] = wantThinking

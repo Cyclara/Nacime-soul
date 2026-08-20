@@ -289,3 +289,72 @@ describe('config:update handler（回归：payload 结构必须传 domains）', 
     bareFetchSpy.mockRestore()
   })
 })
+
+describe('M-34：config:get 的 hasApiKey 只认"存在且可读"', () => {
+  let tmpDir: string
+  let configPath: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nacime-cfg-test-'))
+    configPath = path.join(tmpDir, 'config.json')
+    vi.mocked(ipcMain.handle).mockClear()
+    vi.mocked(ipcMain.removeHandler).mockClear()
+    configureIpcGuard(
+      { trustedOrigins: new Set(['http://localhost:5173']), trustedWebContentsIds: new Set([1]) },
+      noopLogger()
+    )
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('has=true 但 get=null（旧格式残留）→ hasApiKey=false，引导用户重输', async () => {
+    const configStore = createConfigStore({ configPath, logger: noopLogger() })
+    configStore.setup()
+    // 模拟 M-34 真实场景：secrets.json 里有字符串（has=true）但读不出（get=null）
+    const secretStore: SecretStore = {
+      ...createMemorySecretStore(),
+      has: () => true,
+      get: () => null
+    }
+
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
+
+    const handler = getHandler('companion:config:get')
+    const result = (await handler(trustedEvent(), undefined)) as {
+      ok: boolean
+      data?: { model: { hasApiKey: boolean }; tts: { hasApiKey: boolean } }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.data?.model.hasApiKey).toBe(false)
+    expect(result.data?.tts.hasApiKey).toBe(false)
+  })
+
+  it('存在且可读 → hasApiKey=true（正常路径不回归）', async () => {
+    const configStore = createConfigStore({ configPath, logger: noopLogger() })
+    configStore.setup()
+    const secretStore = createMemorySecretStore()
+    secretStore.set('modelApiKey', 'sk-readable-key')
+
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
+
+    const handler = getHandler('companion:config:get')
+    const result = (await handler(trustedEvent(), undefined)) as {
+      ok: boolean
+      data?: { model: { hasApiKey: boolean } }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.data?.model.hasApiKey).toBe(true)
+  })
+})

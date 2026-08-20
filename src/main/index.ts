@@ -39,7 +39,7 @@ import { sanitizeMessageHook } from './hooks/builtin/sanitize-message'
 // LLM
 import { createProvider } from './llm/provider'
 import { createFauxProvider } from './llm/providers/faux'
-import { AppError } from '@shared/errors'
+import { AppError, isAppError, type PublicAppError } from '@shared/errors'
 
 // Prompt
 import { createFilePromptLoader } from './prompts/loader'
@@ -64,12 +64,13 @@ import { MIGRATIONS } from './migrations/registry'
 // IPC
 import { configureIpcGuard } from './ipc/register'
 import { registerAppHandlers } from './ipc/handlers/app'
-import { registerWindowHandlers } from './ipc/handlers/window'
+import { registerWindowHandlers, attachWindowStateListeners } from './ipc/handlers/window'
 import { registerConfigHandlers } from './ipc/handlers/config'
 import { registerChatHandlers } from './ipc/handlers/chat'
 import { registerDebugHandlers } from './ipc/handlers/debug'
 import { registerMemoryHandlers } from './ipc/handlers/memory'
 import { registerGrowthHandlers } from './ipc/handlers/growth'
+import { registerDmaeHandlers } from './ipc/handlers/dmae'
 
 // 应用启动时间（CrashGuard 的 uptime 计算需要，在一切初始化前捕获）
 const appStartTime = Date.now()
@@ -77,6 +78,8 @@ const appStartTime = Date.now()
 let mainWindow: BrowserWindow | null = null
 // P2-43：SessionStore 独立 WAL 连接，before-quit 显式关闭（Windows 文件锁）。
 let sessionDb: ReturnType<typeof openMemoryDb> | null = null
+// M-28：幂等账本防抖写盘的退出前 flush（避免最后一批记录因 quit 丢失）
+let idempotencyLedgerRef: { flushNow(): void } | null = null
 // memoryInfra 在 whenReady 内创建，before-quit 时清理（需提升到模块作用域）
 let memoryInfra: {
   cleanup: () => void
@@ -134,23 +137,42 @@ app.whenReady().then(async () => {
 
   // === 2. ConfigStore + SecretStore ===
   // E2E 测试支持：COMPANION_USER_DATA 环境变量指定临时 userData 目录
+  // M-16：配置/密钥 setup 包 try/catch——旧实现 setup() 抛错（如磁盘满/被锁、
+  // M-15 的超前版本拒绝）会直接让 whenReady 链 reject，应用无窗口静默"僵尸进程"。
   const userDataPath = process.env['COMPANION_USER_DATA'] ?? app.getPath('userData')
-  const configStore = createConfigStore({
-    configPath: join(userDataPath, 'config.json'),
-    logger: getLogger('config')
-  })
-  const configDiag = configStore.setup()
-  logger.info('config loaded', {
-    scope: 'main',
-    tags: { status: configDiag.status, healed: String(configDiag.healed) }
-  })
+  let configStore: ReturnType<typeof createConfigStore>
+  let secretStore: ReturnType<typeof createSecretStore>
+  try {
+    configStore = createConfigStore({
+      configPath: join(userDataPath, 'config.json'),
+      logger: getLogger('config')
+    })
+    const configDiag = configStore.setup()
+    logger.info('config loaded', {
+      scope: 'main',
+      tags: { status: configDiag.status, healed: String(configDiag.healed) }
+    })
 
-  const secretStore = createSecretStore({
-    secretsPath: join(userDataPath, 'secrets.json'),
-    safeStorage,
-    logger: getLogger('secret')
-  })
-  secretStore.setup()
+    secretStore = createSecretStore({
+      secretsPath: join(userDataPath, 'secrets.json'),
+      safeStorage,
+      logger: getLogger('secret')
+    })
+    secretStore.setup()
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    logger.fatal('config setup failed; refusing to start', {
+      scope: 'main',
+      code: isAppError(e) ? e.code : 'CFG_INVALID',
+      detail: message
+    })
+    dialog.showErrorBox(
+      '配置加载失败',
+      `应用无法启动。\n\n原因: ${message}\n\n原配置文件已保留。请反馈此问题。`
+    )
+    app.exit(1)
+    return
+  }
 
   // === 2.5 迁移框架（F5-013：启动链第一个数据触碰者，在任何 memory Store 打开前）===
   // Phase 2 Batch A 已实现迁移框架代码，此处接线到启动流程。
@@ -237,6 +259,14 @@ app.whenReady().then(async () => {
     )
   }
 
+  // M-07：向 renderer 推送 app-error 事件（companion:event:app-error）。
+  // 此前该通道在 main 侧无任何发射点，主进程内部错误永远到不了 UI。
+  function sendAppError(error: PublicAppError): void {
+    const wc = mainWindow?.webContents
+    if (!wc || wc.isDestroyed()) return
+    wc.send('companion:event:app-error', error)
+  }
+
   const crashGuard = createCrashGuard({
     logger: getLogger('crash'),
     errorBuffer,
@@ -248,6 +278,8 @@ app.whenReady().then(async () => {
       // （新窗口的 webContents.id 与旧窗口不同，必须更新 trustedWebContentsIds）
       mainWindow = createChatWindow()
       setupWindowIpcGuard(mainWindow)
+      // 重建窗口后重新挂载 maximize/unmaximize 监听（修复前只挂初始窗口，重建后事件失效）
+      attachWindowStateListeners(mainWindow)
       return mainWindow
     },
     showCrashDialog: (reason: string) => {
@@ -255,7 +287,9 @@ app.whenReady().then(async () => {
         '应用遇到严重错误',
         `应用遇到不可恢复的错误，需要退出。\n\n原因: ${reason}\n\n请重新启动应用。`
       )
-    }
+    },
+    // M-07：main 内部错误（未处理 rejection 等）推送到 renderer 显示横幅
+    onAppError: sendAppError
   })
   crashGuard.install()
   logger.info('crash guard installed', { scope: 'main' })
@@ -279,6 +313,7 @@ app.whenReady().then(async () => {
     filePath: join(dataDir, 'chat-idempotency.json'),
     logger: getLogger('chat')
   })
+  idempotencyLedgerRef = idempotencyLedger
 
   // Phase 1 默认 contextWindow。
   // DeepSeek V4 Flash/Pro 上下文长度 1M（1,048,576 tokens），最大输出 384K。
@@ -305,9 +340,13 @@ app.whenReady().then(async () => {
     const config = configStore.get()
     const apiKey = secretStore.get('modelApiKey')
     if (!apiKey) {
+      // M-34：区分"没配过"与"存了但读不出（旧格式残留）"——指引文案不同
+      const unreadable = secretStore.has('modelApiKey')
       throw new AppError({
         code: 'LLM_AUTH',
-        userMessage: '未配置 API Key，请在设置中添加',
+        userMessage: unreadable
+          ? '已保存的 API Key 无法读取（可能是旧版本写入的格式），请在设置中重新输入并保存'
+          : '未配置 API Key，请在设置中添加',
         severity: 'error',
         retryable: false
       })
@@ -341,9 +380,13 @@ app.whenReady().then(async () => {
   // memory.enabled=false 时全旁路（setup 内部检查）。
   // memory.enabled=true 但无 API Key 时：embedding 走 pending 路径，extraction 不注册。
   // P2-29：getWebContents 闭包读取最新 mainWindow（CrashGuard 重建后仍能广播 memory-updated）
-  memoryInfra = setupMemoryInfrastructure({
+  // P2-36：seedsDir 与 promptsDir 同层（resources/ 下），__dirname 向上两级。
+  // P2-41：growthMilestonesPath 同层（resources/growth/milestones.json）。
+  memoryInfra = await setupMemoryInfrastructure({
     dbPath,
     dataDir,
+    seedsDir: join(__dirname, '../../resources/seeds'),
+    growthMilestonesPath: join(__dirname, '../../resources/growth/milestones.json'),
     configStore,
     secretStore,
     sessionStore,
@@ -404,7 +447,16 @@ app.whenReady().then(async () => {
   })
   registerGrowthHandlers({
     logger: getLogger('growth-ipc'),
-    getMemoryConfig: () => configStore.get().memory
+    getMemoryConfig: () => configStore.get().memory,
+    services: memoryInfra.services
+  })
+  // P2-32: DMAE 面板 handler（5 invoke）。dmae.enabled=false 时 diagnostics=null
+  registerDmaeHandlers({
+    logger: getLogger('dmae-ipc'),
+    diagnostics: memoryInfra.services?.dmaeDiagnostics ?? null,
+    getMemoryConfig: () => configStore.get().memory,
+    // M-26：mute-anomaly 写异常静音配置
+    configStore
   })
 
   // === 8. 窗口创建 ===
@@ -429,6 +481,8 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createChatWindow()
       setupWindowIpcGuard(mainWindow)
+      // macOS 关窗重开（activate）后同样需要重新挂载状态监听
+      attachWindowStateListeners(mainWindow)
     }
   })
 })
@@ -442,6 +496,7 @@ app.on('window-all-closed', () => {
 // app 退出前清理记忆基础设施（关闭 DB、停止队列消费者、terminate worker）
 app.on('before-quit', () => {
   memoryInfra.cleanup()
+  idempotencyLedgerRef?.flushNow() // M-28：防抖写盘的最后一批落盘
   if (sessionDb?.open) sessionDb.close()
   sessionDb = null
 })
