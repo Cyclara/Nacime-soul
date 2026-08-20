@@ -75,6 +75,21 @@ import { registerDmaeHandlers } from './ipc/handlers/dmae'
 // 应用启动时间（CrashGuard 的 uptime 计算需要，在一切初始化前捕获）
 const appStartTime = Date.now()
 
+// M-47（2026-08-20 根因修复）：开发模式下立即钉死 app 身份，必须在任何
+// safeStorage/getPath/singleInstanceLock 使用之前。
+// 背景（探针实证）：Electron 43 的 safeStorage 加密上下文绑定 app.name——
+// `electron out/main/index.js` 启动时名为 "Electron"（app 路径是文件，无
+// package.json 可读），`electron .` 启动时名为 "nacime-soul"；两种姿势产出
+// 互不解密的两个加密上下文。在 "Electron" 身份下封存的 API key 换到
+// "nacime-soul" 身份实例里全部解不开（用户视角："API key 又没了"）。
+// 同一漂移还移动 userData/logs（M-36 日志目录漂移，同根因），且两种身份的
+// singleInstanceLock 锁文件各自独立，曾允许双实例并发写同一数据目录。
+// 钉死后两种启动姿势身份一致：加密上下文、userData、日志目录、单实例锁全部稳定。
+// 打包版身份由 electron-builder productName（Nacime-soul）决定，不在此干预。
+if (!app.isPackaged) {
+  app.setName('nacime-soul')
+}
+
 let mainWindow: BrowserWindow | null = null
 // P2-43：SessionStore 独立 WAL 连接，before-quit 显式关闭（Windows 文件锁）。
 let sessionDb: ReturnType<typeof openMemoryDb> | null = null
