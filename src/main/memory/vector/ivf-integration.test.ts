@@ -500,3 +500,78 @@ describe('C-γ-1: IVF 自递归炸栈防护', () => {
     expect(store.stats().indexKind).toBe('ivf')
   })
 })
+
+describe('V-03b 复现：IVF 构建窗口内 upsert 的检索盲区（2026-08-20）', () => {
+  let t: TestDb
+  beforeEach(async () => {
+    t = await makeMemoryDb()
+  })
+  afterEach(() => t.cleanup())
+
+  // 审计待验证项 V-03b（修复清单第四部分）：
+  //   upsert 在构建窗口内被 addToIvf 跳过（sqlite-vector-store.ts:414 `if (!ivf || ivfBuilding) return`），
+  //   新索引又由窗口前快照构建（不含该向量）；建成后 search 走 IVF 路径且未命中不降级暴力
+  //   （:543-547）→ 该向量在新索引下不可检索。drift=1 << rebuildDrift(1000)=500，不会自动重建。
+  // 本测试用闸门 kmeansBuilder 把"构建窗口"变成确定性的：构建开始即挂起，测试手动放行。
+  it('窗口内 upsert 的向量：窗口内（暴力）可检索，新索引建成后反而检索不到（当前行为存档）', async () => {
+    const dim = 8
+
+    let buildStartedResolve!: () => void
+    const buildStarted = new Promise<void>((r) => {
+      buildStartedResolve = r
+    })
+    let releaseBuild!: () => void
+    const buildGate = new Promise<void>((r) => {
+      releaseBuild = r
+    })
+    const gatedKmeans = (
+      v: Float32Array,
+      d: number,
+      K: number,
+      mi: number,
+      s: number
+    ): Promise<ReturnType<typeof buildIvfIndex>> => {
+      buildStartedResolve()
+      return buildGate.then(() => syncKmeans(v, d, K, mi, s))
+    }
+
+    const store = createSQLiteVectorStore({
+      db: t.db,
+      dim,
+      kmeansBuilder: gatedKmeans,
+      now: incrementingClock()
+    })
+    await store.init()
+
+    // 1000 条（= minEntries）触发 IVF 构建；构建被闸门挂起（ivfBuilding=true）
+    const rnd = mulberry32(7)
+    const ins = t.db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES (?,?,?)`)
+    for (let i = 0; i < 1000; i++) {
+      ins.run(`l2_${i}`, 'm', 0.5)
+      const v = new Float32Array(dim)
+      for (let j = 0; j < dim; j++) v[j] = rnd() * 2 - 1
+      store.upsert(`l2_${i}`, v)
+    }
+    await buildStarted
+
+    // 构建窗口内 upsert 目标向量：首维远超噪声量级，暴力扫描自相似必排第一
+    ins.run('l2_x', 'm', 0.5)
+    const x = new Float32Array(dim)
+    x[0] = 10
+    store.upsert('l2_x', x)
+
+    // 窗口内检索：ivfBuilding=true → 暴力扫描 → X 命中（证明 X 确实在库且查询本身有效）
+    const duringHits = store.search(x, 5, -1)
+    expect(duringHits[0]?.memoryId).toBe('l2_x')
+
+    // 放行构建，等新索引建成
+    releaseBuild()
+    await waitIndexKind(store, 'ivf')
+
+    // ⚠️ 当前行为存档（盲区确认）：新 IVF 由窗口前 1000 条快照构建，不含 X；
+    // search 走 IVF 路径未命中不降级 → X 不可检索。
+    // TODO(V-03b 修复后)：翻转此断言为 true，并删除本注释。
+    const afterHits = store.search(x, 5, -1)
+    expect(afterHits.some((h) => h.memoryId === 'l2_x')).toBe(false)
+  })
+})

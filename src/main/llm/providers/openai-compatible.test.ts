@@ -712,3 +712,72 @@ describe('M-02 回归：流中错误不再被吞', () => {
     ).toBe('被截断的回复')
   })
 })
+
+// ── V-03c 复现：慢首字节场景（2026-08-20）──
+
+describe('V-03c 复现：首字节时延超过 idle timeout（思考模型场景）', () => {
+  // 审计待验证项 V-03c（修复清单第四部分）：
+  //   openai-compatible.ts:132 在 fetch 前就启动 idle 计时器，
+  //   无论"响应头未达"还是"头已达但首 chunk 未达"，超过 timeoutMs 一律 abort → NET_TIMEOUT。
+  //   思考模型（尤其 max 档）首字节时延系统性地长，同一 timeoutMs 兼任
+  //   "连接/首字节超时"和"流中空闲超时"两种语义——本测试存档该机制的当前行为。
+
+  it('变体1：响应头超过 timeoutMs 未到达 → NET_TIMEOUT', async () => {
+    // fetch 永不主动返回响应头（模拟慢思考服务端），仅响应 abort
+    const hangingFetch = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('The operation was aborted')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+    ) as unknown as typeof globalThis.fetch
+
+    const provider = new OpenAICompatibleProvider(
+      makeConfig({ timeoutMs: 50 }),
+      'sk-test-key',
+      DEEPSEEK_COMPAT,
+      hangingFetch,
+      noopLogger()
+    )
+
+    let caught: unknown
+    try {
+      await collectChunks(provider, SIMPLE_REQUEST)
+    } catch (e) {
+      caught = e
+    }
+    expect(isAppError(caught)).toBe(true)
+    expect((caught as { code?: string }).code).toBe('NET_TIMEOUT')
+  })
+
+  it('变体2：响应头秒回但首 chunk 超过 timeoutMs 未到达 → NET_TIMEOUT', async () => {
+    // body 流永不 enqueue（模拟头已达、内容迟迟不生成）
+    const hangingBody = new Response(
+      new ReadableStream<Uint8Array>({
+        start() {
+          /* 永不产出数据 */
+        }
+      }),
+      { status: 200 }
+    )
+    const provider = new OpenAICompatibleProvider(
+      makeConfig({ timeoutMs: 50 }),
+      'sk-test-key',
+      DEEPSEEK_COMPAT,
+      mockFetch(hangingBody),
+      noopLogger()
+    )
+
+    let caught: unknown
+    try {
+      await collectChunks(provider, SIMPLE_REQUEST)
+    } catch (e) {
+      caught = e
+    }
+    expect(isAppError(caught)).toBe(true)
+    expect((caught as { code?: string }).code).toBe('NET_TIMEOUT')
+  })
+})

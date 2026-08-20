@@ -259,4 +259,63 @@ describe('Chat 流式集成 (E2E-simulated)', () => {
       expect(store.canSend).toBe(false)
     })
   })
+
+  describe('V-03d 复现：renderer 重载后 in-flight turn 事件丢失（2026-08-20）', () => {
+    // 审计待验证项 V-03d（修复清单第四部分，handlers/chat.ts:34-47）：
+    //   main 侧流不受 renderer 重载影响（继续跑完并持久化），但重载后的新 store
+    //   activeTurn=null，对旧 requestId 的 chunk/completed 全部静默丢弃
+    //   （chat.ts:196/215 的 requestId 守卫），且无任何回填触发。
+    it('新 store 实例对旧 requestId 的后续事件静默丢弃，回复在 UI "消失"（当前行为存档）', async () => {
+      // === 重载前：开始一轮 in-flight turn，收到 started + 一个 chunk ===
+      const store1 = useChatStore()
+      const unsub1 = store1.subscribe()
+      store1.state.sessionId = 'test-session'
+      store1.setDraft('你好')
+      fake.chat.send.mockResolvedValue({
+        ok: true,
+        data: { requestId: 'req-1', userMessageId: 'msg-u1' }
+      } satisfies IpcResult<ChatSendAck>)
+      await store1.send()
+
+      const cb1 = fake._getStreamCb()
+      expect(cb1).not.toBeNull()
+      cb1!({
+        type: 'started',
+        requestId: 'req-1',
+        sessionId: 'test-session',
+        assistantMessageId: 'msg-a1',
+        sequence: 0
+      })
+      cb1!({ type: 'chunk', requestId: 'req-1', sequence: 1, delta: '前半截' })
+      expect(store1.state.activeTurn?.requestId).toBe('req-1')
+      unsub1()
+
+      // === 模拟 renderer 重载：全新 pinia + 全新 store 实例（preload 桥不变）===
+      setActivePinia(createPinia())
+      const store2 = useChatStore()
+      const unsub2 = store2.subscribe()
+      store2.state.sessionId = 'test-session'
+      // 重载后重新水合时 main 侧 assistant 尚未持久化 → chat:list 只有 user 消息。
+      // 这里直接验证事件流侧：新实例对旧 requestId 事件的处理。
+
+      const cb2 = fake._getStreamCb()
+      expect(cb2).not.toBeNull()
+      cb2!({ type: 'chunk', requestId: 'req-1', sequence: 2, delta: '后半截' })
+      cb2!({
+        type: 'completed',
+        requestId: 'req-1',
+        sequence: 3,
+        usage: { inputTokens: 10, outputTokens: 5 }
+      })
+
+      // ⚠️ 当前行为存档（V-03d 确认）：
+      //   新实例 activeTurn=null，chunk/completed 全部命中 requestId 守卫被静默丢弃；
+      //   回复虽在 main 侧正常持久化，但 UI 无回填触发——用户看不到这轮回复，
+      //   直到手动切换会话或再次重载。修复后应翻转（如重载后按 session 回填
+      //   in-flight 状态，或 completed 后触发一次 list 刷新）。
+      expect(store2.state.activeTurn).toBeNull()
+      expect(store2.state.messages.filter((m) => m.role === 'assistant')).toHaveLength(0)
+      unsub2()
+    })
+  })
 })

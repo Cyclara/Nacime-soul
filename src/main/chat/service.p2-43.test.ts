@@ -173,3 +173,45 @@ describe('P2-43 ChatService 跨重启幂等', () => {
     expect(faux.callCount()).toBe(0)
   })
 })
+
+describe('V-03a 复现：流式中段关闭 sessionDb（模拟 before-quit）的写盘行为', () => {
+  // 审计待验证项 V-03a（修复清单第四部分，index.ts:497-502）：
+  //   before-quit 同步执行 sessionDb.close()，不等待 in-flight turn。
+  //   本测试在流式中段关闭 DB，存档"终态写盘撞上已关闭连接"的当前行为。
+  it('终态写盘撞上已关闭 DB：completed/failed 均未送达 sink（当前行为存档）', async () => {
+    const ledgerPath = join(t.dataDir, 'chat-idempotency-v03a.json')
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const ledger = createIdempotencyLedger({ filePath: ledgerPath, logger: testNoopLogger })
+    const faux = createFauxProvider()
+    // 慢流：小 chunk + 延迟，保证能在流中段关库（500 字符 / 4 = 125 chunks × 5ms ≈ 0.6s）
+    faux.setResponses([{ type: 'text', text: '很长的回复'.repeat(100), chunkSize: 4, delayMs: 5 }])
+    const service = makeService(faux, store, ledger)
+    const sessionId = service.createSession()
+    const collector = makeCollector()
+
+    await service.send(
+      { sessionId, text: '中途退出', clientRequestId: 'client-quit-v03a' },
+      collector.sink
+    )
+    // 等流确实开始（首个 chunk 到达）
+    await vi.waitFor(() => expect(collector.events.some((e) => e.type === 'chunk')).toBe(true))
+
+    // 模拟 before-quit（index.ts:500 sessionDb.close()）
+    t.db.close()
+
+    // 给流留出收尾时间（终态事件到达或超时——预测无终态事件，故必然等满）
+    await Promise.race([collector.done, new Promise((r) => setTimeout(r, 1500))])
+
+    const types = collector.events.map((e) => e.type)
+    // ⚠️ 当前行为存档（V-03a 确认）：
+    //   provider 流正常产出完毕，但 completion 写盘撞上已关闭的 DB 抛 SqliteError；
+    //   外层 catch 的 failed 标记写盘（service.ts:665）同样抛错，导致 sink 的
+    //   failed 事件（:684）被跳过——renderer 收不到任何终态事件（表现为永远"转圈"），
+    //   只能靠 send() 的 .catch 安全网（:316）记日志。
+    //   真实退出时进程随 quit 结束：影响 = 该轮回复正文未落盘 + 无终态事件；
+    //   下次启动由幂等账本的 failed/残留路径兜底重跑。
+    expect(types).toContain('chunk')
+    expect(types).not.toContain('completed')
+    expect(types).not.toContain('failed')
+  })
+})
