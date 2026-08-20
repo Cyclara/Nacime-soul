@@ -182,7 +182,10 @@ const progressStyle = computed(() => ({ '--understanding': String(normalizedUnde
 .gauge-orbit::after {
   position: absolute;
   inset: 17px;
-  border: 1px dashed color-mix(in srgb, var(--color-accent) 24%, var(--color-border));
+  /* 2026-08-20 验收反馈：24% accent 混合在两套主题下都太淡，提到 60% ——
+     浅色主题自动得到深色虚线、深色主题自动得到浅色虚线（accent 令牌本身按主题反转），
+     虚线样式、1px 宽度与 slow-turn 动画保持不变。 */
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 60%, var(--color-border));
   border-radius: 50%;
   content: '';
   animation: slow-turn 32s linear infinite;
