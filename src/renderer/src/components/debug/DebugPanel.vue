@@ -13,9 +13,11 @@ const snapshot = ref<DebugSnapshot | null>(null)
 const loading = ref(false)
 let timer: number | null = null
 
-// M-05：生产构建（打包后）禁用调试面板——不注册快捷键、不拉取、不展示。
-// main 侧 debug:get-snapshot/open-log-folder 也已按 app.isPackaged 拒绝（双保险）。
-const isProduction = import.meta.env.PROD
+// M-05：打包后的正式应用禁用调试面板——权威门在 main 侧（app.isPackaged 时
+// debug:get-snapshot/open-log-folder 拒绝服务，调试信息不会流出）。
+// M-45（2026-08-20 回归）：渲染层不再按 import.meta.env.PROD 禁用——out/ 未打包
+// 直跑也是 PROD 构建，旧实现把验收环境一并误杀（onMounted 早退连 keydown 都不注册）。
+// 渲染层职责只剩"main 拒绝时保持隐藏"：打开前先探一次快照，拿不到就不显示。
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -29,9 +31,29 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** 打开前探测：main 拒绝（打包）或拉取失败时保持隐藏、静默 */
+async function open(): Promise<void> {
+  if (loading.value) return
+  loading.value = true
+  try {
+    const res = await window.companion.debug.getSnapshot()
+    if (res.ok) {
+      snapshot.value = res.data
+      visible.value = true
+    }
+  } catch {
+    /* 保持隐藏 */
+  } finally {
+    loading.value = false
+  }
+}
+
 function toggle(): void {
-  visible.value = !visible.value
-  if (visible.value) void refresh()
+  if (visible.value) {
+    visible.value = false
+    return
+  }
+  void open()
 }
 
 function onKeyDown(e: KeyboardEvent): void {
@@ -54,7 +76,6 @@ const uptimeStr = computed(() => {
 })
 
 onMounted(() => {
-  if (isProduction) return
   window.addEventListener('keydown', onKeyDown)
   // 面板可见时每 2 秒拉取一次快照（F5-011 wireframe "实时"）
   timer = window.setInterval(() => {
@@ -69,7 +90,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="visible && !isProduction" class="debug-panel">
+  <div v-if="visible" class="debug-panel">
     <div class="debug-header">
       <span class="debug-meta"> v{{ snapshot?.appVersion ?? '...' }} · 运行 {{ uptimeStr }} </span>
       <span class="debug-logpath" :title="snapshot?.logFilePath">
