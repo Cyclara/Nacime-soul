@@ -129,15 +129,15 @@ const visibleReasoning = computed(() => showReasoning.value && hasReasoning.valu
   text-transform: uppercase;
 }
 
+/* 2026-08-21 布局⑤：用户气泡便签化——她=信纸（边框/渐变/衬线署名），
+   你=便签（纯底色块、紧凑内边距、更小的不对称圆角），一去一留形成材质对比 */
 .bubble.user {
   max-width: min(70%, 680px);
-  border-color: color-mix(in srgb, var(--color-accent) 14%, transparent);
-  border-radius: 18px 18px 6px 18px;
-  background:
-    linear-gradient(145deg, var(--color-accent-soft), transparent 72%), var(--color-user-bubble);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.035),
-    var(--shadow-sm);
+  padding: 10px 14px 11px;
+  border-color: transparent;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--color-user-bubble);
+  box-shadow: none;
 }
 
 .bubble.user .sender-label {
