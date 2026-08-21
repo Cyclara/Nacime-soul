@@ -26,7 +26,8 @@ const CATEGORY_FILES: Record<string, string> = {
   'injection-defense': 'injection-defense.jsonl',
   'persona-consistency': 'persona-consistency.jsonl',
   'long-context': 'long-context.jsonl',
-  'memory-transparency': 'memory-transparency.jsonl'
+  'memory-transparency': 'memory-transparency.jsonl',
+  'attribution-gate': 'attribution-gate.jsonl'
 }
 
 /** 读取全部 fixture 并按 category 汇总。加载/校验失败即测试失败（suiteVersion/caseId 齐全） */
@@ -112,7 +113,7 @@ async function runCase(harness: GoldenHarness, c: GoldenCase): Promise<RunResult
       continue
     }
     lastUserText = turn.text
-    const outcome = await harness.driveUserTurn(turn.text, turn.candidates ?? [])
+    const outcome = await harness.driveUserTurn(turn.text, turn.candidates ?? [], turn.attribution)
     writtenIds.push(...outcome.dispatch.writtenMemoryIds)
     for (const d of outcome.decisions) {
       if (d.action === 'reject') rejectReasons.add(d.reason)
@@ -260,8 +261,8 @@ describe('P2-44 Golden Eval v1（S-004-补充 §3.2）', () => {
   const failedCases: Array<{ caseId: string; category: string; failures: string[] }> = []
   const report: Record<string, unknown> = {}
 
-  it('共 75 例，九类配比符合 S-004-补充 §3.2', () => {
-    expect(cases.length).toBe(75)
+  it('共 82 例，十类配比符合 S-004-补充 §3.2 + M-42（attribution-gate 7 例）', () => {
+    expect(cases.length).toBe(82)
     expect(byCategory.get('fact-extraction')).toHaveLength(10)
     expect(byCategory.get('boundaries')).toHaveLength(10)
     expect(byCategory.get('preference-change')).toHaveLength(8)
@@ -271,10 +272,11 @@ describe('P2-44 Golden Eval v1（S-004-补充 §3.2）', () => {
     expect(byCategory.get('persona-consistency')).toHaveLength(10)
     expect(byCategory.get('long-context')).toHaveLength(5)
     expect(byCategory.get('memory-transparency')).toHaveLength(4)
+    expect(byCategory.get('attribution-gate')).toHaveLength(7)
   })
 
-  // 75 例各建完整 harness（makeMemoryDb 跑全部迁移），全量跑约 8-10s；放宽超时避免 CI 抖动
-  it('全部 75 例结构性断言通过（CI 门禁：结构层 100%）', async () => {
+  // 82 例各建完整 harness（makeMemoryDb 跑全部迁移），全量跑约 8-10s；放宽超时避免 CI 抖动
+  it('全部 82 例结构性断言通过（CI 门禁：结构层 100%）', async () => {
     for (const c of cases) {
       const harness = await createGoldenHarness()
       try {

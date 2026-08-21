@@ -54,6 +54,7 @@ const MEM_CFG: MemoryConfig = {
   embeddingDimension: 1024,
   maxActive: 15,
   minRetrievalScore: 0.35,
+  attributionGate: { provider: '', model: '', baseUrl: '' },
   dmae: {
     enabled: true,
     maxScore: 100,
@@ -190,9 +191,7 @@ describe('P2-29 projections', () => {
     })
 
     it('M-43：非指代场景不误翻（伙伴们/伙伴关系/伙伴这个/伙伴本身）', () => {
-      expect(projectL2View(makeL2({ content: '伙伴们都很热情' }), 0).content).toBe(
-        '伙伴们都很热情'
-      )
+      expect(projectL2View(makeL2({ content: '伙伴们都很热情' }), 0).content).toBe('伙伴们都很热情')
       expect(projectL2View(makeL2({ content: '伙伴关系是平等的' }), 0).content).toBe(
         '伙伴关系是平等的'
       )

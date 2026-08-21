@@ -56,6 +56,16 @@ export interface MemoryConfig {
   embeddingDimension: number
   maxActive: number
   minRetrievalScore: number
+  /**
+   * M-42：L0 归属语义门的独立模型（与提取不同的模型/供应商，便宜小模型档即可）。
+   * 各字段空串 = 回退提取同款（chat 模型）；apiKey 复用 secretStore 'modelApiKey'。
+   * 纯配置面能力（无设置 UI），setup.ts resolveAttributionGateTarget 消费。
+   */
+  attributionGate: {
+    provider: string
+    model: string
+    baseUrl: string
+  }
   dmae: {
     enabled: boolean
     maxScore: 100

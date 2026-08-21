@@ -26,6 +26,7 @@ import type { ExtractionService } from './service'
 import type { MemoryCandidate } from './candidate'
 import type { MemoryJudge, JudgeDecision } from './judge'
 import type { MemoryDispatcher } from './dispatch'
+import type { AttributionGate, AttributionGateItem, AttributionVerdict } from './attribution-gate'
 import {
   SYNC_TURN_JUDGE_EVERY_TURNS,
   JUDGE_QUEUE_THRESHOLD,
@@ -47,6 +48,12 @@ export interface ExtractionHookDeps {
   dispatcher: MemoryDispatcher
   /** 配置获取器；hook 每次检查 memory.enabled */
   getMemoryConfig: () => Readonly<MemoryConfig>
+  /**
+   * M-42：L0 归属语义门（可选）。存在时 drain 在终审前对本批全部 L0 候选做一次
+   * 批量语义判定（一次 API 调用），结论随 JudgeContext 预标注给 Judge step 6；
+   * 缺省/门返回 null -> Judge 回退正则表（fail-closed）。
+   */
+  attributionGate?: AttributionGate | null
   /** 队列（测试可注入）；默认新建有界队列 */
   queue?: ExtractionQueue
 }
@@ -72,6 +79,7 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
   flush: () => Promise<void>
 } {
   const { logger, sessionStore, extractionService, judge, dispatcher, getMemoryConfig } = deps
+  const attributionGate = deps.attributionGate ?? null
   const queue = deps.queue ?? createExtractionQueue({ logger })
   let consumerRunning = false
   let consumerStopRequested = false
@@ -79,19 +87,54 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
 
   /**
    * P2-39 批量终审：对一组 pending turn 统一执行 judge -> 跨轮去重 -> 按组 dispatch。
+   *   - M-42：终审前对本批全部 L0 候选做一次批量语义归因判定（一次 API 调用），
+   *     结论随每轮 ctx 预标注给 Judge step 6；门缺失/失败/超时 -> null -> 正则表
    *   - 每轮候选各自 judge（evidence 校验必须用该轮 ctx，S-010 §1.6 step 2）
    *   - dedupeDecisionsForDrain 跨轮合并同事实候选（confidence 取高），输入输出 1:1 保序
    *   - 按组回填 dispatch（保持每轮 sessionId/turnId 正确）
    */
   async function drain(groups: PendingGroup[]): Promise<void> {
-    // 1. 每轮各自 judge
+    // 0. M-42 语义归因预标注：本批全部 L0 候选打包一次调用（跨组只调一次，控制成本）
+    let attribution: ReadonlyMap<string, AttributionVerdict> | null = null
+    if (attributionGate) {
+      const items: AttributionGateItem[] = []
+      for (const g of groups) {
+        for (const c of g.candidates) {
+          if (c.targetLayer === 'l0' && c.field) {
+            items.push({
+              candidateId: c.candidateId,
+              field: c.field,
+              content: c.content,
+              quotes: c.evidence.map((e) => e.quote)
+            })
+          }
+        }
+      }
+      if (items.length > 0) {
+        try {
+          attribution = await attributionGate.judgeL0Batch(items)
+        } catch (e) {
+          // AttributionGate 契约是不 throw（内部已 fail-closed）；此处防御性兜底——
+          // 门异常等同于门失败，丢标注不丢整批（S-010 §1.1 败而不崩语义细化）
+          logger.warn('attribution gate threw; falling back to regex', {
+            scope: 'memory',
+            metrics: { items: items.length },
+            tags: { reason: e instanceof Error ? e.name : 'unknown' }
+          })
+          attribution = null
+        }
+      }
+    }
+
+    // 1. 每轮各自 judge（attribution 预标注随 ctx 传入；仅 step 6 L0 分支消费）
     const judged: Array<{ task: ExtractionTask; decisions: JudgeDecision[] }> = []
     for (const g of groups) {
       if (g.candidates.length === 0) continue
       const decisions = judge.judgeBatch(g.candidates, {
         turnId: g.task.turnId,
         userMessageId: g.task.userMessageId,
-        userContent: g.task.userContent
+        userContent: g.task.userContent,
+        attribution
       })
       judged.push({ task: g.task, decisions })
     }

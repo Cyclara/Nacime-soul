@@ -330,3 +330,94 @@ describe('P2-11 MemoryJudge', () => {
     }
   })
 })
+
+// === M-42：语义归因预标注（ctx.attribution）===
+// 双模型语义门把 step 6 L0 分支的两个布尔以预标注形式交给 Judge；
+// 有标注用标注，无标注回退正则表（fail-closed）。L1/L2 分支不消费标注。
+
+describe('M-42 语义归因预标注（ctx.attribution）', () => {
+  const USER_SELF = { userSelfStatement: true, assistantDirected: false }
+
+  it('标注 userSelf=true 覆盖正则 miss："以后你可以称我为伙伴" -> L0 accept（无标注对照：正则拒绝）', () => {
+    const judge = createMemoryJudge()
+    const userContent = '以后你可以称我为伙伴，就这么定了。'
+    const c = makeCandidate({
+      content: '伙伴',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '以后你可以称我为伙伴' }]
+    })
+    // 对照：无标注 -> /以后你/ 命中 assistant 指向，正则拒绝
+    const noAnno = judge.judgeBatch([c], { ...ctx, userContent })
+    expect(noAnno[0].action).toBe('reject')
+    expect(noAnno[0].reason).toBe('L0_SUBJECT_IS_ASSISTANT')
+    // 有标注（语义门：用户自指，非给 AI 设身份）-> accept
+    const attribution = new Map([[c.candidateId, USER_SELF]])
+    const withAnno = judge.judgeBatch([c], { ...ctx, userContent, attribution })
+    expect(withAnno[0].action).toBe('accept')
+    expect(withAnno[0].reason).toBe('ACCEPTED')
+  })
+
+  it('标注 assistantDirected=true 补正则盲区："你应该叫小灵" -> reject（无标注对照：正则降级）', () => {
+    const judge = createMemoryJudge()
+    const userContent = '你应该叫小灵，不许改。'
+    const c = makeCandidate({
+      content: '小灵',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '你应该叫小灵' }]
+    })
+    // 对照："应"字隔断 /你叫/，正则无命中 -> fail-closed 降级 L2（现行行为）
+    const noAnno = judge.judgeBatch([c], { ...ctx, userContent })
+    expect(noAnno[0].action).toBe('downgrade')
+    // 有标注（语义门：在给 AI 设身份）-> reject，防护增强
+    const attribution = new Map([
+      [c.candidateId, { userSelfStatement: false, assistantDirected: true }]
+    ])
+    const withAnno = judge.judgeBatch([c], { ...ctx, userContent, attribution })
+    expect(withAnno[0].action).toBe('reject')
+    expect(withAnno[0].reason).toBe('L0_SUBJECT_IS_ASSISTANT')
+  })
+
+  it('标注两布尔皆 false -> 与正则无命中同语义：fail-closed 降级 L2', () => {
+    const judge = createMemoryJudge()
+    const userContent = '说实话，我对现在的教学方式挺失望的。'
+    const c = makeCandidate({
+      field: 'dislikes',
+      content: '对现在的教学方式感到失望',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '我对现在的教学方式挺失望的' }]
+    })
+    const attribution = new Map([
+      [c.candidateId, { userSelfStatement: false, assistantDirected: false }]
+    ])
+    const decisions = judge.judgeBatch([c], { ...ctx, userContent, attribution })
+    expect(decisions[0].action).toBe('downgrade')
+  })
+
+  it('标注按 candidateId 精确查找：map 中无此候选 -> 回退正则表', () => {
+    const judge = createMemoryJudge()
+    const userContent = '以后你可以称我为伙伴，就这么定了。'
+    const c = makeCandidate({
+      content: '伙伴',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '以后你可以称我为伙伴' }]
+    })
+    // map 里只有别的 candidateId -> 等同无标注 -> 正则拒绝
+    const attribution = new Map([['other:9', USER_SELF]])
+    const decisions = judge.judgeBatch([c], { ...ctx, userContent, attribution })
+    expect(decisions[0].action).toBe('reject')
+    expect(decisions[0].reason).toBe('L0_SUBJECT_IS_ASSISTANT')
+  })
+
+  it('L1/L2 分支不消费标注：L2 候选带"非 assistant"标注仍按正则拒绝', () => {
+    const judge = createMemoryJudge()
+    const c = makeCandidate({
+      targetLayer: 'l2',
+      field: undefined,
+      content: '你叫小红',
+      memoryType: 'stable',
+      importance: 'medium',
+      evidence: [{ messageId: USER_MESSAGE_ID, role: 'user', quote: '你叫小红' }]
+    })
+    // 标注说"用户自指、非 assistant 指向"，但 L2 归属检查只走正则（最小爆炸半径）
+    const attribution = new Map([[c.candidateId, USER_SELF]])
+    const decisions = judge.judgeBatch([c], { ...ctx, userContent: '你叫小红', attribution })
+    expect(decisions[0].action).toBe('reject')
+    expect(decisions[0].reason).toBe('L0_SUBJECT_IS_ASSISTANT')
+  })
+})

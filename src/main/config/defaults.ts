@@ -72,6 +72,8 @@ export const DEFAULT_CONFIG_V1: Readonly<AppConfigV1> = deepFreeze({
     embeddingDimension: 1024,
     maxActive: 15,
     minRetrievalScore: 0.35,
+    // M-42：归因门独立模型默认全空 = 回退提取同款 chat 模型
+    attributionGate: { provider: '', model: '', baseUrl: '' },
     dmae: {
       enabled: true,
       maxScore: 100,

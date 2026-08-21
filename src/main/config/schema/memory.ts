@@ -160,6 +160,14 @@ const DmaeConfigSchema = v.strictObject({
   historySampleEveryTurns: HistorySampleEveryTurnsSchema
 })
 
+// === M-42 归因门独立模型 schema（空串 = 回退提取同款）===
+
+export const AttributionGateConfigSchema = v.strictObject({
+  provider: v.pipe(v.string(), v.trim(), v.maxLength(64)),
+  model: v.pipe(v.string(), v.trim(), v.maxLength(128)),
+  baseUrl: v.pipe(v.string(), v.trim(), v.maxLength(256))
+})
+
 /**
  * Memory 配置 schema。
  * Phase 1 只存配置，不实现实际记忆功能（Phase 2+）。
@@ -171,6 +179,7 @@ export const MemoryConfigSchema = v.object({
   embeddingDimension: v.pipe(v.number(), v.integer(), v.minValue(64), v.maxValue(8192)),
   maxActive: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(50)),
   minRetrievalScore: v.pipe(v.number(), v.finite(), v.minValue(-1), v.maxValue(1)),
+  attributionGate: AttributionGateConfigSchema,
   dmae: DmaeConfigSchema
 })
 

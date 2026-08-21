@@ -295,6 +295,48 @@ describe('P1-06 MemoryConfigSchema', () => {
     const bad = { ...DEFAULT_CONFIG_V1.memory, minRetrievalScore: 1.1 }
     expectInvalid(MemoryConfigSchema, bad)
   })
+
+  it('M-42: attributionGate 默认全空合法（回退提取同款）；独立模型配置合法', () => {
+    expectValid(MemoryConfigSchema, DEFAULT_CONFIG_V1.memory)
+    const independent = {
+      ...DEFAULT_CONFIG_V1.memory,
+      attributionGate: {
+        provider: 'qwen',
+        model: 'qwen-turbo',
+        baseUrl: 'https://dashscope.example.com'
+      }
+    }
+    expectValid(MemoryConfigSchema, independent)
+  })
+
+  it('M-42: attributionGate 缺键 -> 失败（required，旧配置由 deepMergeWithDefaults 补齐）', () => {
+    const rest: Record<string, unknown> = { ...DEFAULT_CONFIG_V1.memory }
+    delete rest.attributionGate
+    expectInvalid(MemoryConfigSchema, rest)
+  })
+
+  it('M-42: attributionGate 严格键 + 类型/长度校验', () => {
+    const base = DEFAULT_CONFIG_V1.memory
+    // 多余键拒绝（strictObject）
+    expectInvalid(MemoryConfigSchema, {
+      ...base,
+      attributionGate: { ...base.attributionGate, apiKey: 'x' }
+    })
+    // 非字符串拒绝
+    expectInvalid(MemoryConfigSchema, {
+      ...base,
+      attributionGate: { ...base.attributionGate, model: 42 }
+    })
+    // 超长拒绝（provider 64 / model 128 / baseUrl 256）
+    expectInvalid(MemoryConfigSchema, {
+      ...base,
+      attributionGate: { ...base.attributionGate, provider: 'p'.repeat(65) }
+    })
+    expectInvalid(MemoryConfigSchema, {
+      ...base,
+      attributionGate: { ...base.attributionGate, baseUrl: 'u'.repeat(257) }
+    })
+  })
 })
 
 // === P2-31.5A：DMAE 可视化前置门配置 schema 测试（S-005-补充 §3.3）===

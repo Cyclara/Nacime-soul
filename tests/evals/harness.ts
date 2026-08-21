@@ -40,7 +40,8 @@ import type { EmbeddingClient } from '../../src/main/memory/embedding'
 import type { Logger } from '../../src/shared/observability/types'
 import type { MemoryConfig } from '../../src/shared/config/types'
 import { DEFAULT_ANOMALY_MUTED, DEFAULT_ANOMALY_WINDOWS } from '../../src/shared/memory/dmae-config'
-import type { GoldenCandidateScript, GoldenSetup } from './types'
+import type { AttributionVerdict } from '../../src/main/memory/extraction/attribution-gate'
+import type { GoldenAttributionVerdict, GoldenCandidateScript, GoldenSetup } from './types'
 
 // === 确定性「共享 token」检索 ===
 
@@ -158,6 +159,7 @@ export function makeGoldenMemoryConfig(): MemoryConfig {
     embeddingDimension: KEYWORD_EMBED_DIM,
     maxActive: 5,
     minRetrievalScore: 0.35,
+    attributionGate: { provider: '', model: '', baseUrl: '' },
     dmae: {
       enabled: true,
       maxScore: 100,
@@ -202,8 +204,13 @@ export interface TurnOutcome {
 export interface GoldenHarness {
   /** 预置初始记忆状态（setup） */
   applySetup(setup: GoldenSetup): Promise<void>
-  /** 驱动一轮 user 消息（候选脚本 -> Faux provider -> extract -> judge -> dispatch） */
-  driveUserTurn(text: string, candidates: GoldenCandidateScript[]): Promise<TurnOutcome>
+  /** 驱动一轮 user 消息（候选脚本 -> Faux provider -> extract -> judge -> dispatch）。
+   *  M-42：attribution 脚本与 candidates 索引对齐，作为 JudgeContext.attribution 预标注传入。 */
+  driveUserTurn(
+    text: string,
+    candidates: GoldenCandidateScript[],
+    attribution?: (GoldenAttributionVerdict | null)[]
+  ): Promise<TurnOutcome>
   /** 组装下轮 prompt，返回九层（按 name 索引 content） */
   buildPromptLayers(query: string): Promise<Map<string, string>>
   /** L0 字段当前值（不存在返回 null） */
@@ -316,7 +323,8 @@ export async function createGoldenHarness(opts: GoldenHarnessOptions = {}): Prom
 
   async function driveUserTurn(
     text: string,
-    candidates: GoldenCandidateScript[]
+    candidates: GoldenCandidateScript[],
+    attribution?: (GoldenAttributionVerdict | null)[]
   ): Promise<TurnOutcome> {
     turnSeq += 1
     const turnId = `turn_${turnSeq}`
@@ -338,7 +346,29 @@ export async function createGoldenHarness(opts: GoldenHarnessOptions = {}): Prom
       userMessageId,
       userContent: text
     })
-    const decisions = judge.judgeBatch(parsed, { turnId, userMessageId, userContent: text })
+
+    // M-42：归因门脚本 -> JudgeContext.attribution（candidateId 由 parser 按 envelope 次序
+    // 赋 `${turnId}:${index}`，与脚本索引天然对齐；长度不符即 fixture 缺陷，直接抛错）。
+    let attributionMap: ReadonlyMap<string, AttributionVerdict> | null = null
+    if (attribution) {
+      if (attribution.length !== parsed.length) {
+        throw new Error(
+          `attribution script length ${attribution.length} != parsed candidates ${parsed.length}`
+        )
+      }
+      const m = new Map<string, AttributionVerdict>()
+      attribution.forEach((v, i) => {
+        if (v) m.set(parsed[i].candidateId, v)
+      })
+      attributionMap = m
+    }
+
+    const decisions = judge.judgeBatch(parsed, {
+      turnId,
+      userMessageId,
+      userContent: text,
+      attribution: attributionMap
+    })
     const dispatch = await dispatcher.dispatchBatch(decisions, { sessionId, turnId })
     return { turnId, userMessageId, decisions, dispatch }
   }

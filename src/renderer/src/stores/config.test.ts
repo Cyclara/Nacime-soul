@@ -59,6 +59,7 @@ function makeSnapshot(): PublicConfigSnapshot {
       embeddingDimension: 1024,
       maxActive: 15,
       minRetrievalScore: 0.35,
+      attributionGate: { provider: '', model: '', baseUrl: '' },
       dmae: {
         enabled: true,
         maxScore: 100,

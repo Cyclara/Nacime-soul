@@ -1,7 +1,10 @@
 // src/main/memory/extraction/judge.ts
 // MemoryJudge 确定性判决状态机。依据 S-010 §1.6。
 //
-// Phase 2 不做第二次 LLM 判决；模型已参与候选生成，再用同类模型自审会放大一致性错误。
+// Judge 保持同步纯函数：不做第二次 LLM 调用（模型已参与候选生成，同类模型自审会放大
+// 一致性错误）。M-42 的 L0 归属语义判定以"预标注"形式随 ctx 传入——drain 在终审前
+// 用独立模型批量判定一次（attribution-gate.ts），本文件只消费布尔结论；
+// 预标注缺失（门未配置/失败/超时/malformed）时 fail-closed 回退现行正则表。
 // 需要语义 resolver 的冲突由 P2-20 独立处理。
 //
 // 判决顺序（第一条命中即返回）：
@@ -11,7 +14,7 @@
 //   3. 持久指令/污染：content 或 evidence 含指令目标组合 -> PERSISTENT_INSTRUCTION
 //   4. 模型自报 overclaim：forbiddenOverclaims.length>0 -> FORBIDDEN_OVERCLAIM
 //   5. 绝对化支持检查：content 命中词族但所有 evidence.quote 未命中同族 -> UNSUPPORTED_ABSOLUTE
-//   6. 用户/角色归属与 L0 来源检查
+//   6. 用户/角色归属与 L0 来源检查（L0 分支优先消费 M-42 预标注，缺省回退正则；L1/L2 仍正则）
 //   7. 去重与持久幂等（同批次去重；跨轮由 extractionKey）
 //   8. 其余接受；confidence 夹取
 //
@@ -20,6 +23,7 @@
 
 import type { MemoryCandidate } from './candidate'
 import type { L0FieldKey } from '../l0-store'
+import type { AttributionVerdict } from './attribution-gate'
 
 export type JudgeAction = 'accept' | 'downgrade' | 'reject'
 
@@ -70,6 +74,13 @@ export interface JudgeContext {
   userMessageId: string
   /** 当前 turn 的 user message 正文（已 sanitize，用于 quote 子串校验） */
   userContent: string
+  /**
+   * M-42：drain 预标注的 L0 归属语义判定（candidateId -> verdict）。
+   * 只影响 step 6 的 L0 分支：命中标注时用语义结论替代正则表；
+   * null/缺省/查无此 candidateId 时回退正则表（fail-closed，语义门失败路径）。
+   * L1/L2 归属检查不消费本标注（仍走正则，最小爆炸半径）。
+   */
+  attribution?: ReadonlyMap<string, AttributionVerdict> | null
 }
 
 export interface MemoryJudge {
@@ -311,8 +322,16 @@ export function createMemoryJudge(): MemoryJudge {
     // 6. 用户/角色归属与 L0 来源
     if (candidate.targetLayer === 'l0' && candidate.field) {
       // 先对所有层拒绝"给 assistant 设定身份/人格/永久行为"
-      const assistantHit = evidenceHitsAssistantDirected(evidenceQuotes)
-      const userSelfHit = evidenceHitsUserSelfReference(candidate.field, evidenceQuotes)
+      // M-42：drain 预标注（独立模型语义判定）优先；无标注时回退正则表（fail-closed）。
+      // 语义门覆盖正则够不着的自然说法（"你可以称我为伙伴"/"对…失望"/"在读大学"），
+      // 也能拦下正则漏掉的 assistant 指向（"你应该叫小灵"）。
+      const annotation = ctx.attribution?.get(candidate.candidateId) ?? null
+      const assistantHit = annotation
+        ? annotation.assistantDirected
+        : evidenceHitsAssistantDirected(evidenceQuotes)
+      const userSelfHit = annotation
+        ? annotation.userSelfStatement
+        : evidenceHitsUserSelfReference(candidate.field, evidenceQuotes)
 
       if (assistantHit && !userSelfHit) {
         return { candidateId, action: 'reject', reason: 'L0_SUBJECT_IS_ASSISTANT' }

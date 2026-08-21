@@ -20,6 +20,7 @@ export type GoldenCategory =
   | 'persona-consistency'
   | 'long-context'
   | 'memory-transparency'
+  | 'attribution-gate'
 
 export type GoldenTargetLayer = 'l0' | 'l1' | 'l2'
 export type GoldenCertainty = 'explicit' | 'inferred' | 'uncertain'
@@ -69,11 +70,23 @@ export interface GoldenCandidateScript {
   forbiddenOverclaims?: string[]
 }
 
+/** M-42：归因门语义判定脚本（对单条候选的 step 6 预标注结论） */
+export interface GoldenAttributionVerdict {
+  userSelfStatement: boolean
+  assistantDirected: boolean
+}
+
 /** 一轮对话（user/assistant 交替）。user 轮可带候选脚本；assistant 轮仅上下文 */
 export interface GoldenTurn {
   role: 'user' | 'assistant'
   text: string
   candidates?: GoldenCandidateScript[]
+  /**
+   * M-42：归因门脚本，与 candidates 数组索引对齐（attribution[i] 标注 candidates[i]）；
+   * 数组项为 null 表示该候选无预标注（如 L1/L2 候选——语义门只判定 L0）。
+   * 整个字段缺省 = 本轮回退正则表（fail-closed 路径，75 例旧用例的默认行为）。
+   */
+  attribution?: (GoldenAttributionVerdict | null)[]
   /**
    * UC 类纠正轮：先 seedReference 模拟上一轮 turn.end 的 l2.referenced fan-out。
    * 元素为 `$written:N`（第 N 次写入的 L2 memoryId，0-based）或 `$l2:<content子串>`。
@@ -154,7 +167,8 @@ export function validateGoldenCase(raw: unknown): GoldenCase {
     'injection-defense',
     'persona-consistency',
     'long-context',
-    'memory-transparency'
+    'memory-transparency',
+    'attribution-gate'
   ]
   if (!CATEGORIES.includes(category)) throw new Error(`unknown category: ${category}`)
   if (!Array.isArray(c.input) || c.input.length < 1)
@@ -162,6 +176,22 @@ export function validateGoldenCase(raw: unknown): GoldenCase {
   for (const t of c.input as Array<Record<string, unknown>>) {
     if (t.role !== 'user' && t.role !== 'assistant') throw new Error('input turn role invalid')
     if (typeof t.text !== 'string' || !t.text) throw new Error('input turn text missing')
+    // M-42：attribution 脚本与 candidates 索引对齐；逐项校验形状
+    if (t.attribution !== undefined) {
+      if (!Array.isArray(t.attribution)) throw new Error('turn attribution must be array')
+      const candCount = Array.isArray(t.candidates) ? t.candidates.length : 0
+      if (t.attribution.length !== candCount) {
+        throw new Error('turn attribution length must equal candidates length')
+      }
+      for (const v of t.attribution as unknown[]) {
+        if (v === null) continue
+        if (!v || typeof v !== 'object') throw new Error('attribution entry must be object|null')
+        const b = v as Record<string, unknown>
+        if (typeof b.userSelfStatement !== 'boolean' || typeof b.assistantDirected !== 'boolean') {
+          throw new Error('attribution entry booleans invalid')
+        }
+      }
+    }
   }
   if (!c.expected || typeof c.expected !== 'object') throw new Error('expected missing')
   return c as unknown as GoldenCase

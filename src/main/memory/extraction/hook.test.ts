@@ -23,6 +23,7 @@ import type { MemoryDispatcher, DispatchContext, DispatchResult } from './dispat
 import { createMemoryDispatcher } from './dispatch'
 import { createFauxExtractionProvider } from './provider'
 import { createSyncTurnExtractor } from './sync-turn'
+import type { AttributionGate, AttributionGateItem, AttributionVerdict } from './attribution-gate'
 import { createL0Store } from '../l0-store'
 import { createL1Store } from '../l1-store'
 import { createL2Store } from '../l2-store'
@@ -117,6 +118,8 @@ function makeHook(
       decisions: readonly JudgeDecision[],
       ctx: DispatchContext
     ) => Promise<DispatchResult>
+    /** M-42：注入归因门（缺省 = 无门，drain 直接走正则路径） */
+    attributionGate?: AttributionGate | null
   } = {}
 ): HookMocks {
   const responses = opts.responses ?? {}
@@ -159,7 +162,8 @@ function makeHook(
     extractionService: { extract } as unknown as ExtractionService,
     judge: { judgeBatch } as unknown as MemoryJudge,
     dispatcher: { dispatchBatch } as unknown as MemoryDispatcher,
-    getMemoryConfig: () => config
+    getMemoryConfig: () => config,
+    attributionGate: opts.attributionGate
   })
   return { hook, extract, judgeBatch, dispatchBatch, order }
 }
@@ -447,6 +451,211 @@ describe('I-01 sync_turn 真实链路', () => {
     // L0.preferredName 写入 + 事件 + 可被下轮 prompt 层 4 读取
     expect(filled).toEqual(['preferredName'])
     expect(l0Store.getField('preferredName')?.value).toBe('小明')
+
+    t.cleanup()
+    rmSync(l0Dir, { recursive: true, force: true })
+    hook.stopConsumer()
+  })
+})
+
+// === M-42 drain 归因门接线（mock 驱动 + 真实链路）===
+
+describe('M-42 drain 归因门接线', () => {
+  function makeGate(impl: {
+    map?: ReadonlyMap<string, AttributionVerdict> | null
+    calls?: AttributionGateItem[][]
+    throwError?: boolean
+  }): { gate: AttributionGate; judgeL0Batch: ReturnType<typeof vi.fn> } {
+    const judgeL0Batch = vi.fn(async (items: readonly AttributionGateItem[]) => {
+      impl.calls?.push([...items])
+      if (impl.throwError) throw new Error('gate boom')
+      return impl.map ?? null
+    })
+    return { gate: { judgeL0Batch }, judgeL0Batch }
+  }
+
+  it('drain 前对本批全部 L0 候选批量判定一次（跨组只调一次），map 随 ctx 传给每组 judge', async () => {
+    const gateCalls: AttributionGateItem[][] = []
+    const map: ReadonlyMap<string, AttributionVerdict> = new Map([
+      ['t1:0', { userSelfStatement: true, assistantDirected: false }],
+      ['t2:0', { userSelfStatement: true, assistantDirected: false }]
+    ])
+    const { gate, judgeL0Batch } = makeGate({ map, calls: gateCalls })
+    const { hook, judgeBatch } = makeHook({
+      attributionGate: gate,
+      responses: {
+        // t1：1 个 L0 + 1 个 L2；t2：1 个 L0（L2 不进语义门）
+        t1: [
+          mkCandidate('t1:0', '伙伴', { targetLayer: 'l0', field: 'preferredName' }),
+          mkCandidate('t1:1', '周末爬山')
+        ],
+        t2: [mkCandidate('t2:0', '小明', { targetLayer: 'l0', field: 'preferredName' })]
+      }
+    })
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t2'))
+    await hook.flush()
+
+    // 一次批量调用，只含 L0 候选（t1:0、t2:0），携带 field/content/quotes
+    expect(judgeL0Batch).toHaveBeenCalledTimes(1)
+    expect(gateCalls).toHaveLength(1)
+    expect(gateCalls[0].map((i) => i.candidateId).sort()).toEqual(['t1:0', 't2:0'])
+    expect(gateCalls[0][0].field).toBe('preferredName')
+    expect(gateCalls[0][0].quotes.length).toBeGreaterThan(0)
+
+    // 两组 judgeBatch 都收到同一份 attribution map（引用相等）
+    expect(judgeBatch).toHaveBeenCalledTimes(2)
+    for (const call of judgeBatch.mock.calls) {
+      expect((call[1] as JudgeContext).attribution).toBe(map)
+    }
+  })
+
+  it('gate 返回 null -> ctx.attribution 为 null（Judge 回退正则表）', async () => {
+    const { gate } = makeGate({ map: null })
+    const { hook, judgeBatch } = makeHook({
+      attributionGate: gate,
+      responses: {
+        t1: [mkCandidate('t1:0', '伙伴', { targetLayer: 'l0', field: 'preferredName' })]
+      }
+    })
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
+    await hook.flush()
+
+    expect(judgeBatch).toHaveBeenCalledTimes(1)
+    expect((judgeBatch.mock.calls[0][1] as JudgeContext).attribution).toBeNull()
+  })
+
+  it('gate 违反契约抛错 -> 防御兜底：标注 null 且批次不丢（dispatch 仍执行）', async () => {
+    const { gate } = makeGate({ throwError: true })
+    const { hook, judgeBatch, dispatchBatch } = makeHook({
+      attributionGate: gate,
+      responses: {
+        t1: [mkCandidate('t1:0', '伙伴', { targetLayer: 'l0', field: 'preferredName' })]
+      }
+    })
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
+    await hook.flush()
+
+    expect(judgeBatch).toHaveBeenCalledTimes(1)
+    expect((judgeBatch.mock.calls[0][1] as JudgeContext).attribution).toBeNull()
+    expect(dispatchBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('本批无 L0 候选 -> 不调用 gate（零额外 API 成本）', async () => {
+    const { gate, judgeL0Batch } = makeGate({ map: new Map() })
+    const { hook } = makeHook({
+      attributionGate: gate,
+      responses: { t1: [mkCandidate('t1:0', '周末爬山')] }
+    })
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
+    await hook.flush()
+    expect(judgeL0Batch).not.toHaveBeenCalled()
+  })
+
+  it('缺省无门 -> drain 不调 gate，ctx.attribution 为 null（现行行为不变）', async () => {
+    const { hook, judgeBatch } = makeHook({
+      responses: {
+        t1: [mkCandidate('t1:0', '伙伴', { targetLayer: 'l0', field: 'preferredName' })]
+      }
+    })
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
+    await hook.flush()
+    expect((judgeBatch.mock.calls[0][1] as JudgeContext).attribution).toBeNull()
+  })
+})
+
+describe('M-42 真实链路（语义门救回自然说法）', () => {
+  it('"以后你可以称我为伙伴"：正则路径拒绝 -> 归因门标注后 L0.preferredName 写入', async () => {
+    const t = await makeMemoryDb()
+    const l0Dir = mkdtempSync(join(tmpdir(), 'nacime-hook-m42-'))
+    const l0Store = createL0Store({ filePath: join(l0Dir, 'l0.json'), logger: testNoopLogger })
+    const l1Store = createL1Store({ filePath: join(l0Dir, 'l1.json'), logger: testNoopLogger })
+    const l2Store = createL2Store({
+      db: t.db,
+      now: () => 1710000000000,
+      randomSuffix: () => 's1'
+    })
+    const vectorStore = createSQLiteVectorStore({ db: t.db, dim: 4, logger: testNoopLogger })
+    await vectorStore.init()
+    const revisionClock = createMemoryRevisionClock(t.db)
+    const writer = createMemoryWriter({
+      db: t.db,
+      l2Store,
+      vectorStore,
+      embedding: null,
+      revisionClock,
+      logger: testNoopLogger
+    })
+    const dispatcher = createMemoryDispatcher({
+      l0Store,
+      l1Store,
+      l2Store,
+      writer,
+      logger: testNoopLogger
+    })
+    const judge = createMemoryJudge()
+
+    const sessionStore = createMemorySessionStore()
+    const sessionId = sessionStore.createSession()
+    sessionStore.appendMessage(sessionId, {
+      id: 'm_1',
+      sessionId,
+      role: 'user',
+      content: '以后你可以称我为伙伴，就这么定了。',
+      createdAt: 1,
+      status: 'complete',
+      turnId: 't1'
+    })
+    sessionStore.appendMessage(sessionId, {
+      id: 'a_1',
+      sessionId,
+      role: 'assistant',
+      content: '好的伙伴',
+      createdAt: 2,
+      status: 'complete',
+      turnId: 't1'
+    })
+
+    const faux = createFauxExtractionProvider()
+    faux.setResponses([
+      JSON.stringify({
+        schemaVersion: 1,
+        candidates: [
+          {
+            targetLayer: 'l0',
+            field: 'preferredName',
+            content: '伙伴',
+            confidence: 0.9,
+            certainty: 'explicit',
+            attribution: 'user_explicit',
+            evidence: [{ messageId: 'm_1', role: 'user', quote: '以后你可以称我为伙伴' }],
+            forbiddenOverclaims: []
+          }
+        ]
+      })
+    ])
+    const syncTurn = createSyncTurnExtractor({ provider: faux, logger: testNoopLogger })
+
+    // 归因门：candidateId 由 parser 按 `${turnId}:${index}` 赋为 't1:0'
+    const gate: AttributionGate = {
+      judgeL0Batch: async () =>
+        new Map([['t1:0', { userSelfStatement: true, assistantDirected: false }]])
+    }
+
+    const hook = createExtractionHook({
+      logger: testNoopLogger,
+      sessionStore,
+      extractionService: syncTurn,
+      judge,
+      dispatcher,
+      getMemoryConfig: () => memoryConfig,
+      attributionGate: gate
+    })
+    hook.hook.fn({ event: 'turn.end' }, turnEnd('t1', sessionId))
+    await hook.flush()
+
+    // 语义门救回：直入 L0（正则路径下该候选会被 L0_SUBJECT_IS_ASSISTANT 拒绝）
+    expect(l0Store.getField('preferredName')?.value).toBe('伙伴')
 
     t.cleanup()
     rmSync(l0Dir, { recursive: true, force: true })

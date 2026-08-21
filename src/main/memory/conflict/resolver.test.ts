@@ -52,6 +52,7 @@ const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
   embeddingDimension: DIM,
   maxActive: 15,
   minRetrievalScore: 0.35,
+  attributionGate: { provider: '', model: '', baseUrl: '' },
   dmae: {
     enabled: false,
     maxScore: 100,

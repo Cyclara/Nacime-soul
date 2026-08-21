@@ -42,6 +42,7 @@ function makeMemoryConfig(overrides: Partial<MemoryConfig['dmae']> = {}): Memory
     embeddingDimension: 1024,
     maxActive: 15,
     minRetrievalScore: 0.35,
+    attributionGate: { provider: '', model: '', baseUrl: '' },
     dmae: { ...P, ...overrides }
   } as MemoryConfig
 }

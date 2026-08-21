@@ -47,6 +47,11 @@ import { createSyncTurnExtractor } from './extraction/sync-turn'
 import { createMemoryJudge } from './extraction/judge'
 import { createMemoryDispatcher } from './extraction/dispatch'
 import { createExtractionHook } from './extraction/hook'
+import {
+  createAttributionGate,
+  resolveAttributionGateTarget,
+  type AttributionGate
+} from './extraction/attribution-gate'
 import { createConflictLogStore } from './conflict/log'
 import {
   createConflictResolver,
@@ -397,6 +402,43 @@ export async function setupMemoryInfrastructure(
     })
     const judge = createMemoryJudge()
 
+    // M-42: L0 归属语义门（双模型判定，drain 时一次批量调用）。
+    //   faux 模式不创建——Faux 队列只承载提取 envelope 脚本，归因门共用会串吃响应；
+    //   gate=null 时 drain 跳过语义判定，Judge step 6 回退正则表（fail-closed，M-42 验收路径）。
+    //   配置面 memory.attributionGate 支持独立模型/供应商（默认全空 = 提取同款，
+    //   同款时直接复用 extractionProvider 实例——OpenAIExtractionProvider 无状态，不串 FIFO）。
+    let attributionGate: AttributionGate | null = null
+    if (!fauxMode) {
+      const gateTarget = resolveAttributionGateTarget(
+        configStore.get().memory,
+        configStore.get().model
+      )
+      const gateProvider = gateTarget.reuseExtraction
+        ? extractionProvider
+        : createOpenAIExtractionProvider(
+            {
+              provider: gateTarget.provider,
+              model: gateTarget.model,
+              baseUrl: gateTarget.baseUrl,
+              apiKey,
+              // 独立模型同样显式关思考（与提取同一 compat 解析入口；overrides 复用 model 域）
+              thinkingFormat: resolveCompat(
+                gateTarget.provider,
+                gateTarget.baseUrl,
+                configStore.get().model.compatOverrides
+              ).thinkingFormat
+            },
+            { logger: memLogger, fetchFn: secureFetch }
+          )
+      attributionGate = createAttributionGate({ provider: gateProvider, logger: memLogger })
+      if (!gateTarget.reuseExtraction) {
+        memLogger.info('attribution gate uses independent model (M-42)', {
+          scope: 'memory',
+          tags: { provider: gateTarget.provider, model: gateTarget.model }
+        })
+      }
+    }
+
     // 冲突检测基础设施（P2-20/21）
     // resolver 复用 extraction provider（同为 temperature=0 的独立 LLM 调用；
     // OpenAIExtractionProvider 无状态，不会串吃 FIFO）
@@ -436,7 +478,8 @@ export async function setupMemoryInfrastructure(
       extractionService,
       judge,
       dispatcher,
-      getMemoryConfig: () => configStore.get().memory
+      getMemoryConfig: () => configStore.get().memory,
+      attributionGate
     })
     // 注册 hook（hook 系统会在 turn.end 时调用）
     registerHook(extractionHook.hook)

@@ -287,11 +287,7 @@ function close(): void {
             <span class="btn-icon">✎</span>
             <span>编辑</span>
           </button>
-          <button
-            v-if="!isSoftDeleted && !editing"
-            class="action-btn danger"
-            @click="onSoftDelete"
-          >
+          <button v-if="!isSoftDeleted && !editing" class="action-btn danger" @click="onSoftDelete">
             <span class="btn-icon">🗑</span>
             <span>删除</span>
           </button>
