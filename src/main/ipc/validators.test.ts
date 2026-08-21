@@ -12,6 +12,7 @@ import {
 } from './validators'
 import { IPC_INVOKE_CHANNELS } from '@shared/ipc/channels'
 import type { IpcInvokeChannel } from '@shared/ipc/channels'
+import { DEFAULT_CONFIG_V1 } from '../config/defaults'
 
 // === S-004 #5：每个 invoke channel 都存在 validator ===
 
@@ -410,6 +411,46 @@ describe('P1-11 ConfigUpdateRequest validator', () => {
         domains: {}
       })
     ).toBe(true)
+  })
+
+  it('全量五域默认配置 payload 通过（防配置/schema/validator 三方漂移——M-42 attributionGate 漏加曾致全部设置保存被拒）', () => {
+    // 复刻 renderer configStore.save() 的载荷构造：五个域全量深拷贝
+    // （PublicModelConfig 扩展字段已在 renderer 侧删除，DEFAULT_CONFIG_V1 本就不含）
+    const plain = JSON.parse(JSON.stringify(DEFAULT_CONFIG_V1)) as Record<
+      string,
+      Record<string, unknown>
+    >
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: {
+          model: { ...plain.model },
+          tts: { ...plain.tts },
+          memory: { ...plain.memory },
+          ui: { ...plain.ui },
+          security: { ...plain.security }
+        }
+      })
+    ).toBe(true)
+  })
+
+  it('memory.attributionGate 形状非法被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: {
+          memory: { attributionGate: { provider: 42, model: 'x', baseUrl: '' } }
+        }
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: {
+          memory: { attributionGate: { provider: '', model: '', baseUrl: '', extra: 1 } }
+        }
+      })
+    ).toBe(false)
   })
 
   it('expectedSchemaVersion 非整数被拒绝', () => {

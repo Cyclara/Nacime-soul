@@ -324,6 +324,15 @@ function isPartialDmaeConfig(value: unknown): boolean {
   })
 }
 
+/** MemoryConfig.attributionGate 子对象验证（M-42，对齐 AttributionGateConfigSchema） */
+function isPartialAttributionGateConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    provider: (v) => isString(v, { maxLen: 64 }),
+    model: (v) => isString(v, { maxLen: 128 }),
+    baseUrl: (v) => isString(v, { maxLen: 256 })
+  })
+}
+
 /** MemoryConfig partial 验证 */
 function isPartialMemoryConfig(value: unknown): boolean {
   if (
@@ -334,6 +343,7 @@ function isPartialMemoryConfig(value: unknown): boolean {
       embeddingDimension: (v) => isNumber(v, { min: 64, max: 8192, integer: true }),
       maxActive: (v) => isNumber(v, { min: 1, max: 50, integer: true }),
       minRetrievalScore: (v) => isNumber(v, { min: -1, max: 1 }),
+      attributionGate: (v) => isPartialAttributionGateConfig(v),
       dmae: (v) => isPartialDmaeConfig(v)
     })
   ) {
