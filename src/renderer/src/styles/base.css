@@ -155,35 +155,36 @@
   --shadow-glow: 0 0 0 1px rgba(145, 197, 205, 0.1), 0 20px 52px rgba(7, 23, 30, 0.36);
 }
 
-/* === 浅色2号（2026-08-21）：晨雾苔原 —— 冷调植物系。
+/* === 浅色2号（2026-08-21，v2 调色）：晨雾苔原 —— 冷调植物系。
  *   与 1 号浅色的"暖纸墨"对位：1 号是书桌上的亚麻纸，2 号是清晨植物园。
- *   底色雾白微绿（冷而柔），主强调松绿，点缀色赤陶做冷暖对比，颜色不单一。 */
+ *   v2：去薄荷感——绿族带一点新叶的黄与苔的灰；受光面（elevated）引入
+ *   晨光暖色，画面有了光源。主强调苔绿，点缀赤陶做冷暖对比。 */
 [data-theme='light2'] {
   color-scheme: light;
 
-  /* === 背景层级：雾白、苔原与晨露 === */
-  --color-bg: #ecefe7;
-  --color-bg-secondary: #f4f6ef;
-  --color-bg-tertiary: #dfe4d7;
-  --color-surface: #e4e8dd;
-  --color-surface-elevated: #fbfdf6;
-  --color-surface-translucent: rgba(251, 253, 246, 0.88);
+  /* === 背景层级：苔原、新叶与晨光 === */
+  --color-bg: #e9eee4;
+  --color-bg-secondary: #f4f6ee;
+  --color-bg-tertiary: #dce3d0;
+  --color-surface: #e2e7d9;
+  --color-surface-elevated: #fcfcf3;
+  --color-surface-translucent: rgba(252, 252, 243, 0.88);
 
   /* === 文字层级：带绿意的炭墨 === */
-  --color-text: #27312b;
-  --color-text-secondary: #49544c;
-  --color-text-muted: #5f695f;
-  --color-text-tertiary: #6e776e;
-  --color-text-on-accent: #f6faf4;
+  --color-text: #26312a;
+  --color-text-secondary: #48534b;
+  --color-text-muted: #5e685e;
+  --color-text-tertiary: #6d766d;
+  --color-text-on-accent: #f6faf3;
 
-  /* === 强调与语义色：松绿 + 赤陶 === */
-  --color-accent: #38674b;
-  --color-accent-hover: #2a5039;
-  --color-accent-soft: rgba(56, 103, 75, 0.105);
-  --color-accent-soft-hover: rgba(56, 103, 75, 0.17);
-  --color-companion: #b05f3c;
-  --color-companion-soft: rgba(176, 95, 60, 0.1);
-  --color-sage: #56725f;
+  /* === 强调与语义色：苔绿 + 赤陶 === */
+  --color-accent: #3f6c4f;
+  --color-accent-hover: #2e523c;
+  --color-accent-soft: rgba(63, 108, 79, 0.105);
+  --color-accent-soft-hover: rgba(63, 108, 79, 0.17);
+  --color-companion: #b16243;
+  --color-companion-soft: rgba(177, 98, 67, 0.1);
+  --color-sage: #5f7767;
   --color-error: #a63c40;
   --color-error-bg: rgba(166, 60, 64, 0.095);
   --color-error-border: rgba(166, 60, 64, 0.28);
@@ -206,11 +207,11 @@
   --color-state-deleted-bg: rgba(166, 60, 64, 0.095);
 
   /* === 聊天气泡 === */
-  --color-user-bubble: #dde7d6;
-  --color-assistant-bubble: rgba(251, 253, 246, 0.8);
+  --color-user-bubble: #dce6cf;
+  --color-assistant-bubble: rgba(252, 252, 243, 0.8);
 
   /* === 边框与分割线 === */
-  --color-border: #c3ccb9;
+  --color-border: #bfc9b2;
   --color-border-subtle: rgba(38, 48, 40, 0.105);
 
   /* === 阴影：带绿意的薄雾投影 === */
@@ -218,36 +219,36 @@
   --shadow-md: 0 12px 30px rgba(36, 46, 38, 0.1);
   --shadow-lg: 0 28px 70px rgba(36, 46, 38, 0.14);
   --shadow-drawer: -18px 0 64px rgba(30, 38, 31, 0.18);
-  --shadow-glow: 0 0 0 1px rgba(56, 103, 75, 0.08), 0 18px 46px rgba(43, 66, 50, 0.13);
+  --shadow-glow: 0 0 0 1px rgba(63, 108, 79, 0.08), 0 18px 46px rgba(43, 66, 50, 0.13);
 }
 
-/* === 深色2号（2026-08-21）：暖炭余烬 —— 壁炉旁的低蓝光夜色。
+/* === 深色2号（2026-08-21，v2 调色）：暖炭余烬 —— 壁炉旁的低蓝光夜色。
  *   与 1 号深色的"冷蓝夜海"对位：1 号是深夜的海，2 号是炉边的夜。
- *   底色暖炭棕黑（低蓝光、夜读舒适），主强调琥珀铜，点缀陶玫瑰，
- *   鼠尾草绿做冷色平衡，避免暖色单一。 */
+ *   v2：琥珀转蜜色（少一分橙）；elevated 层提亮增暖——被火光照亮的面
+ *   应该明显更亮，层次才出得来。鼠尾草绿做冷色平衡，避免暖色单一。 */
 [data-theme='dark2'] {
   color-scheme: dark;
 
-  --color-bg: #171310;
-  --color-bg-secondary: #1d1814;
-  --color-bg-tertiary: #241e18;
-  --color-surface: #2a231b;
-  --color-surface-elevated: #332a20;
-  --color-surface-translucent: rgba(29, 24, 19, 0.89);
+  --color-bg: #161210;
+  --color-bg-secondary: #1c1713;
+  --color-bg-tertiary: #231d17;
+  --color-surface: #2a2219;
+  --color-surface-elevated: #34291e;
+  --color-surface-translucent: rgba(28, 23, 18, 0.89);
 
-  --color-text: #f1ebdf;
-  --color-text-secondary: #cdc2b1;
-  --color-text-muted: #ab9f8d;
-  --color-text-tertiary: #928674;
+  --color-text: #f1ebde;
+  --color-text-secondary: #cec2af;
+  --color-text-muted: #ab9e8a;
+  --color-text-tertiary: #938573;
   --color-text-on-accent: #2b1d0e;
 
-  --color-accent: #e2a95c;
-  --color-accent-hover: #efc284;
-  --color-accent-soft: rgba(226, 169, 92, 0.125);
-  --color-accent-soft-hover: rgba(226, 169, 92, 0.2);
-  --color-companion: #d78f80;
-  --color-companion-soft: rgba(215, 143, 128, 0.13);
-  --color-sage: #a5b389;
+  --color-accent: #e5ad61;
+  --color-accent-hover: #f2c78d;
+  --color-accent-soft: rgba(229, 173, 97, 0.125);
+  --color-accent-soft-hover: rgba(229, 173, 97, 0.2);
+  --color-companion: #d28b7d;
+  --color-companion-soft: rgba(210, 139, 125, 0.13);
+  --color-sage: #a2b086;
   --color-error: #f09b92;
   --color-error-bg: rgba(240, 155, 146, 0.13);
   --color-error-border: rgba(240, 155, 146, 0.34);
@@ -268,17 +269,17 @@
   --color-state-deleted: #f09b92;
   --color-state-deleted-bg: rgba(240, 155, 146, 0.13);
 
-  --color-user-bubble: #3c3122;
+  --color-user-bubble: #3d2f21;
   --color-assistant-bubble: rgba(255, 246, 232, 0.05);
 
-  --color-border: #4b3f30;
+  --color-border: #4a3e2f;
   --color-border-subtle: rgba(241, 231, 213, 0.09);
 
   --shadow-sm: 0 1px 2px rgba(6, 4, 2, 0.24), 0 5px 14px rgba(6, 4, 2, 0.12);
   --shadow-md: 0 12px 34px rgba(6, 4, 2, 0.28);
   --shadow-lg: 0 28px 76px rgba(6, 4, 2, 0.42);
   --shadow-drawer: -18px 0 70px rgba(6, 4, 2, 0.5);
-  --shadow-glow: 0 0 0 1px rgba(226, 169, 92, 0.1), 0 20px 52px rgba(30, 16, 4, 0.36);
+  --shadow-glow: 0 0 0 1px rgba(229, 173, 97, 0.1), 0 20px 52px rgba(30, 16, 4, 0.36);
 }
 
 * {

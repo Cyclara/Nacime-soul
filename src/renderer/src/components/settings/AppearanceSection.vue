@@ -287,20 +287,20 @@ function themeNumber(id: ThemeId): string {
 }
 
 .theme-card .theme-preview[data-theme='light2'] {
-  --preview-bg: #e7ebdf;
-  --preview-panel: #fbfdf6;
+  --preview-bg: #e5ebdb;
+  --preview-panel: #fcfcf3;
   --preview-line: #7a8577;
-  --preview-accent: #38674b;
-  --preview-orbit: rgba(176, 95, 60, 0.24);
+  --preview-accent: #3f6c4f;
+  --preview-orbit: rgba(177, 98, 67, 0.24);
   --preview-border: rgba(52, 66, 55, 0.12);
 }
 
 .theme-card .theme-preview[data-theme='dark2'] {
-  --preview-bg: #1c1712;
-  --preview-panel: #2e261d;
+  --preview-bg: #1b1613;
+  --preview-panel: #2f261c;
   --preview-line: #b3a691;
-  --preview-accent: #e2a95c;
-  --preview-orbit: rgba(215, 143, 128, 0.25);
+  --preview-accent: #e5ad61;
+  --preview-orbit: rgba(210, 139, 125, 0.25);
   --preview-border: rgba(241, 231, 213, 0.1);
 }
 
