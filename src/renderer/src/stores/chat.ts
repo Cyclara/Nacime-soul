@@ -147,6 +147,13 @@ export const useChatStore = defineStore('chat', () => {
           severity: 'error',
           retryable: result.error.retryable
         }
+      } else {
+        // M-49：乐观气泡的 id 从 clientRequestId 回填为 main 落库的真实 userMessageId。
+        // 不回填的话，针对刚发出的 user 气泡的删除/单删会拿临时 id 查库，
+        // main 查不到 -> 返回空 deletedIds -> 静默删不掉（2026-08-21 验收红圈 bug）。
+        // 气泡行无入场动画，key 变化引起的重挂载不可见。
+        const idx = state.messages.findIndex((m) => m.id === clientRequestId)
+        if (idx >= 0) state.messages[idx].id = result.data.userMessageId
       }
     } finally {
       // ACK 成功、业务失败或 Promise reject 都必须解锁；流式阶段由 activeTurn 接管。
@@ -193,7 +200,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function applyDeletedIds(result: IpcResult<{ deletedIds: string[] }>): void {
-    if (!result.ok) return
+    if (!result.ok) {
+      // M-49：删除失败不再静默（如竞态 CHAT_BUSY）——走现有错误条给用户一个说法
+      state.lastError = {
+        code: result.error.code as ErrorCode,
+        message: result.error.message,
+        severity: 'error',
+        retryable: result.error.retryable
+      }
+      return
+    }
     const deleted = new Set(result.data.deletedIds)
     if (deleted.size === 0) return
     state.messages = state.messages.filter((m) => !deleted.has(m.id))

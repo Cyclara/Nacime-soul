@@ -511,3 +511,89 @@ describe('chat store deleteMessage（验收反馈⑥c：单条删除）', () => 
     expect(store.state.messages).toHaveLength(1)
   })
 })
+
+// M-49 回归：乐观 user 气泡的 id 必须回填为 ACK 的真实 userMessageId——
+// 否则对刚发出的消息做删除会拿 clientRequestId 查库，main 查不到 -> 静默删不掉
+describe('chat store M-49（乐观气泡 id 回填 + 删除失败不静默）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.defineProperty(window, 'companion', {
+      value: {
+        chat: {
+          send: vi.fn(async () => ({
+            ok: true,
+            data: { requestId: 'r1', userMessageId: 'u-real' }
+          })),
+          deleteTurn: vi.fn(async () => ({ ok: true, data: { deletedIds: ['u-real'] } })),
+          deleteMessage: vi.fn(async () => ({ ok: true, data: { deletedIds: ['u-real'] } }))
+        }
+      },
+      writable: true,
+      configurable: true
+    })
+  })
+
+  it('send 成功后乐观气泡 id 回填为 userMessageId，随后删除按真实 id 发起', async () => {
+    const store = useChatStore()
+    store.state.sessionId = 's1'
+    store.setDraft('刚发出的一句')
+
+    await store.send()
+
+    const bubble = store.state.messages.find((m) => m.role === 'user')
+    expect(bubble).toBeDefined()
+    expect(bubble!.id).toBe('u-real') // 不再是 clientRequestId
+
+    await store.deleteTurn('u-real')
+    expect(window.companion.chat.deleteTurn).toHaveBeenCalledWith({
+      sessionId: 's1',
+      messageId: 'u-real'
+    })
+    expect(store.state.messages.find((m) => m.role === 'user')).toBeUndefined()
+  })
+
+  it('send 失败：乐观气泡被移除，谈不上回填', async () => {
+    const store = useChatStore()
+    store.state.sessionId = 's1'
+    ;(window.companion.chat.send as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'NET_OFFLINE',
+        message: '网络连接失败',
+        severity: 'error',
+        retryable: true
+      }
+    })
+    store.setDraft('发不出去')
+
+    await store.send()
+    expect(store.state.messages).toHaveLength(0)
+    expect(store.state.draft).toBe('发不出去') // 草稿恢复
+  })
+
+  it('删除 IPC 失败：不静默——lastError 置为返回的错误', async () => {
+    const store = useChatStore()
+    store.state.sessionId = 's1'
+    store.state.messages.push({
+      id: 'u1',
+      role: 'user',
+      content: '问',
+      createdAt: 1,
+      status: 'complete'
+    })
+    ;(window.companion.chat.deleteTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'CHAT_BUSY',
+        message: '她还在回复中，等回复结束后再删除',
+        severity: 'error',
+        retryable: false
+      }
+    })
+
+    await store.deleteTurn('u1')
+    expect(store.state.messages).toHaveLength(1)
+    expect(store.state.lastError).not.toBeNull()
+    expect(store.state.lastError!.code).toBe('CHAT_BUSY')
+  })
+})
