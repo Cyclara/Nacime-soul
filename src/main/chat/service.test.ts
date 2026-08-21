@@ -308,10 +308,10 @@ describe('ChatService', () => {
     // 第一条是 system prompt
     expect(messages[0].role).toBe('system')
 
-    // 最后一条是用户消息，role=user
+    // 最后一条是用户消息，role=user（content 带 `[YYYY-MM-DD HH:MM] ` 时间前缀——datetime-prefix）
     const lastMsg = messages[messages.length - 1]
     expect(lastMsg.role).toBe('user')
-    expect(lastMsg.content).toBe('你好世界')
+    expect(lastMsg.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 你好世界$/)
 
     // 用户消息不出现在 system 内容中（冻结合同 §1.0）
     expect(messages[0].content).not.toContain('你好世界')
@@ -533,10 +533,11 @@ describe('ChatService', () => {
     const secondMessages = calls[1].messages
 
     // system + user1 + assistant1 + user2
+    // user 消息带 `[YYYY-MM-DD HH:MM] ` 时间前缀（datetime-prefix，仅装配时附加）
     const userMessages = secondMessages.filter((m) => m.role === 'user')
     expect(userMessages.length).toBe(2)
-    expect(userMessages[0].content).toBe('first question')
-    expect(userMessages[1].content).toBe('second question')
+    expect(userMessages[0].content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] first question$/)
+    expect(userMessages[1].content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] second question$/)
 
     const assistantMessages = secondMessages.filter((m) => m.role === 'assistant')
     expect(assistantMessages.length).toBe(1)

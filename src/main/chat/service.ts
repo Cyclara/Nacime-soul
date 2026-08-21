@@ -40,6 +40,7 @@ import { applyBudget, type BudgetHistoryTurn } from '../prompts/budgeter'
 import type { PromptContextAssembler } from '../prompts/context-assembler'
 import { emitLifecycle, LifecycleEvent } from '../hooks/lifecycle'
 import type { SessionStore } from './session-store'
+import { formatTimePrefix } from './datetime-prefix'
 import { hashIdempotencyText, type IdempotencyLedger } from './idempotency-ledger'
 import { getTracer } from '../observability/tracer'
 import { getMetrics } from '../observability/metrics'
@@ -810,7 +811,12 @@ export function buildBudgetHistoryTurns(
       groups.set(tid, [])
       order.push(tid)
     }
-    groups.get(tid)!.push({ role: msg.role, content: msg.content })
+    groups.get(tid)!.push({
+      role: msg.role,
+      // 时间锚（datetime-prefix）：仅 user 消息加 `[YYYY-MM-DD HH:MM] ` 前缀，
+      // 历史轮/当前轮同形状（KV cache 友好）；assistant 不加（防模型模仿进回复）。
+      content: msg.role === 'user' ? formatTimePrefix(msg.createdAt) + msg.content : msg.content
+    })
   }
 
   const turns: BudgetHistoryTurn[] = []
