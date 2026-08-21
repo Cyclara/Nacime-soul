@@ -487,6 +487,19 @@ describe('P1-11 ConfigUpdateRequest validator', () => {
     ).toBe(false)
   })
 
+  it('ui.theme 新注册主题 light2/dark2 放行（注册表驱动）', () => {
+    for (const theme of ['light2', 'dark2']) {
+      expect(
+        validateIpcPayload('companion:config:update', {
+          expectedSchemaVersion: 1,
+          domains: {
+            ui: { theme }
+          }
+        })
+      ).toBe(true)
+    }
+  })
+
   it('security.diagnostics.logLevel 非法值被拒绝', () => {
     expect(
       validateIpcPayload('companion:config:update', {

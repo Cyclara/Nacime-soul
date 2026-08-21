@@ -155,6 +155,132 @@
   --shadow-glow: 0 0 0 1px rgba(145, 197, 205, 0.1), 0 20px 52px rgba(7, 23, 30, 0.36);
 }
 
+/* === 浅色2号（2026-08-21）：晨雾苔原 —— 冷调植物系。
+ *   与 1 号浅色的"暖纸墨"对位：1 号是书桌上的亚麻纸，2 号是清晨植物园。
+ *   底色雾白微绿（冷而柔），主强调松绿，点缀色赤陶做冷暖对比，颜色不单一。 */
+[data-theme='light2'] {
+  color-scheme: light;
+
+  /* === 背景层级：雾白、苔原与晨露 === */
+  --color-bg: #ecefe7;
+  --color-bg-secondary: #f4f6ef;
+  --color-bg-tertiary: #dfe4d7;
+  --color-surface: #e4e8dd;
+  --color-surface-elevated: #fbfdf6;
+  --color-surface-translucent: rgba(251, 253, 246, 0.88);
+
+  /* === 文字层级：带绿意的炭墨 === */
+  --color-text: #27312b;
+  --color-text-secondary: #49544c;
+  --color-text-muted: #5f695f;
+  --color-text-tertiary: #6e776e;
+  --color-text-on-accent: #f6faf4;
+
+  /* === 强调与语义色：松绿 + 赤陶 === */
+  --color-accent: #38674b;
+  --color-accent-hover: #2a5039;
+  --color-accent-soft: rgba(56, 103, 75, 0.105);
+  --color-accent-soft-hover: rgba(56, 103, 75, 0.17);
+  --color-companion: #b05f3c;
+  --color-companion-soft: rgba(176, 95, 60, 0.1);
+  --color-sage: #56725f;
+  --color-error: #a63c40;
+  --color-error-bg: rgba(166, 60, 64, 0.095);
+  --color-error-border: rgba(166, 60, 64, 0.28);
+  --color-success: #2e7a4a;
+  --color-success-bg: rgba(46, 122, 74, 0.095);
+  --color-success-border: rgba(46, 122, 74, 0.26);
+  --color-warning: #8a5c14;
+  --color-warning-bg: rgba(138, 92, 20, 0.1);
+  --color-warning-border: rgba(138, 92, 20, 0.27);
+  --color-info: #3a6e82;
+
+  /* === 状态色（记忆面板）=== */
+  --color-state-active: #2e7a4a;
+  --color-state-active-bg: rgba(46, 122, 74, 0.1);
+  --color-state-dormant: #83590f;
+  --color-state-dormant-bg: rgba(131, 89, 15, 0.1);
+  --color-state-archived: #5c655c;
+  --color-state-archived-bg: rgba(92, 101, 92, 0.095);
+  --color-state-deleted: #a63c40;
+  --color-state-deleted-bg: rgba(166, 60, 64, 0.095);
+
+  /* === 聊天气泡 === */
+  --color-user-bubble: #dde7d6;
+  --color-assistant-bubble: rgba(251, 253, 246, 0.8);
+
+  /* === 边框与分割线 === */
+  --color-border: #c3ccb9;
+  --color-border-subtle: rgba(38, 48, 40, 0.105);
+
+  /* === 阴影：带绿意的薄雾投影 === */
+  --shadow-sm: 0 1px 2px rgba(36, 46, 38, 0.07), 0 4px 12px rgba(36, 46, 38, 0.035);
+  --shadow-md: 0 12px 30px rgba(36, 46, 38, 0.1);
+  --shadow-lg: 0 28px 70px rgba(36, 46, 38, 0.14);
+  --shadow-drawer: -18px 0 64px rgba(30, 38, 31, 0.18);
+  --shadow-glow: 0 0 0 1px rgba(56, 103, 75, 0.08), 0 18px 46px rgba(43, 66, 50, 0.13);
+}
+
+/* === 深色2号（2026-08-21）：暖炭余烬 —— 壁炉旁的低蓝光夜色。
+ *   与 1 号深色的"冷蓝夜海"对位：1 号是深夜的海，2 号是炉边的夜。
+ *   底色暖炭棕黑（低蓝光、夜读舒适），主强调琥珀铜，点缀陶玫瑰，
+ *   鼠尾草绿做冷色平衡，避免暖色单一。 */
+[data-theme='dark2'] {
+  color-scheme: dark;
+
+  --color-bg: #171310;
+  --color-bg-secondary: #1d1814;
+  --color-bg-tertiary: #241e18;
+  --color-surface: #2a231b;
+  --color-surface-elevated: #332a20;
+  --color-surface-translucent: rgba(29, 24, 19, 0.89);
+
+  --color-text: #f1ebdf;
+  --color-text-secondary: #cdc2b1;
+  --color-text-muted: #ab9f8d;
+  --color-text-tertiary: #928674;
+  --color-text-on-accent: #2b1d0e;
+
+  --color-accent: #e2a95c;
+  --color-accent-hover: #efc284;
+  --color-accent-soft: rgba(226, 169, 92, 0.125);
+  --color-accent-soft-hover: rgba(226, 169, 92, 0.2);
+  --color-companion: #d78f80;
+  --color-companion-soft: rgba(215, 143, 128, 0.13);
+  --color-sage: #a5b389;
+  --color-error: #f09b92;
+  --color-error-bg: rgba(240, 155, 146, 0.13);
+  --color-error-border: rgba(240, 155, 146, 0.34);
+  --color-success: #a3c48d;
+  --color-success-bg: rgba(163, 196, 141, 0.13);
+  --color-success-border: rgba(163, 196, 141, 0.32);
+  --color-warning: #e6bd74;
+  --color-warning-bg: rgba(230, 189, 116, 0.13);
+  --color-warning-border: rgba(230, 189, 116, 0.32);
+  --color-info: #9bb6c6;
+
+  --color-state-active: #a3c48d;
+  --color-state-active-bg: rgba(163, 196, 141, 0.13);
+  --color-state-dormant: #dfb476;
+  --color-state-dormant-bg: rgba(223, 180, 118, 0.13);
+  --color-state-archived: #b5a996;
+  --color-state-archived-bg: rgba(181, 169, 150, 0.12);
+  --color-state-deleted: #f09b92;
+  --color-state-deleted-bg: rgba(240, 155, 146, 0.13);
+
+  --color-user-bubble: #3c3122;
+  --color-assistant-bubble: rgba(255, 246, 232, 0.05);
+
+  --color-border: #4b3f30;
+  --color-border-subtle: rgba(241, 231, 213, 0.09);
+
+  --shadow-sm: 0 1px 2px rgba(6, 4, 2, 0.24), 0 5px 14px rgba(6, 4, 2, 0.12);
+  --shadow-md: 0 12px 34px rgba(6, 4, 2, 0.28);
+  --shadow-lg: 0 28px 76px rgba(6, 4, 2, 0.42);
+  --shadow-drawer: -18px 0 70px rgba(6, 4, 2, 0.5);
+  --shadow-glow: 0 0 0 1px rgba(226, 169, 92, 0.1), 0 20px 52px rgba(30, 16, 4, 0.36);
+}
+
 * {
   margin: 0;
   padding: 0;

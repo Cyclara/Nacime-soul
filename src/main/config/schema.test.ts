@@ -541,6 +541,11 @@ describe('P1-06 UiConfigSchema', () => {
     expectInvalid(UiConfigSchema, bad)
   })
 
+  it('theme 新注册主题 light2/dark2 -> 通过（注册表驱动）', () => {
+    expectValid(UiConfigSchema, { ...DEFAULT_CONFIG_V1.ui, theme: 'light2' })
+    expectValid(UiConfigSchema, { ...DEFAULT_CONFIG_V1.ui, theme: 'dark2' })
+  })
+
   it('live2d.zoom < 0.25 -> 失败', () => {
     const bad = {
       ...DEFAULT_CONFIG_V1.ui,

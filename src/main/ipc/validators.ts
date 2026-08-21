@@ -16,6 +16,7 @@
 import type { Validator } from '@shared/ipc/contracts'
 import type { IpcInvokeChannel } from '@shared/ipc/channels'
 import type { IpcInvokeMap } from '@shared/ipc/contracts'
+import { THEME_SETTING_IDS } from '@shared/config/themes'
 import type {
   ChatCancelRequest,
   ChatListRequest,
@@ -390,7 +391,9 @@ function isPartialUiConfig(value: unknown): boolean {
     if (value.locale !== 'zh-CN' && value.locale !== 'en-US') return false
   }
   if ('theme' in value && value.theme !== undefined) {
-    if (value.theme !== 'system' && value.theme !== 'light' && value.theme !== 'dark') return false
+    // 主题白名单以共享注册表为真源——新增主题（light2/dark2/…）登记 THEME_IDS 后此处自动放行
+    if (typeof value.theme !== 'string') return false
+    if (!(THEME_SETTING_IDS as readonly string[]).includes(value.theme)) return false
   }
   if ('fontScale' in value && value.fontScale !== undefined) {
     if (!isNumber(value.fontScale, { min: 0.8, max: 1.5 })) return false

@@ -475,12 +475,30 @@ function close(): void {
   font-weight: 500;
 }
 
-/* M-44：编辑标记 + 内联编辑（功能版，视觉待前端模型美化） */
+/* M-44：编辑标记 + 内联编辑（2026-08-21 视觉 polish：focus 光晕/进入过渡/徽标对齐 tag 体系） */
+@keyframes edit-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.detail-content {
+  animation: edit-in 0.18s ease;
+}
+
 .edited-mark {
   padding: 2px 8px;
-  border: 1px dashed color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-companion) 34%, transparent);
   border-radius: var(--radius-full);
-  color: var(--color-text-secondary);
+  background: var(--color-companion-soft);
+  color: var(--color-companion);
+  font-weight: 550;
 }
 
 .edit-textarea {
@@ -495,10 +513,17 @@ function close(): void {
   font-size: var(--font-size-base);
   line-height: 1.6;
   resize: vertical;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+  animation: edit-in 0.18s ease;
 }
 
 .edit-textarea:focus {
-  border-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  background: var(--color-surface-elevated);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
   outline: none;
 }
 
@@ -506,6 +531,7 @@ function close(): void {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  animation: edit-in 0.18s ease 0.05s backwards;
 }
 
 .edit-btn {
@@ -527,6 +553,12 @@ function close(): void {
   border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
   background: var(--color-accent-soft);
   color: var(--color-accent);
+  font-weight: 600;
+}
+
+.edit-btn.primary:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
+  background: var(--color-accent-soft-hover);
 }
 
 .edit-btn:disabled {

@@ -25,7 +25,9 @@ const themes = computed(() =>
 function themeDescription(id: ThemeId): string {
   const known: Partial<Record<ThemeId, string>> = {
     light: '柔和纸色与清晰墨色，适合白天长时间相处',
-    dark: '深夜靛墨与低亮层次，减少暗处视觉刺激'
+    dark: '深夜靛墨与低亮层次，减少暗处视觉刺激',
+    light2: '雾白苔绿与赤陶点缀，像清晨植物园的凉意',
+    dark2: '暖炭夜色与琥珀微光，壁炉旁的低蓝光夜晚'
   }
   return known[id] ?? `${THEME_LABELS[id]}主题，使用完整的共享语义色令牌`
 }
@@ -282,6 +284,24 @@ function themeNumber(id: ThemeId): string {
   --preview-accent: #8fbec6;
   --preview-orbit: rgba(205, 147, 151, 0.27);
   --preview-border: rgba(233, 231, 226, 0.11);
+}
+
+.theme-card .theme-preview[data-theme='light2'] {
+  --preview-bg: #e7ebdf;
+  --preview-panel: #fbfdf6;
+  --preview-line: #7a8577;
+  --preview-accent: #38674b;
+  --preview-orbit: rgba(176, 95, 60, 0.24);
+  --preview-border: rgba(52, 66, 55, 0.12);
+}
+
+.theme-card .theme-preview[data-theme='dark2'] {
+  --preview-bg: #1c1712;
+  --preview-panel: #2e261d;
+  --preview-line: #b3a691;
+  --preview-accent: #e2a95c;
+  --preview-orbit: rgba(215, 143, 128, 0.25);
+  --preview-border: rgba(241, 231, 213, 0.1);
 }
 
 .preview-orbit {

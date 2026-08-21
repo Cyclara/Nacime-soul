@@ -239,7 +239,19 @@ async function saveEdit(key: string): Promise<void> {
   opacity: 0.72;
 }
 
-/* M-44：字段内联编辑（功能版，视觉待前端模型美化） */
+/* M-44：字段内联编辑（2026-08-21 视觉 polish：focus 光晕/进入过渡/hover 细节） */
+@keyframes edit-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .field-edit-btn {
   padding: 1px 5px;
   border: 1px solid transparent;
@@ -248,6 +260,11 @@ async function saveEdit(key: string): Promise<void> {
   color: var(--color-text-muted);
   font-size: 11px;
   opacity: 0.6;
+  transition:
+    opacity 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .field-edit-btn:hover {
@@ -261,6 +278,7 @@ async function saveEdit(key: string): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
+  animation: edit-in 0.16s ease;
 }
 
 .field-edit-input {
@@ -272,10 +290,16 @@ async function saveEdit(key: string): Promise<void> {
   background: var(--color-bg-tertiary);
   color: var(--color-text);
   font-size: var(--font-size-sm);
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .field-edit-input:focus {
-  border-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  background: var(--color-surface-elevated);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
   outline: none;
 }
 
@@ -304,6 +328,11 @@ async function saveEdit(key: string): Promise<void> {
   border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
   background: var(--color-accent-soft);
   color: var(--color-accent);
+}
+
+.field-edit-action.primary:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
+  background: var(--color-accent-soft-hover);
 }
 
 .field-edit-action:disabled {
