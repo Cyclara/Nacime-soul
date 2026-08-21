@@ -457,3 +457,57 @@ describe('chat store deleteTurn（验收反馈⑥：按轮删除对话）', () =
     expect(store.state.messages).toHaveLength(4)
   })
 })
+
+// 验收反馈⑥c：单条删除——只摘被点那一条，兄弟气泡保留
+describe('chat store deleteMessage（验收反馈⑥c：单条删除）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.defineProperty(window, 'companion', {
+      value: {
+        chat: {
+          deleteMessage: vi.fn(async () => ({ ok: true, data: { deletedIds: ['a1'] } }))
+        }
+      },
+      writable: true,
+      configurable: true
+    })
+  })
+
+  it('删除成功：只摘除被点气泡，同轮 user 保留', async () => {
+    const store = useChatStore()
+    store.state.sessionId = 's1'
+    store.state.messages.push(
+      { id: 'u1', role: 'user', content: '问', createdAt: 1, status: 'complete' },
+      { id: 'a1', role: 'assistant', content: '答', createdAt: 2, status: 'complete' }
+    )
+
+    await store.deleteMessage('a1')
+    expect(window.companion.chat.deleteMessage).toHaveBeenCalledWith({
+      sessionId: 's1',
+      messageId: 'a1'
+    })
+    expect(store.state.messages.map((m) => m.id)).toEqual(['u1'])
+  })
+
+  it('流式进行中（activeTurn 非空）：不调 IPC 直接返回', async () => {
+    const store = useChatStore()
+    store.state.sessionId = 's1'
+    store.state.messages.push({
+      id: 'u1',
+      role: 'user',
+      content: '问',
+      createdAt: 1,
+      status: 'complete'
+    })
+    store.state.activeTurn = {
+      requestId: 'r1',
+      assistantMessageId: 'a9',
+      lastSequence: 0,
+      startedAt: 1
+    }
+
+    await store.deleteMessage('u1')
+    expect(window.companion.chat.deleteMessage).not.toHaveBeenCalled()
+    expect(store.state.messages).toHaveLength(1)
+  })
+})

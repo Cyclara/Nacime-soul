@@ -4,22 +4,26 @@
 // 菜单集合（沿用 M-38 验收标准）：
 //   - 输入框（textarea/文本类 input）：剪切/复制/粘贴（按选中可用）+ 全选
 //   - 只读区域有选中文本：复制 + 全选
-//   - 聊天气泡（[data-message-id] 内）：额外出现「删除这轮对话」（验收反馈⑥）；
-//     无选中时点气泡也会单独出现该项。流式进行中不显示（main 侧另有 CHAT_BUSY 兜底）。
+//   - 聊天气泡（[data-message-id] 内）：额外出现「删除这轮对话」+「删除这条消息」
+//     （验收反馈⑥ 按轮删 / ⑥c 单条删）；无选中时点气泡也会单独出现这两项。
+//     流式进行中不显示（main 侧另有 CHAT_BUSY 兜底）。
 //   - 无选中且非输入框、非气泡：不弹空菜单
 //
 // 行为说明：
 //   - 剪贴板走 navigator.clipboard（异步）；粘贴总是可用，空剪贴板时点击无操作
 //   - 输入框改值用 setRangeText + 派发 input 事件，v-model/@input 链路（Composer draft）正常感知
-//   - 删除是两段式：点第一次菜单项变「确认删除？」，3 秒内再点才真删（防手滑）；
+//   - 删除是两段式：点第一次该项变「确认删除这轮？」/「确认删除这条？」，3 秒内再点才真删
+//     （防手滑；两项独立上膛，点另一项会自动换膛）；
 //     确认点击后菜单立即关闭，删除在后台完成（不等 IPC 回包，点击即反馈）
 //   - 关闭：点菜单外 / Esc / 滚动 / 窗口失焦 / 尺寸变化
 
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useChatStore } from '../../stores/chat'
 
+type DeleteItemId = 'deleteTurn' | 'deleteMessage'
+
 interface MenuItem {
-  id: 'cut' | 'copy' | 'paste' | 'selectAll' | 'deleteTurn'
+  id: 'cut' | 'copy' | 'paste' | 'selectAll' | DeleteItemId
   label: string
   enabled: boolean
 }
@@ -36,8 +40,16 @@ let editableTarget: HTMLInputElement | HTMLTextAreaElement | null = null
 /** 本次菜单作用的气泡 message id（非气泡菜单时为 null） */
 let bubbleMessageId: string | null = null
 
-// 验收反馈⑥：删除两段式确认
-const armedDelete = ref(false)
+// 验收反馈⑥/⑥c：删除两段式确认（两项独立上膛）
+const DELETE_DEFAULT_LABEL: Record<DeleteItemId, string> = {
+  deleteTurn: '删除这轮对话',
+  deleteMessage: '删除这条消息'
+}
+const DELETE_CONFIRM_LABEL: Record<DeleteItemId, string> = {
+  deleteTurn: '确认删除这轮？',
+  deleteMessage: '确认删除这条？'
+}
+const armedItem = ref<DeleteItemId | null>(null)
 const DELETE_ARM_MS = 3000
 let armTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -51,15 +63,32 @@ function isTextEditable(el: EventTarget | null): el is HTMLInputElement | HTMLTe
   return el instanceof HTMLInputElement && /^(text|search|url|tel|password)$/.test(el.type)
 }
 
+function restoreDeleteLabels(): void {
+  items.value = items.value.map((it) =>
+    it.id === 'deleteTurn' || it.id === 'deleteMessage'
+      ? { ...it, label: DELETE_DEFAULT_LABEL[it.id] }
+      : it
+  )
+}
+
 function disarmDelete(): void {
-  armedDelete.value = false
+  armedItem.value = null
   if (armTimer !== null) {
     clearTimeout(armTimer)
     armTimer = null
   }
+  restoreDeleteLabels()
+}
+
+/** 上膛某个删除项（同时只有一项处于确认态；换项即换膛并重新计时） */
+function armDelete(id: DeleteItemId): void {
+  restoreDeleteLabels()
+  armedItem.value = id
   items.value = items.value.map((it) =>
-    it.id === 'deleteTurn' ? { ...it, label: '删除这轮对话' } : it
+    it.id === id ? { ...it, label: DELETE_CONFIRM_LABEL[id] } : it
   )
+  if (armTimer !== null) clearTimeout(armTimer)
+  armTimer = setTimeout(disarmDelete, DELETE_ARM_MS)
 }
 
 function close(): void {
@@ -95,11 +124,15 @@ function onContextMenu(e: MouseEvent): void {
         { id: 'selectAll', label: '全选', enabled: true }
       )
     }
-    // 气泡上的删除项：流式进行中不显示（删除被 CHAT_BUSY 拒绝，避免无效入口）
+    // 气泡上的删除项：流式进行中不显示（删除被 CHAT_BUSY 拒绝，避免无效入口）。
+    // 两项并列：整轮删除（⑥，常用）在前，单条删除（⑥c，粒度控制）在后。
     if (bubbleEl && !chatStore.state.activeTurn) {
       bubbleMessageId = bubbleEl.getAttribute('data-message-id')
       if (bubbleMessageId) {
-        next.push({ id: 'deleteTurn', label: '删除这轮对话', enabled: true })
+        next.push(
+          { id: 'deleteTurn', label: DELETE_DEFAULT_LABEL.deleteTurn, enabled: true },
+          { id: 'deleteMessage', label: DELETE_DEFAULT_LABEL.deleteMessage, enabled: true }
+        )
       }
     }
   }
@@ -132,25 +165,24 @@ function replaceEditableRange(
 }
 
 async function run(id: MenuItem['id']): Promise<void> {
-  // 验收反馈⑥：删除两段式——第一次点击只"上膛"（菜单不关，3 秒未确认自动复位）
-  if (id === 'deleteTurn' && !armedDelete.value) {
-    armedDelete.value = true
-    items.value = items.value.map((it) =>
-      it.id === 'deleteTurn' ? { ...it, label: '确认删除？' } : it
-    )
-    armTimer = setTimeout(disarmDelete, DELETE_ARM_MS)
-    return
-  }
-
-  // 删除确认：先关菜单再删——点击即反馈，删除在后台完成。
-  // （此前在 finally 里等 IPC 回包才关菜单，链路上的同步日志写盘让菜单"挂"几百 ms，
-  //   用户验收反馈"删除延迟大"。菜单即时关闭后，真实耗时仅 IPC+DELETE ≈ 毫秒级。）
-  if (id === 'deleteTurn') {
+  // 验收反馈⑥/⑥c：删除两段式——第一次点击只"上膛"（菜单不关，3 秒未确认自动复位；
+  // 上膛期间点另一项 = 换膛），第二次点击才真删
+  if (id === 'deleteTurn' || id === 'deleteMessage') {
+    if (armedItem.value !== id) {
+      armDelete(id)
+      return
+    }
+    // 删除确认：先关菜单再删——点击即反馈，删除在后台完成（⑥b 提速：此前在
+    // finally 里等 IPC 回包才关菜单，同步日志写盘让菜单"挂"几百 ms）。
     const targetId = bubbleMessageId // close() 会清空，先捕获
     close()
     // 走 store action（S-002 铁律3：组件不直接调 window.companion）；
-    // main 删整轮后返回被删行 id，store 同步摘除气泡。失败（如竞态 CHAT_BUSY）静默——气泡保留可重试
-    if (targetId) void chatStore.deleteTurn(targetId)
+    // main 返回被删行 id，store 同步摘除气泡。失败（如竞态 CHAT_BUSY）静默——气泡保留可重试
+    if (targetId) {
+      void (id === 'deleteTurn'
+        ? chatStore.deleteTurn(targetId)
+        : chatStore.deleteMessage(targetId))
+    }
     return
   }
 
@@ -229,7 +261,7 @@ onBeforeUnmount(() => {
         v-for="item in items"
         :key="item.id"
         class="app-context-menu-item"
-        :class="{ danger: item.id === 'deleteTurn' }"
+        :class="{ danger: item.id === 'deleteTurn' || item.id === 'deleteMessage' }"
         :disabled="!item.enabled"
         role="menuitem"
         type="button"

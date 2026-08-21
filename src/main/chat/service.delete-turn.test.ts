@@ -199,3 +199,64 @@ describe('ChatService.deleteTurn（验收反馈⑥：按轮删除对话）', () 
     expect(store.getMessages(sessionId, 100)).toHaveLength(0)
   })
 })
+
+describe('ChatService.deleteMessage（验收反馈⑥c：单条删除，粒度控制）', () => {
+  let store: SessionStore
+  let sessionId: string
+  let service: ChatService
+
+  beforeEach(() => {
+    clearHooks()
+    setHookRunnerLogger(noopLogger())
+    registerHook(sanitizeMessageHook)
+    store = createMemorySessionStore()
+    sessionId = store.createSession()
+    service = makeService(createFauxProvider(), store)
+  })
+
+  afterEach(() => {
+    clearHooks()
+  })
+
+  it('只删被点的 assistant：同轮 user 行保留（孤儿 user，重启动时由 M-39 补占位）', () => {
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
+    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '答', 'complete'))
+
+    const result = service.deleteMessage(sessionId, 'a1')
+    expect(result.deletedIds).toEqual(['a1'])
+
+    const msgs = store.getMessages(sessionId, 100)
+    expect(msgs.map((m) => m.id)).toEqual(['u1']) // 兄弟行不动
+    expect(store.getTurnMessages(sessionId, 't1')).toBeNull() // 配对已破
+  })
+
+  it('只删被点的 user：同轮 assistant 行保留（孤立 assistant 退出 prompt 装配）', () => {
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
+    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '答', 'complete'))
+
+    const result = service.deleteMessage(sessionId, 'u1')
+    expect(result.deletedIds).toEqual(['u1'])
+    expect(store.getMessages(sessionId, 100).map((m) => m.id)).toEqual(['a1'])
+  })
+
+  it('目标不存在 -> 空列表（容错，不抛错）', () => {
+    expect(service.deleteMessage(sessionId, 'ghost').deletedIds).toEqual([])
+  })
+
+  it('有 active turn 时拒绝：CHAT_BUSY（防删到在途轮 streaming 行）', async () => {
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
+
+    const faux = createFauxProvider()
+    faux.setResponses([{ type: 'text', text: '慢回复', delayMs: 500 }])
+    service = makeService(faux, store)
+    const collector = makeCollector()
+    await service.send({ sessionId, text: '进行中', clientRequestId: 'c1' }, collector.sink)
+
+    expect(() => service.deleteMessage(sessionId, 'u1')).toThrowError(
+      expect.objectContaining({ code: 'CHAT_BUSY' })
+    )
+    expect(store.getMessages(sessionId, 100).map((m) => m.id)).toContain('u1')
+
+    await collector.done
+  })
+})

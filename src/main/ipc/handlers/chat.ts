@@ -9,6 +9,8 @@
 //   companion:chat:send          -> service.send（事件通过 webContents.send 推送）
 //   companion:chat:cancel        -> service.cancel
 //   companion:chat:retry         -> service.retryTurn（按 turnId 精确重试，不增消息）
+//   companion:chat:delete-turn   -> service.deleteTurn（验收反馈⑥ 按轮删除）
+//   companion:chat:delete-message -> service.deleteMessage（验收反馈⑥c 单条删除）
 //
 // 安全红线：
 //   - 聊天正文不写 IPC 日志（只记通道、长度、requestId、耗时）
@@ -142,6 +144,12 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
   // handler 再记一条等于链路上双倍磁盘延迟（验收反馈⑥b"删除延迟大"优化）。
   registerValidatedHandler('companion:chat:delete-turn', async (_ctx, payload) => {
     return chatService.deleteTurn(payload.sessionId, payload.messageId)
+  })
+
+  // === companion:chat:delete-message ===
+  // 验收反馈⑥c：单条删除（粒度控制）。日志同样只由 service 记一条。
+  registerValidatedHandler('companion:chat:delete-message', async (_ctx, payload) => {
+    return chatService.deleteMessage(payload.sessionId, payload.messageId)
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

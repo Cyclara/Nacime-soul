@@ -89,6 +89,16 @@ export interface ChatDeleteTurnRequest {
   messageId: MessageId
 }
 
+/**
+ * 单条删除（验收反馈⑥c 粒度控制）：只删被点的那一条，不动同轮兄弟行。
+ * 连带语义：删 assistant 会留孤儿 user（下次启动 M-39 补 CHAT_INTERRUPTED 占位=重答入口）；
+ * 删 user 会留孤立 assistant（prompt 装配跳过孤立 assistant 轮=她忘了这句回答）。
+ */
+export interface ChatDeleteMessageRequest {
+  sessionId: SessionId
+  messageId: MessageId
+}
+
 // === ChatStreamEvent。依据 S-003 §3.8 ===
 export type ChatStreamEvent =
   | {

@@ -132,6 +132,13 @@ export interface ChatService {
    * 有 active turn 时拒绝（CHAT_BUSY）——防删到在途轮的用户消息。
    */
   deleteTurn(sessionId: SessionId, messageId: MessageId): { deletedIds: string[] }
+  /**
+   * 单条删除（验收反馈⑥c 粒度控制）：只删被点的那一条，不动同轮兄弟行。
+   * 与 deleteTurn 相同的 CHAT_BUSY 守卫与容错（目标不存在返回空数组）。
+   * 连带语义见 ChatDeleteMessageRequest 注释（孤儿 user 会被 M-39 补占位；
+   * 孤立 assistant 退出 prompt 装配）。
+   */
+  deleteMessage(sessionId: SessionId, messageId: MessageId): { deletedIds: string[] }
   cancel(requestId: RequestId): boolean
   hasActiveTurn(sessionId: SessionId): boolean
 }
@@ -551,6 +558,31 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       })
     }
     return { deletedIds }
+  }
+
+  /**
+   * 单条删除（验收反馈⑥c）。只删被点的那一条——不查 turnId、不动兄弟行。
+   * 同一套 CHAT_BUSY 守卫（防删到在途轮的 streaming 行）与幂等容错。
+   */
+  function deleteMessage(sessionId: SessionId, messageId: MessageId): { deletedIds: string[] } {
+    if (hasActiveTurn(sessionId)) {
+      throw new AppError({
+        code: 'CHAT_BUSY',
+        userMessage: '她还在回复中，等回复结束后再删除',
+        severity: 'error',
+        retryable: false
+      })
+    }
+
+    const deleted = sessionStore.deleteMessage(sessionId, messageId)
+    if (deleted) {
+      chatLogger.info('message deleted by user', {
+        scope: 'chat',
+        tags: { sessionId },
+        metrics: { removed: 1 }
+      })
+    }
+    return { deletedIds: deleted ? [messageId] : [] }
   }
 
   /**
@@ -1030,6 +1062,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     send,
     retryTurn,
     deleteTurn,
+    deleteMessage,
     cancel,
     hasActiveTurn
   }

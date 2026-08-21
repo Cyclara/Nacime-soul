@@ -18,7 +18,7 @@
 import { reactive, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { ErrorCode, PublicAppError } from '@shared/errors'
-import type { Unsubscribe } from '@shared/ipc/contracts'
+import type { Unsubscribe, IpcResult } from '@shared/ipc/contracts'
 import type { ChatMessageView, ChatStreamEvent, ChatHistorySnapshot } from '@shared/chat/types'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
@@ -178,6 +178,21 @@ export const useChatStore = defineStore('chat', () => {
       sessionId: state.sessionId,
       messageId
     })
+    applyDeletedIds(result)
+  }
+
+  // 验收反馈⑥c：单条删除（右键气泡 → 删除这条消息）。
+  // 只删被点的那一条，同轮兄弟气泡保留（孤儿/孤立语义见 ChatDeleteMessageRequest 注释）。
+  async function deleteMessage(messageId: string): Promise<void> {
+    if (!state.sessionId || !window.companion || state.activeTurn) return
+    const result = await window.companion.chat.deleteMessage({
+      sessionId: state.sessionId,
+      messageId
+    })
+    applyDeletedIds(result)
+  }
+
+  function applyDeletedIds(result: IpcResult<{ deletedIds: string[] }>): void {
     if (!result.ok) return
     const deleted = new Set(result.data.deletedIds)
     if (deleted.size === 0) return
@@ -340,6 +355,7 @@ export const useChatStore = defineStore('chat', () => {
     stop,
     retry,
     deleteTurn,
+    deleteMessage,
     applyStream,
     subscribe,
     reset

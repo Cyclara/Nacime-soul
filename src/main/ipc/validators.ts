@@ -20,6 +20,7 @@ import { THEME_SETTING_IDS } from '@shared/config/themes'
 import type {
   ChatCancelRequest,
   ChatDeleteTurnRequest,
+  ChatDeleteMessageRequest,
   ChatListRequest,
   ChatRetryRequest,
   ChatSendRequest
@@ -109,6 +110,15 @@ function isChatRetryRequest(value: unknown): value is ChatRetryRequest {
 
 // --- ChatDeleteTurnRequest（验收反馈⑥：与 retry 同形状） ---
 function isChatDeleteTurnRequest(value: unknown): value is ChatDeleteTurnRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['sessionId', 'messageId'])) return false
+  if (!isId(value.sessionId)) return false
+  if (!isId(value.messageId)) return false
+  return true
+}
+
+// --- ChatDeleteMessageRequest（验收反馈⑥c：与 delete-turn 同形状） ---
+function isChatDeleteMessageRequest(value: unknown): value is ChatDeleteMessageRequest {
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['sessionId', 'messageId'])) return false
   if (!isId(value.sessionId)) return false
@@ -652,6 +662,7 @@ export const IPC_VALIDATORS = {
   'companion:chat:cancel': isChatCancelRequest,
   'companion:chat:retry': isChatRetryRequest,
   'companion:chat:delete-turn': isChatDeleteTurnRequest,
+  'companion:chat:delete-message': isChatDeleteMessageRequest,
   'companion:debug:get-snapshot': (v: unknown): v is undefined => v === undefined,
   'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined,
   // ── Phase 2：memory（9 invoke）──

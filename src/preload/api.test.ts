@@ -229,10 +229,30 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(typeof companionApi.window.onState).toBe('function')
   })
 
-  it('chat namespace 恰好 7 invoke 方法 + onStream（P2-43 增 getLastSession，验收反馈⑥增 deleteTurn）', () => {
+  it('chat namespace 恰好 8 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage）', () => {
     expect(Object.keys(companionApi.chat).sort()).toEqual(
-      ['cancel', 'createSession', 'deleteTurn', 'getLastSession', 'list', 'onStream', 'retry', 'send'].sort()
+      [
+        'cancel',
+        'createSession',
+        'deleteMessage',
+        'deleteTurn',
+        'getLastSession',
+        'list',
+        'onStream',
+        'retry',
+        'send'
+      ].sort()
     )
+  })
+
+  it('chat.deleteMessage 固定调用 companion:chat:delete-message', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { deletedIds: ['a1'] } })
+    const result = await companionApi.chat.deleteMessage({ sessionId: 's1', messageId: 'a1' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:delete-message', {
+      sessionId: 's1',
+      messageId: 'a1'
+    })
+    expect(result).toEqual({ ok: true, data: { deletedIds: ['a1'] } })
   })
 
   it('chat.deleteTurn 固定调用 companion:chat:delete-turn', async () => {

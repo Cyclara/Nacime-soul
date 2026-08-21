@@ -188,6 +188,16 @@ export const companionApi: CompanionApi = Object.freeze({
         input as unknown as IpcInvokeMap['companion:chat:delete-turn']['req']
       )
     },
+    // 验收反馈⑥c：单条删除（粒度控制——只删被点的那一条，不动同轮兄弟）
+    deleteMessage(input: {
+      sessionId: string
+      messageId: string
+    }): Promise<IpcResult<{ deletedIds: string[] }>> {
+      return typedInvoke(
+        'companion:chat:delete-message',
+        input as unknown as IpcInvokeMap['companion:chat:delete-message']['req']
+      )
+    },
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe {
       return typedSubscribe('companion:event:chat-stream', cb)
     }
