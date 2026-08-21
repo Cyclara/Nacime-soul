@@ -4,9 +4,9 @@
 // 菜单集合（沿用 M-38 验收标准）：
 //   - 输入框（textarea/文本类 input）：剪切/复制/粘贴（按选中可用）+ 全选
 //   - 只读区域有选中文本：复制 + 全选
-//   - 聊天气泡（[data-message-id] 内）：额外出现「删除这轮对话」+「删除这条消息」
-//     （验收反馈⑥ 按轮删 / ⑥c 单条删）；无选中时点气泡也会单独出现这两项。
-//     流式进行中不显示（main 侧另有 CHAT_BUSY 兜底）。
+//   - 聊天气泡（[data-message-id] 内）：额外出现「删除这轮对话」+「删除这条消息」+「选择」
+//     （验收反馈⑥ 按轮删 / ⑥c 单条删 / ⑦ 进入选择模式批量删）；
+//     无选中时点气泡也会单独出现这三项。流式进行中不显示（main 侧另有 CHAT_BUSY 兜底）。
 //   - 无选中且非输入框、非气泡：不弹空菜单
 //
 // 行为说明：
@@ -23,7 +23,7 @@ import { useChatStore } from '../../stores/chat'
 type DeleteItemId = 'deleteTurn' | 'deleteMessage'
 
 interface MenuItem {
-  id: 'cut' | 'copy' | 'paste' | 'selectAll' | DeleteItemId
+  id: 'cut' | 'copy' | 'paste' | 'selectAll' | 'selectMode' | DeleteItemId
   label: string
   enabled: boolean
 }
@@ -125,13 +125,15 @@ function onContextMenu(e: MouseEvent): void {
       )
     }
     // 气泡上的删除项：流式进行中不显示（删除被 CHAT_BUSY 拒绝，避免无效入口）。
-    // 两项并列：整轮删除（⑥，常用）在前，单条删除（⑥c，粒度控制）在后。
+    // 两项并列：整轮删除（⑥，常用）在前，单条删除（⑥c，粒度控制）在后；
+    // 第三项「选择」进入选择模式（⑦ 批量按轮删除），并预勾被点气泡所在轮。
     if (bubbleEl && !chatStore.state.activeTurn) {
       bubbleMessageId = bubbleEl.getAttribute('data-message-id')
       if (bubbleMessageId) {
         next.push(
           { id: 'deleteTurn', label: DELETE_DEFAULT_LABEL.deleteTurn, enabled: true },
-          { id: 'deleteMessage', label: DELETE_DEFAULT_LABEL.deleteMessage, enabled: true }
+          { id: 'deleteMessage', label: DELETE_DEFAULT_LABEL.deleteMessage, enabled: true },
+          { id: 'selectMode', label: '选择', enabled: true }
         )
       }
     }
@@ -165,6 +167,14 @@ function replaceEditableRange(
 }
 
 async function run(id: MenuItem['id']): Promise<void> {
+  // 验收反馈⑦：进入选择模式（批量按轮删除）——预勾被点气泡所在轮
+  if (id === 'selectMode') {
+    const targetId = bubbleMessageId
+    close()
+    if (targetId) chatStore.enterSelection(targetId)
+    return
+  }
+
   // 验收反馈⑥/⑥c：删除两段式——第一次点击只"上膛"（菜单不关，3 秒未确认自动复位；
   // 上膛期间点另一项 = 换膛），第二次点击才真删
   if (id === 'deleteTurn' || id === 'deleteMessage') {

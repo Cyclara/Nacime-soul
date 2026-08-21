@@ -63,11 +63,26 @@ const hasReasoning = computed(
   () => (props.message.reasoning ?? '').trim().length > 0 || isStreaming.value
 )
 const visibleReasoning = computed(() => showReasoning.value && hasReasoning.value && !isUser.value)
+
+// 验收反馈⑦：选择模式下本气泡是否被勾中（整轮联动由 store.toggleSelect 保证，
+// 这里只读 selectedIds —— 勾选框只反映状态，配对逻辑不进组件）
+const isSelected = computed(() => chatStore.selectedIds.has(props.message.id))
 </script>
 
 <template>
   <!-- data-message-id：右键菜单（AppContextMenu）靠 closest('[data-message-id]') 定位气泡所在轮 -->
   <div class="message-row" :class="{ user: isUser, assistant: !isUser }" :data-message-id="message.id">
+    <!-- 验收反馈⑦：选择模式勾选框——外缘（她的在左、你的在右），点一下整轮联动 -->
+    <button
+      v-if="chatStore.selectionMode && !isUser"
+      class="select-box"
+      :class="{ checked: isSelected }"
+      type="button"
+      role="checkbox"
+      :aria-checked="isSelected"
+      aria-label="选择这轮对话"
+      @click.stop="chatStore.toggleSelect(message.id)"
+    ></button>
     <div class="bubble" :class="{ user: isUser, assistant: !isUser }">
       <span class="sender-label">{{ isUser ? '你' : 'Nacime' }}</span>
       <div v-if="isError" class="status-tag error">
@@ -89,6 +104,16 @@ const visibleReasoning = computed(() => showReasoning.value && hasReasoning.valu
         :is-streaming="isStreaming"
       />
     </div>
+    <button
+      v-if="chatStore.selectionMode && isUser"
+      class="select-box"
+      :class="{ checked: isSelected }"
+      type="button"
+      role="checkbox"
+      :aria-checked="isSelected"
+      aria-label="选择这轮对话"
+      @click.stop="chatStore.toggleSelect(message.id)"
+    ></button>
   </div>
 </template>
 
@@ -104,6 +129,51 @@ const visibleReasoning = computed(() => showReasoning.value && hasReasoning.valu
 
 .message-row.assistant {
   justify-content: flex-start;
+}
+
+/* 验收反馈⑦：选择模式勾选框——外缘小方框，勾中染主题色。
+   assistant 行它是第一个孩子（气泡左边），user 行是最后一个（气泡右边） */
+.select-box {
+  flex: none;
+  align-self: center;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  cursor: pointer;
+  place-items: center;
+}
+
+.select-box:first-child {
+  margin-right: 10px;
+}
+
+.select-box:last-child {
+  margin-left: 10px;
+}
+
+.select-box:hover {
+  border-color: var(--color-accent);
+}
+
+.select-box.checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.select-box.checked::after {
+  content: '✓';
+  color: var(--color-text-on-accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.select-box:focus-visible {
+  outline: 1px solid var(--color-border-focus, var(--color-accent));
+  outline-offset: 1px;
 }
 
 .bubble {

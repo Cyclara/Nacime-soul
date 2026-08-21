@@ -121,6 +121,7 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
       `DELETE FROM messages WHERE session_id = ? AND turn_id = ? RETURNING id`
     ),
     deleteById: db.prepare(`DELETE FROM messages WHERE session_id = ? AND id = ?`),
+    clearBySession: db.prepare(`DELETE FROM messages WHERE session_id = ?`),
     orphanUserTurns: db.prepare(
       `SELECT m.session_id AS session_id, m.turn_id AS turn_id FROM messages m
        WHERE m.role = 'user' AND m.turn_id IS NOT NULL
@@ -240,6 +241,10 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
 
     deleteMessage(sessionId: SessionId, messageId: MessageId): boolean {
       return stmts.deleteById.run(sessionId, messageId).changes > 0
+    },
+
+    clearMessages(sessionId: SessionId): number {
+      return stmts.clearBySession.run(sessionId).changes
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {

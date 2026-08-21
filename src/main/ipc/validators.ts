@@ -21,6 +21,8 @@ import type {
   ChatCancelRequest,
   ChatDeleteTurnRequest,
   ChatDeleteMessageRequest,
+  ChatDeleteSelectedRequest,
+  ChatClearSessionRequest,
   ChatListRequest,
   ChatRetryRequest,
   ChatSendRequest
@@ -123,6 +125,24 @@ function isChatDeleteMessageRequest(value: unknown): value is ChatDeleteMessageR
   if (!hasOnlyKeys(value, ['sessionId', 'messageId'])) return false
   if (!isId(value.sessionId)) return false
   if (!isId(value.messageId)) return false
+  return true
+}
+
+// --- ChatDeleteSelectedRequest（验收反馈⑦：批量按轮删除，id 数组 1..500） ---
+function isChatDeleteSelectedRequest(value: unknown): value is ChatDeleteSelectedRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['sessionId', 'messageIds'])) return false
+  if (!isId(value.sessionId)) return false
+  if (!Array.isArray(value.messageIds)) return false
+  if (value.messageIds.length < 1 || value.messageIds.length > 500) return false
+  return value.messageIds.every((id) => isId(id))
+}
+
+// --- ChatClearSessionRequest（验收反馈⑦：清空会话） ---
+function isChatClearSessionRequest(value: unknown): value is ChatClearSessionRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['sessionId'])) return false
+  if (!isId(value.sessionId)) return false
   return true
 }
 
@@ -663,6 +683,8 @@ export const IPC_VALIDATORS = {
   'companion:chat:retry': isChatRetryRequest,
   'companion:chat:delete-turn': isChatDeleteTurnRequest,
   'companion:chat:delete-message': isChatDeleteMessageRequest,
+  'companion:chat:delete-selected': isChatDeleteSelectedRequest,
+  'companion:chat:clear-session': isChatClearSessionRequest,
   'companion:debug:get-snapshot': (v: unknown): v is undefined => v === undefined,
   'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined,
   // ── Phase 2：memory（9 invoke）──

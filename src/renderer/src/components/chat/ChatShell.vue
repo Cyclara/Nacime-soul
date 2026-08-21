@@ -7,6 +7,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
+import SelectionToolbar from './SelectionToolbar.vue'
 import { useSettingsUiStore } from '../../stores/settings-ui'
 import { useChatStore } from '../../stores/chat'
 
@@ -79,6 +80,8 @@ const presenceText = computed(() => PRESENCE_TEXT[presencePhase.value])
         ×
       </button>
     </div>
+    <!-- 验收反馈⑦：选择模式工具条（右键气泡 → 选择）——批量按轮删除/清空会话 -->
+    <SelectionToolbar v-if="chatStore.selectionMode" />
     <Composer />
   </div>
 </template>

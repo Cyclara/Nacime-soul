@@ -92,6 +92,11 @@ export interface CompanionApi {
       sessionId: string
       messageId: string
     }): Promise<IpcResult<{ deletedIds: string[] }>>
+    deleteSelected(input: {
+      sessionId: string
+      messageIds: string[]
+    }): Promise<IpcResult<{ deletedIds: string[] }>>
+    clearSession(input: { sessionId: string }): Promise<IpcResult<{ removed: number }>>
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe
   }
   debug: {

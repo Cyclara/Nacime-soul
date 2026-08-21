@@ -11,6 +11,8 @@
 //   companion:chat:retry         -> service.retryTurn（按 turnId 精确重试，不增消息）
 //   companion:chat:delete-turn   -> service.deleteTurn（验收反馈⑥ 按轮删除）
 //   companion:chat:delete-message -> service.deleteMessage（验收反馈⑥c 单条删除）
+//   companion:chat:delete-selected -> service.deleteSelected（验收反馈⑦ 批量按轮删除）
+//   companion:chat:clear-session -> service.clearSession（验收反馈⑦ 清空会话）
 //
 // 安全红线：
 //   - 聊天正文不写 IPC 日志（只记通道、长度、requestId、耗时）
@@ -150,6 +152,18 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
   // 验收反馈⑥c：单条删除（粒度控制）。日志同样只由 service 记一条。
   registerValidatedHandler('companion:chat:delete-message', async (_ctx, payload) => {
     return chatService.deleteMessage(payload.sessionId, payload.messageId)
+  })
+
+  // === companion:chat:delete-selected ===
+  // 验收反馈⑦：选择模式批量按轮删除（main 侧 id->turnId 解析去重）。
+  registerValidatedHandler('companion:chat:delete-selected', async (_ctx, payload) => {
+    return chatService.deleteSelected(payload.sessionId, payload.messageIds)
+  })
+
+  // === companion:chat:clear-session ===
+  // 验收反馈⑦：清空会话全部消息（「删除所有对话」）。会话保留；记忆条目不受影响。
+  registerValidatedHandler('companion:chat:clear-session', async (_ctx, payload) => {
+    return chatService.clearSession(payload.sessionId)
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

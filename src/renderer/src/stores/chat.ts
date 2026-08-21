@@ -15,7 +15,7 @@
 //   cancelled       -> status=cancelled，activeTurn=null
 //   旧 requestId / sequence<=lastSequence -> 丢弃并 debug 计数
 
-import { reactive, computed } from 'vue'
+import { reactive, computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type { ErrorCode, PublicAppError } from '@shared/errors'
 import type { Unsubscribe, IpcResult } from '@shared/ipc/contracts'
@@ -215,6 +215,104 @@ export const useChatStore = defineStore('chat', () => {
     state.messages = state.messages.filter((m) => !deleted.has(m.id))
   }
 
+  // === 验收反馈⑦：选择模式（批量按轮删除 + 清空会话） ===
+  //
+  // 粒度裁定（2026-08-21 用户拍板）：删除单位永远是"轮"，不留孤儿/孤立半轮。
+  // ChatMessageView 按 S-002 §3.6 剥离 turnId（冻结合约不改），renderer 用相邻配对
+  // 规则做勾选联动（user 配紧随的 assistant；assistant 配紧邻的前置 user），
+  // 让"所见即所删"成立；真正的删除解析在 main 侧按 turnId 去重，联动配错也不产生半轮。
+  const selectionMode = ref(false)
+  const selectedIds = reactive(new Set<string>())
+
+  /** 相邻配对：返回 messageId 所在轮的视图 id 组（孤儿/孤立行只含自己） */
+  function turnGroupOf(messageId: string): string[] {
+    const msgs = orderedMessages.value
+    const i = msgs.findIndex((m) => m.id === messageId)
+    if (i < 0) return [messageId]
+    const m = msgs[i]
+    if (m.role === 'user') {
+      const next = msgs[i + 1]
+      return next && next.role === 'assistant' ? [m.id, next.id] : [m.id]
+    }
+    if (m.role === 'assistant') {
+      const prev = msgs[i - 1]
+      return prev && prev.role === 'user' ? [prev.id, m.id] : [m.id]
+    }
+    return [m.id]
+  }
+
+  /** 进入选择模式；带 messageId 时预勾它所在的整轮 */
+  function enterSelection(messageId?: string): void {
+    selectionMode.value = true
+    if (messageId) {
+      for (const id of turnGroupOf(messageId)) selectedIds.add(id)
+    }
+  }
+
+  function exitSelection(): void {
+    selectionMode.value = false
+    selectedIds.clear()
+  }
+
+  /** 勾选/取消勾选：整轮联动（组内全选 -> 全消；否则全选） */
+  function toggleSelect(messageId: string): void {
+    const group = turnGroupOf(messageId)
+    const allIn = group.every((id) => selectedIds.has(id))
+    for (const id of group) {
+      if (allIn) selectedIds.delete(id)
+      else selectedIds.add(id)
+    }
+  }
+
+  const selectedCount = computed(() => selectedIds.size)
+  const allSelected = computed(
+    () => orderedMessages.value.length > 0 && selectedIds.size >= orderedMessages.value.length
+  )
+
+  function toggleSelectAll(): void {
+    if (allSelected.value) selectedIds.clear()
+    else for (const m of orderedMessages.value) selectedIds.add(m.id)
+  }
+
+  /** 删除所选（按轮）：main 侧 id->turnId 去重整轮删；成功后退出选择模式 */
+  async function deleteSelected(): Promise<void> {
+    if (!state.sessionId || !window.companion || state.activeTurn || selectedIds.size === 0) {
+      return
+    }
+    const result = await window.companion.chat.deleteSelected({
+      sessionId: state.sessionId,
+      messageIds: [...selectedIds]
+    })
+    applyDeletedIds(result)
+    if (result.ok) exitSelection()
+  }
+
+  /** 删除所有对话：清空当前会话消息（会话保留；记忆条目不受影响） */
+  async function clearSession(): Promise<void> {
+    if (!state.sessionId || !window.companion || state.activeTurn) return
+    const result = await window.companion.chat.clearSession({ sessionId: state.sessionId })
+    if (!result.ok) {
+      state.lastError = {
+        code: result.error.code as ErrorCode,
+        message: result.error.message,
+        severity: 'error',
+        retryable: result.error.retryable
+      }
+      return
+    }
+    state.messages = []
+    exitSelection()
+  }
+
+  // 流式开始（send/retry）自动退出选择模式——删除项/选择模式都以非流式为前提
+  watch(
+    () => state.activeTurn,
+    (turn) => {
+      if (turn) exitSelection()
+    }
+  )
+
+
   // 验收反馈④c：重试终局（completed/failed/cancelled）时摘除被取代的旧气泡。
   let retryTargetId: string | null = null
   function consumeRetryTarget(): void {
@@ -357,6 +455,7 @@ export const useChatStore = defineStore('chat', () => {
     state.lastError = null
     state.isHydrating = false
     state.isSending = false
+    exitSelection()
   }
 
   return {
@@ -372,6 +471,16 @@ export const useChatStore = defineStore('chat', () => {
     retry,
     deleteTurn,
     deleteMessage,
+    deleteSelected,
+    clearSession,
+    selectionMode,
+    selectedIds,
+    selectedCount,
+    allSelected,
+    enterSelection,
+    exitSelection,
+    toggleSelect,
+    toggleSelectAll,
     applyStream,
     subscribe,
     reset

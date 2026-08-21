@@ -25,6 +25,9 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:chat:delete-turn',
   // ── 验收反馈⑥c：单条删除（粒度控制，additive 新增）──
   'companion:chat:delete-message',
+  // ── 验收反馈⑦：选择模式批量按轮删除 + 清空会话（additive 新增）──
+  'companion:chat:delete-selected',
+  'companion:chat:clear-session',
   'companion:debug:get-snapshot',
   'companion:debug:open-log-folder',
   // ── Phase 2：memory + growth（S-003-补充 §3.1：12 invoke）──

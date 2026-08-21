@@ -24,9 +24,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（39 + ⑥c delete-message = 40）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(40)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(40)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（40 + ⑦ delete-selected/clear-session = 42）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(42)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(42)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -303,6 +303,58 @@ describe('验收反馈⑥c ChatDeleteMessageRequest validator', () => {
         sessionId: 'sess_01JG',
         messageId: 'msg_abc',
         scope: 'message'
+      })
+    ).toBe(false)
+  })
+})
+
+describe('验收反馈⑦ ChatDeleteSelectedRequest / ChatClearSessionRequest validator', () => {
+  it('delete-selected 合法 payload 通过', () => {
+    expect(
+      validateIpcPayload('companion:chat:delete-selected', {
+        sessionId: 'sess_01JG',
+        messageIds: ['msg_a', 'msg_b']
+      })
+    ).toBe(true)
+  })
+
+  it('delete-selected：空数组 / 超上限 / 非 id 元素 / 多余字段被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:chat:delete-selected', {
+        sessionId: 'sess_01JG',
+        messageIds: []
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:delete-selected', {
+        sessionId: 'sess_01JG',
+        messageIds: Array.from({ length: 501 }, (_, i) => `msg_${i}`)
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:delete-selected', {
+        sessionId: 'sess_01JG',
+        messageIds: ['msg_a', 42]
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:delete-selected', {
+        sessionId: 'sess_01JG',
+        messageIds: ['msg_a'],
+        turnId: 't1'
+      })
+    ).toBe(false)
+  })
+
+  it('clear-session 合法 payload 通过；缺字段/多余字段被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:chat:clear-session', { sessionId: 'sess_01JG' })
+    ).toBe(true)
+    expect(validateIpcPayload('companion:chat:clear-session', {})).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:clear-session', {
+        sessionId: 'sess_01JG',
+        keepPinned: true
       })
     ).toBe(false)
   })

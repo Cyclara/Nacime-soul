@@ -99,6 +99,25 @@ export interface ChatDeleteMessageRequest {
   messageId: MessageId
 }
 
+/**
+ * 批量按轮删除（验收反馈⑦ 选择模式）：messageIds 为勾选的消息 id（可有同轮多个），
+ * main 把每个 id 解析到所在轮（turnId）去重后整轮删除——删除单位永远是轮，
+ * 不会产生孤儿/孤立半轮。无 turnId 的遗产行按单条删。
+ * 返回被删行的 id 全集（renderer 据此同步摘除气泡）。
+ */
+export interface ChatDeleteSelectedRequest {
+  sessionId: SessionId
+  messageIds: MessageId[] // 1..500
+}
+
+/**
+ * 清空会话全部消息（验收反馈⑦ 选择模式「删除所有对话」）。
+ * 会话本身保留；记忆条目不受影响。返回删除条数。
+ */
+export interface ChatClearSessionRequest {
+  sessionId: SessionId
+}
+
 // === ChatStreamEvent。依据 S-003 §3.8 ===
 export type ChatStreamEvent =
   | {

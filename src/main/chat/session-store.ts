@@ -76,6 +76,8 @@ export interface SessionStore {
   deleteTurnMessages(sessionId: SessionId, turnId: string): string[]
   /** 删除单条消息（遗产无 turnId 行的回退路径）。返回是否删到。 */
   deleteMessage(sessionId: SessionId, messageId: MessageId): boolean
+  /** 清空会话全部消息（验收反馈⑦「删除所有对话」）。会话本身保留。返回删除条数。 */
+  clearMessages(sessionId: SessionId): number
   /** 更新消息的部分字段（流式完成后回写 status/content/errorCode） */
   updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void
   /** 最近活跃会话（P2-43 启动恢复）。空库/无会话返回 null */
@@ -182,6 +184,14 @@ export function createMemorySessionStore(): SessionStore {
       if (idx < 0) return false
       msgs.splice(idx, 1)
       return true
+    },
+
+    clearMessages(sessionId: SessionId): number {
+      const msgs = sessions.get(sessionId)
+      if (!msgs || msgs.length === 0) return 0
+      const removed = msgs.length
+      sessions.set(sessionId, [])
+      return removed
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {

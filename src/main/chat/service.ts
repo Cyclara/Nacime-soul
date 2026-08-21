@@ -139,6 +139,18 @@ export interface ChatService {
    * 孤立 assistant 退出 prompt 装配）。
    */
   deleteMessage(sessionId: SessionId, messageId: MessageId): { deletedIds: string[] }
+  /**
+   * 批量按轮删除（验收反馈⑦ 选择模式）：把每个 messageId 解析到所在轮（turnId）
+   * 去重后整轮删除——删除单位永远是轮，不会产生孤儿/孤立半轮；
+   * 无 turnId 的遗产行按单条删；查无此行/查无此轮的 id 静默跳过（幂等容错）。
+   * 返回被删行的 id 全集。有 active turn 时拒绝（CHAT_BUSY）。
+   */
+  deleteSelected(sessionId: SessionId, messageIds: MessageId[]): { deletedIds: string[] }
+  /**
+   * 清空会话全部消息（验收反馈⑦「删除所有对话」）。会话本身保留；
+   * 记忆条目不受影响。有 active turn 时拒绝（CHAT_BUSY）。
+   */
+  clearSession(sessionId: SessionId): { removed: number }
   cancel(requestId: RequestId): boolean
   hasActiveTurn(sessionId: SessionId): boolean
 }
@@ -583,6 +595,69 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       })
     }
     return { deletedIds: deleted ? [messageId] : [] }
+  }
+
+  /**
+   * 批量按轮删除（验收反馈⑦）。id -> turnId 解析去重后整轮删；
+   * 删除单位永远是轮（用户已裁定：不留孤儿/孤立半轮）。
+   */
+  function deleteSelected(sessionId: SessionId, messageIds: MessageId[]): { deletedIds: string[] } {
+    if (hasActiveTurn(sessionId)) {
+      throw new AppError({
+        code: 'CHAT_BUSY',
+        userMessage: '她还在回复中，等回复结束后再删除',
+        severity: 'error',
+        retryable: false
+      })
+    }
+
+    const turnIds = new Set<string>()
+    const legacyIds = new Set<MessageId>()
+    for (const id of messageIds) {
+      const target = sessionStore.getMessage(sessionId, id)
+      if (!target) continue // 查无此行：幂等容错，静默跳过
+      if (target.turnId) turnIds.add(target.turnId)
+      else legacyIds.add(id)
+    }
+
+    const deletedIds: string[] = []
+    for (const turnId of turnIds) {
+      deletedIds.push(...sessionStore.deleteTurnMessages(sessionId, turnId))
+    }
+    for (const id of legacyIds) {
+      if (sessionStore.deleteMessage(sessionId, id)) deletedIds.push(id)
+    }
+
+    if (deletedIds.length > 0) {
+      chatLogger.info('selected turns deleted by user', {
+        scope: 'chat',
+        tags: { sessionId },
+        metrics: { removed: deletedIds.length, turns: turnIds.size }
+      })
+    }
+    return { deletedIds }
+  }
+
+  /** 清空会话全部消息（验收反馈⑦）。会话保留；记忆条目不受影响。 */
+  function clearSession(sessionId: SessionId): { removed: number } {
+    if (hasActiveTurn(sessionId)) {
+      throw new AppError({
+        code: 'CHAT_BUSY',
+        userMessage: '她还在回复中，等回复结束后再清空',
+        severity: 'error',
+        retryable: false
+      })
+    }
+
+    const removed = sessionStore.clearMessages(sessionId)
+    if (removed > 0) {
+      chatLogger.info('session cleared by user', {
+        scope: 'chat',
+        tags: { sessionId },
+        metrics: { removed }
+      })
+    }
+    return { removed }
   }
 
   /**
@@ -1063,6 +1138,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     retryTurn,
     deleteTurn,
     deleteMessage,
+    deleteSelected,
+    clearSession,
     cancel,
     hasActiveTurn
   }

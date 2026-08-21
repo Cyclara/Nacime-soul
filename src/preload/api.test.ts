@@ -229,12 +229,14 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(typeof companionApi.window.onState).toBe('function')
   })
 
-  it('chat namespace 恰好 8 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage）', () => {
+  it('chat namespace 恰好 10 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession）', () => {
     expect(Object.keys(companionApi.chat).sort()).toEqual(
       [
         'cancel',
+        'clearSession',
         'createSession',
         'deleteMessage',
+        'deleteSelected',
         'deleteTurn',
         'getLastSession',
         'list',
@@ -243,6 +245,28 @@ describe('S-004 #35: API 只暴露固定通道', () => {
         'send'
       ].sort()
     )
+  })
+
+  it('chat.deleteSelected 固定调用 companion:chat:delete-selected', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { deletedIds: ['u1', 'a1'] } })
+    const result = await companionApi.chat.deleteSelected({
+      sessionId: 's1',
+      messageIds: ['u1', 'a1']
+    })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:delete-selected', {
+      sessionId: 's1',
+      messageIds: ['u1', 'a1']
+    })
+    expect(result).toEqual({ ok: true, data: { deletedIds: ['u1', 'a1'] } })
+  })
+
+  it('chat.clearSession 固定调用 companion:chat:clear-session', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { removed: 6 } })
+    const result = await companionApi.chat.clearSession({ sessionId: 's1' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:clear-session', {
+      sessionId: 's1'
+    })
+    expect(result).toEqual({ ok: true, data: { removed: 6 } })
   })
 
   it('chat.deleteMessage 固定调用 companion:chat:delete-message', async () => {

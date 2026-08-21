@@ -198,6 +198,23 @@ export const companionApi: CompanionApi = Object.freeze({
         input as unknown as IpcInvokeMap['companion:chat:delete-message']['req']
       )
     },
+    // 验收反馈⑦：选择模式批量按轮删除（勾选 id 解析到轮去重后整轮删，不留半轮）
+    deleteSelected(input: {
+      sessionId: string
+      messageIds: string[]
+    }): Promise<IpcResult<{ deletedIds: string[] }>> {
+      return typedInvoke(
+        'companion:chat:delete-selected',
+        input as unknown as IpcInvokeMap['companion:chat:delete-selected']['req']
+      )
+    },
+    // 验收反馈⑦：清空会话全部消息（「删除所有对话」；会话保留，记忆条目不受影响）
+    clearSession(input: { sessionId: string }): Promise<IpcResult<{ removed: number }>> {
+      return typedInvoke(
+        'companion:chat:clear-session',
+        input as unknown as IpcInvokeMap['companion:chat:clear-session']['req']
+      )
+    },
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe {
       return typedSubscribe('companion:event:chat-stream', cb)
     }

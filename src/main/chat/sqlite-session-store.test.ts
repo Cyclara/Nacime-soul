@@ -361,3 +361,35 @@ describe('验收反馈⑥：deleteTurnMessages / deleteMessage（按轮删除对
     expect(sqlite.getMessages(sid, 100)).toEqual(memory.getMessages(sid, 100))
   })
 })
+
+describe('验收反馈⑦：clearMessages（删除所有对话）', () => {
+  it('清空会话全部消息并返回删除行数；其他会话不动；空会话返回 0', () => {
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    store.appendMessage('s-1', makeMessage({ id: 'u1', turnId: 't1' }))
+    store.appendMessage(
+      's-1',
+      makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'complete', content: '答' })
+    )
+    store.appendMessage('s-1', makeMessage({ id: 'legacy' }))
+    store.appendMessage('s-2', makeMessage({ id: 'other', sessionId: 's-2' }))
+
+    expect(store.clearMessages('s-1')).toBe(3)
+    expect(store.getMessages('s-1', 100)).toEqual([])
+    expect(store.clearMessages('s-1')).toBe(0) // 已空，幂等 0
+    expect(store.getMessages('s-2', 100).map((m) => m.id)).toEqual(['other'])
+  })
+
+  it('与内存实现语义一致', () => {
+    const sqlite = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const memory = createMemorySessionStore()
+    const sid = 's-1'
+    for (const store of [sqlite, memory]) {
+      store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+      store.appendMessage(sid, makeMessage({ id: 'legacy' }))
+    }
+
+    expect(sqlite.clearMessages(sid)).toBe(memory.clearMessages(sid))
+    expect(sqlite.getMessages(sid, 100)).toEqual(memory.getMessages(sid, 100))
+    expect(sqlite.clearMessages(sid)).toBe(memory.clearMessages(sid)) // 幂等 0
+  })
+})

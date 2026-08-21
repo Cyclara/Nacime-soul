@@ -260,3 +260,144 @@ describe('ChatService.deleteMessage（验收反馈⑥c：单条删除，粒度�
     await collector.done
   })
 })
+
+describe('ChatService.deleteSelected（验收反馈⑦：批量按轮删除）', () => {
+  let store: SessionStore
+  let sessionId: string
+  let service: ChatService
+
+  beforeEach(() => {
+    clearHooks()
+    setHookRunnerLogger(noopLogger())
+    registerHook(sanitizeMessageHook)
+    store = createMemorySessionStore()
+    sessionId = store.createSession()
+    service = makeService(createFauxProvider(), store)
+  })
+
+  afterEach(() => {
+    clearHooks()
+  })
+
+  function seedThreeTurns(): void {
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问一', 'complete'))
+    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '答一', 'complete'))
+    store.appendMessage(sessionId, row('u2', sessionId, 't2', 'user', '问二', 'complete'))
+    store.appendMessage(sessionId, row('a2', sessionId, 't2', 'assistant', '答二', 'complete'))
+    store.appendMessage(sessionId, row('u3', sessionId, 't3', 'user', '问三', 'complete'))
+    store.appendMessage(sessionId, row('a3', sessionId, 't3', 'assistant', '答三', 'complete'))
+  }
+
+  it('勾选同轮两个 id：解析到同一 turnId 去重，该轮只删一次', () => {
+    seedThreeTurns()
+
+    const result = service.deleteSelected(sessionId, ['u2', 'a2'])
+    expect(result.deletedIds.sort()).toEqual(['a2', 'u2'])
+    expect(store.getMessages(sessionId, 100).map((m) => m.id)).toEqual(['u1', 'a1', 'u3', 'a3'])
+  })
+
+  it('勾选跨多轮：每轮整轮删除（删除单位永远是轮）', () => {
+    seedThreeTurns()
+
+    // 勾 t1 的 assistant + t3 的 user——各自整轮删除，t2 原样保留
+    const result = service.deleteSelected(sessionId, ['a1', 'u3'])
+    expect(result.deletedIds.sort()).toEqual(['a1', 'a3', 'u1', 'u3'])
+    expect(store.getMessages(sessionId, 100).map((m) => m.id)).toEqual(['u2', 'a2'])
+  })
+
+  it('混合遗产行：无 turnId 的按单条删，有 turnId 的按轮删', () => {
+    store.appendMessage(sessionId, row('legacy', sessionId, undefined, 'user', '老消息', 'complete'))
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
+    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '答', 'complete'))
+
+    const result = service.deleteSelected(sessionId, ['legacy', 'a1'])
+    expect(result.deletedIds.sort()).toEqual(['a1', 'legacy', 'u1'])
+    expect(store.getMessages(sessionId, 100)).toHaveLength(0)
+  })
+
+  it('含未知 id：静默跳过，已知 id 照常删除（幂等容错）', () => {
+    seedThreeTurns()
+
+    const result = service.deleteSelected(sessionId, ['ghost', 'u1'])
+    expect(result.deletedIds.sort()).toEqual(['a1', 'u1'])
+  })
+
+  it('空数组/全部未知：空结果，不动任何消息', () => {
+    seedThreeTurns()
+
+    expect(service.deleteSelected(sessionId, []).deletedIds).toEqual([])
+    expect(service.deleteSelected(sessionId, ['ghost']).deletedIds).toEqual([])
+    expect(store.getMessages(sessionId, 100)).toHaveLength(6)
+  })
+
+  it('有 active turn 时拒绝：CHAT_BUSY', async () => {
+    seedThreeTurns()
+
+    const faux = createFauxProvider()
+    faux.setResponses([{ type: 'text', text: '慢回复', delayMs: 500 }])
+    service = makeService(faux, store)
+    const collector = makeCollector()
+    await service.send({ sessionId, text: '进行中', clientRequestId: 'c1' }, collector.sink)
+
+    expect(() => service.deleteSelected(sessionId, ['u1', 'u2'])).toThrowError(
+      expect.objectContaining({ code: 'CHAT_BUSY' })
+    )
+    expect(store.getMessages(sessionId, 100).map((m) => m.id)).toContain('u1')
+
+    await collector.done
+  })
+})
+
+describe('ChatService.clearSession（验收反馈⑦：删除所有对话）', () => {
+  let store: SessionStore
+  let sessionId: string
+  let service: ChatService
+
+  beforeEach(() => {
+    clearHooks()
+    setHookRunnerLogger(noopLogger())
+    registerHook(sanitizeMessageHook)
+    store = createMemorySessionStore()
+    sessionId = store.createSession()
+    service = makeService(createFauxProvider(), store)
+  })
+
+  afterEach(() => {
+    clearHooks()
+  })
+
+  it('清空全部消息并返回 removed 计数；会话本身保留可继续用', () => {
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
+    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '答', 'complete'))
+    store.appendMessage(sessionId, row('legacy', sessionId, undefined, 'user', '老', 'complete'))
+
+    const result = service.clearSession(sessionId)
+    expect(result.removed).toBe(3)
+    expect(store.getMessages(sessionId, 100)).toHaveLength(0)
+
+    // 会话保留：清空后还能继续写
+    store.appendMessage(sessionId, row('u2', sessionId, 't2', 'user', '新开始', 'complete'))
+    expect(store.getMessages(sessionId, 100).map((m) => m.id)).toEqual(['u2'])
+  })
+
+  it('空会话：removed = 0，不抛错', () => {
+    expect(service.clearSession(sessionId).removed).toBe(0)
+  })
+
+  it('有 active turn 时拒绝：CHAT_BUSY（防清掉在途轮）', async () => {
+    store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
+
+    const faux = createFauxProvider()
+    faux.setResponses([{ type: 'text', text: '慢回复', delayMs: 500 }])
+    service = makeService(faux, store)
+    const collector = makeCollector()
+    await service.send({ sessionId, text: '进行中', clientRequestId: 'c1' }, collector.sink)
+
+    expect(() => service.clearSession(sessionId)).toThrowError(
+      expect.objectContaining({ code: 'CHAT_BUSY' })
+    )
+    expect(store.getMessages(sessionId, 100).length).toBeGreaterThan(0)
+
+    await collector.done
+  })
+})

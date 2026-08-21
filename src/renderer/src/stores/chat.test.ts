@@ -4,6 +4,7 @@
 // 依据：S-004 #28-#30（旧 requestId 丢弃、重复/逆序 sequence 丢弃、completed/failed/cancelled 清 activeTurn）
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from './chat'
 
@@ -595,5 +596,178 @@ describe('chat store M-49（乐观气泡 id 回填 + 删除失败不静默）', 
     expect(store.state.messages).toHaveLength(1)
     expect(store.state.lastError).not.toBeNull()
     expect(store.state.lastError!.code).toBe('CHAT_BUSY')
+  })
+})
+
+// 验收反馈⑦：选择模式——相邻配对联动勾选（渲染层没有 turnId，所见即所删靠配对规则）、
+// 批量按轮删除、清空会话、流式开始自动退出
+describe('chat store 选择模式（验收反馈⑦：批量按轮删除）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.defineProperty(window, 'companion', {
+      value: {
+        chat: {
+          deleteSelected: vi.fn(async () => ({ ok: true, data: { deletedIds: ['u1', 'a1'] } })),
+          clearSession: vi.fn(async () => ({ ok: true, data: { removed: 4 } }))
+        }
+      },
+      writable: true,
+      configurable: true
+    })
+  })
+
+  function seed(store: ReturnType<typeof useChatStore>): void {
+    store.state.sessionId = 's1'
+    // 完整轮 t1 + 孤儿 user（单删她的回复后的现场）+ 完整轮 t3
+    store.state.messages.push(
+      { id: 'u1', role: 'user', content: '问一', createdAt: 1, status: 'complete' },
+      { id: 'a1', role: 'assistant', content: '答一', createdAt: 2, status: 'complete' },
+      { id: 'u2', role: 'user', content: '孤儿问', createdAt: 3, status: 'complete' },
+      { id: 'u3', role: 'user', content: '问三', createdAt: 4, status: 'complete' },
+      { id: 'a3', role: 'assistant', content: '答三', createdAt: 5, status: 'complete' }
+    )
+  }
+
+  it('进入选择模式并预勾被点气泡所在轮（user 配紧随的 assistant）', () => {
+    const store = useChatStore()
+    seed(store)
+
+    store.enterSelection('a1')
+    expect(store.selectionMode).toBe(true)
+    // 点 assistant 配紧邻的前置 user——t1 整轮预勾
+    expect([...store.selectedIds].sort()).toEqual(['a1', 'u1'])
+  })
+
+  it('孤儿 user 自成一组：预勾/切换只影响自己', () => {
+    const store = useChatStore()
+    seed(store)
+
+    store.enterSelection('u2')
+    expect([...store.selectedIds]).toEqual(['u2'])
+
+    store.toggleSelect('u2')
+    expect(store.selectedIds.size).toBe(0)
+  })
+
+  it('勾选联动：点轮中任一条，整轮一起勾/一起消', () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection()
+
+    store.toggleSelect('u3')
+    expect([...store.selectedIds].sort()).toEqual(['a3', 'u3'])
+
+    // 再点同轮的 assistant：整轮取消
+    store.toggleSelect('a3')
+    expect(store.selectedIds.size).toBe(0)
+  })
+
+  it('全选/取消全选；selectedCount/allSelected 派生正确', () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection()
+
+    expect(store.selectedCount).toBe(0)
+    expect(store.allSelected).toBe(false)
+
+    store.toggleSelectAll()
+    expect(store.selectedCount).toBe(5)
+    expect(store.allSelected).toBe(true)
+
+    store.toggleSelectAll()
+    expect(store.selectedCount).toBe(0)
+  })
+
+  it('删除所选：把勾选 id 发给 main，按返回 deletedIds 摘除并退出选择模式', async () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection('a1') // 预勾 t1 整轮
+
+    await store.deleteSelected()
+    expect(window.companion.chat.deleteSelected).toHaveBeenCalledWith({
+      sessionId: 's1',
+      messageIds: expect.arrayContaining(['u1', 'a1'])
+    })
+    expect(store.state.messages.map((m) => m.id)).toEqual(['u2', 'u3', 'a3'])
+    expect(store.selectionMode).toBe(false)
+    expect(store.selectedIds.size).toBe(0)
+  })
+
+  it('删除所选为空：不调 IPC 直接返回', async () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection()
+
+    await store.deleteSelected()
+    expect(window.companion.chat.deleteSelected).not.toHaveBeenCalled()
+  })
+
+  it('删除所选 IPC 失败：保留选择模式可重试，lastError 有说法', async () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection('u1')
+    ;(window.companion.chat.deleteSelected as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'CHAT_BUSY',
+        message: '她还在回复中，等回复结束后再删除',
+        severity: 'error',
+        retryable: false
+      }
+    })
+
+    await store.deleteSelected()
+    expect(store.selectionMode).toBe(true)
+    expect(store.selectedIds.size).toBe(2)
+    expect(store.state.lastError!.code).toBe('CHAT_BUSY')
+  })
+
+  it('删除所有对话：清空气泡并退出选择模式', async () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection('u1')
+
+    await store.clearSession()
+    expect(window.companion.chat.clearSession).toHaveBeenCalledWith({ sessionId: 's1' })
+    expect(store.state.messages).toEqual([])
+    expect(store.selectionMode).toBe(false)
+  })
+
+  it('删除所有对话 IPC 失败：气泡保留，lastError 有说法', async () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection()
+    ;(window.companion.chat.clearSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'CHAT_BUSY',
+        message: '她还在回复中，等回复结束后再清空',
+        severity: 'error',
+        retryable: false
+      }
+    })
+
+    await store.clearSession()
+    expect(store.state.messages).toHaveLength(5)
+    expect(store.state.lastError!.code).toBe('CHAT_BUSY')
+  })
+
+  it('流式开始自动退出选择模式（防删到在途轮）', async () => {
+    const store = useChatStore()
+    seed(store)
+    store.enterSelection('u1')
+    expect(store.selectionMode).toBe(true)
+
+    store.applyStream({
+      type: 'started',
+      requestId: 'r1',
+      sessionId: 's1',
+      assistantMessageId: 'a9',
+      sequence: 0
+    })
+    await nextTick() // activeTurn 的 watch 是异步 flush
+
+    expect(store.selectionMode).toBe(false)
+    expect(store.selectedIds.size).toBe(0)
   })
 })

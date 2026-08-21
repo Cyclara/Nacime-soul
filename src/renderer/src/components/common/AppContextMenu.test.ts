@@ -253,18 +253,19 @@ describe('AppContextMenu 气泡删除（验收反馈⑥/⑥c）', () => {
     document.body.innerHTML = ''
   })
 
-  it('气泡右键（无选中）：删除这轮对话 + 删除这条消息（整轮在前）', async () => {
+  it('气泡右键（无选中）：删除这轮对话 + 删除这条消息 + 选择（整轮在前）', async () => {
     wrapper = mount(AppContextMenu)
     rightClick(makeBubble('a1'))
     await nextTick()
 
     expect(menuItems()).toEqual([
       { text: '删除这轮对话', disabled: false },
-      { text: '删除这条消息', disabled: false }
+      { text: '删除这条消息', disabled: false },
+      { text: '选择', disabled: false }
     ])
   })
 
-  it('气泡右键（有选中）：复制/全选 + 两个删除项', async () => {
+  it('气泡右键（有选中）：复制/全选 + 两个删除项 + 选择', async () => {
     wrapper = mount(AppContextMenu)
     const bubble = makeBubble('a1')
 
@@ -281,7 +282,8 @@ describe('AppContextMenu 气泡删除（验收反馈⑥/⑥c）', () => {
       { text: '复制', disabled: false },
       { text: '全选', disabled: false },
       { text: '删除这轮对话', disabled: false },
-      { text: '删除这条消息', disabled: false }
+      { text: '删除这条消息', disabled: false },
+      { text: '选择', disabled: false }
     ])
 
     Object.defineProperty(window, 'getSelection', { configurable: true, value: realGetSelection })
@@ -396,5 +398,27 @@ describe('AppContextMenu 气泡删除（验收反馈⑥/⑥c）', () => {
     await nextTick()
 
     expect(menuEl()).toBeNull() // 无选中 + 删除项被隐藏 -> 空菜单不弹
+  })
+
+  it('点「选择」：关闭菜单并进入选择模式，预勾被点气泡所在轮（验收反馈⑦）', async () => {
+    const store = useChatStore()
+    // 一轮完整对话：点 a1 应预勾 u1+a1（相邻配对联动）
+    store.state.messages.push(
+      { id: 'u1', role: 'user', content: '问', createdAt: 1, status: 'complete' },
+      { id: 'a1', role: 'assistant', content: '答', createdAt: 2, status: 'complete' }
+    )
+
+    wrapper = mount(AppContextMenu)
+    rightClick(makeBubble('a1'))
+    await nextTick()
+
+    itemByText('选择')!.click()
+    await flushPromises()
+
+    expect(menuEl()).toBeNull() // 菜单关闭
+    expect(store.selectionMode).toBe(true)
+    expect([...store.selectedIds].sort()).toEqual(['a1', 'u1'])
+    expect(deleteTurn).not.toHaveBeenCalled() // 选择不触发任何删除
+    expect(deleteMessage).not.toHaveBeenCalled()
   })
 })
