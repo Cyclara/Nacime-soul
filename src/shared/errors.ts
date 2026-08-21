@@ -36,6 +36,7 @@ export type ErrorCode =
   | 'IPC_UNAUTHORIZED'
   | 'CHAT_BUSY'
   | 'CHAT_CONTEXT_TOO_LARGE'
+  | 'CHAT_INTERRUPTED'
   | 'UNKNOWN'
 
 export type ErrorSeverity = 'fatal' | 'error' | 'warn'

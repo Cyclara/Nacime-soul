@@ -18,6 +18,7 @@ import icon from '../../../resources/icon.png?asset'
 import { registerCsp } from '../security/csp'
 import { WINDOW_WEB_PREFERENCES } from '../security/window-config'
 import { registerNavigationGuard, registerPermissionDenial } from '../security/navigation'
+import { registerContextMenu } from './context-menu'
 
 /**
  * 创建聊天窗口。
@@ -49,6 +50,8 @@ export function createChatWindow(): BrowserWindow {
 
   registerNavigationGuard(win)
   registerPermissionDenial(win)
+  // M-38：右键复制/粘贴/全选菜单（Electron 默认不提供浏览器式右键菜单）
+  registerContextMenu(win)
 
   win.on('ready-to-show', () => {
     win.show()

@@ -7,7 +7,8 @@
 //      003 已预留 dmae_history，取 id≥5 会静默废掉 003）。
 //   2. 语义与内存实现逐条等价（自动建会话、最近 limit 条升序、getTurnMessages 只认 complete）。
 //   3. 启动中断修复：进程死则流式轮次必死，残留 streaming 一律修复为 failed，
-//      让 UI 出"重试"而不是永远"正在输入"（§2.3）。
+//      让 UI 出"重试"而不是永远"正在输入"（§2.3）；M-39 补充第二类——
+//      "用户消息已落库、assistant 未落库"的孤儿轮次补 failed 占位（CHAT_INTERRUPTED）。
 //   4. 全部参数化绑定；单写者（main 进程），事务包住"建会话+算 seq+插消息+刷热度"。
 
 import { randomUUID } from 'node:crypto'
@@ -110,7 +111,50 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
       `SELECT * FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq ASC`
     ),
     turnMessages: db.prepare(`SELECT * FROM messages WHERE session_id = ? AND turn_id = ?`),
-    byId: db.prepare(`SELECT * FROM messages WHERE session_id = ? AND id = ?`)
+    byId: db.prepare(`SELECT * FROM messages WHERE session_id = ? AND id = ?`),
+    orphanUserTurns: db.prepare(
+      `SELECT m.session_id AS session_id, m.turn_id AS turn_id FROM messages m
+       WHERE m.role = 'user' AND m.turn_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM messages a
+           WHERE a.session_id = m.session_id AND a.turn_id = m.turn_id AND a.role = 'assistant'
+         )`
+    )
+  }
+
+  // === 孤儿轮次修复（M-39，§2.3 中断修复的第二类）===
+  // 进程在"用户消息已落库、assistant 消息尚未落库"之间死亡时，历史里只剩用户气泡、
+  // 无任何"未回复"标记（streaming->failed 修复管不到——assistant 行根本不存在）。
+  // 孤儿只能出现在会话尾部（崩溃即终局，此后不可能再有新消息），补一条 failed 占位
+  // assistant（CHAT_INTERRUPTED），让 UI 出"回复被中断"标记 + 重试入口。
+  // 不 touch session.updated_at：占位是修复产物不是用户活动，不该改变会话活跃排序。
+  const orphanRows = stmts.orphanUserTurns.all() as Array<{
+    session_id: string
+    turn_id: string
+  }>
+  if (orphanRows.length > 0) {
+    const repairOrphans = db.transaction((rows: typeof orphanRows): void => {
+      for (const row of rows) {
+        const seq = (stmts.nextSeq.get(row.session_id) as { seq: number }).seq
+        stmts.insertMessage.run(
+          randomUUID(),
+          row.session_id,
+          seq,
+          'assistant',
+          '',
+          null,
+          'failed',
+          'CHAT_INTERRUPTED',
+          row.turn_id,
+          now()
+        )
+      }
+    })
+    repairOrphans(orphanRows)
+    logger?.info('repaired orphan user turns with interrupted placeholders', {
+      scope: 'chat',
+      metrics: { repaired: orphanRows.length }
+    })
   }
 
   const appendTx = db.transaction((sessionId: SessionId, message: ChatMessage): void => {

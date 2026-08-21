@@ -19,6 +19,7 @@ const ERROR_TEXT: Record<string, string> = {
   NET_TIMEOUT: '连接超时，请检查网络后重试',
   NET_OFFLINE: '网络连接失败，请检查网络',
   CHAT_CONTEXT_TOO_LARGE: '内容过长，已超出模型上下文窗口',
+  CHAT_INTERRUPTED: '回复被中断（应用可能意外关闭）',
   CFG_INVALID: '配置无效，请检查设置',
   UNKNOWN: '发生未知错误，请重试'
 }

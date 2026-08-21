@@ -146,3 +146,83 @@ describe('P2-43 SQLiteSessionStore：启动中断修复（§2.3）', () => {
     expect(check.getMessage(sid, 'stop')!.status).toBe('cancelled')
   })
 })
+
+describe('M-39 SQLiteSessionStore：孤儿轮次修复（启动中断修复第二类）', () => {
+  it('用户消息有 turnId 但无 assistant 配对 -> 补 failed 占位（CHAT_INTERRUPTED）', () => {
+    const first = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    // 模拟进程在"用户消息已落库、assistant 未落库"之间死亡
+    first.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+
+    // 模拟重启：新实例构造即修复
+    createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+
+    const check = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const msgs = check.getMessages(sid, 100)
+    expect(msgs).toHaveLength(2)
+    const placeholder = msgs[1]
+    expect(placeholder.role).toBe('assistant')
+    expect(placeholder.status).toBe('failed')
+    expect(placeholder.errorCode).toBe('CHAT_INTERRUPTED')
+    expect(placeholder.turnId).toBe('t1')
+    expect(placeholder.content).toBe('')
+  })
+
+  it('占位紧跟孤儿用户消息（尾部），且修复一次性（再次构造不重复补）', () => {
+    const first = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    first.appendMessage(sid, makeMessage({ id: 'u0', turnId: 't0' }))
+    first.appendMessage(
+      sid,
+      makeMessage({ id: 'a0', role: 'assistant', turnId: 't0', status: 'complete' })
+    )
+    first.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' })) // 孤儿在尾部
+
+    createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    createSQLiteSessionStore({ db: t.db, logger: testNoopLogger }) // 第三次构造不重复补
+
+    const check = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const msgs = check.getMessages(sid, 100)
+    expect(msgs).toHaveLength(4)
+    expect(msgs[0].id).toBe('u0')
+    expect(msgs[1].id).toBe('a0')
+    expect(msgs[2].id).toBe('u1')
+    expect(msgs[3].turnId).toBe('t1')
+    expect(msgs[3].status).toBe('failed')
+  })
+
+  it('已有 assistant（任何状态）的轮次不是孤儿；无 turnId 的用户消息跳过', () => {
+    const first = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    first.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+    first.appendMessage(
+      sid,
+      makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'failed' })
+    )
+    first.appendMessage(sid, makeMessage({ id: 'u2' })) // 无 turnId（Phase 1 遗留消息）
+
+    createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+
+    const check = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    expect(check.getMessages(sid, 100)).toHaveLength(3) // 没有补任何占位
+  })
+
+  it('修复不改变会话活跃排序（占位是修复产物，不 touch updated_at）', () => {
+    const first = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const a = first.createSession()
+    const b = first.createSession()
+    // b 里制造孤儿；随后让 a 变成最热
+    first.appendMessage(b, makeMessage({ id: 'u1', sessionId: b, turnId: 't1' }))
+    first.appendMessage(a, makeMessage({ id: 'x', sessionId: a }))
+    expect(first.getLastSessionId()).toBe(a)
+
+    createSQLiteSessionStore({ db: t.db, logger: testNoopLogger }) // 修复 b 的孤儿
+
+    const check = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    expect(check.getLastSessionId()).toBe(a) // a 仍最热：修复没有 bump b
+    // b 的孤儿确实被补了占位
+    const bMsgs = check.getMessages(b, 100)
+    expect(bMsgs).toHaveLength(2)
+    expect(bMsgs[1].errorCode).toBe('CHAT_INTERRUPTED')
+  })
+})
