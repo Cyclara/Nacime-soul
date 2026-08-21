@@ -169,6 +169,21 @@ export const useChatStore = defineStore('chat', () => {
     if (!result.ok || !result.data.requestId) retryTargetId = null
   }
 
+  // 验收反馈⑥：按轮删除（右键气泡 → 删除这轮对话）。
+  // main 返回实际被删的行 id（整轮 user+assistant 或单条遗产行），renderer 据此同步摘除气泡。
+  // 删除后该轮退出 prompt 历史——她会忘记这一轮；已沉淀的记忆条目不受影响。
+  async function deleteTurn(messageId: string): Promise<void> {
+    if (!state.sessionId || !window.companion || state.activeTurn) return
+    const result = await window.companion.chat.deleteTurn({
+      sessionId: state.sessionId,
+      messageId
+    })
+    if (!result.ok) return
+    const deleted = new Set(result.data.deletedIds)
+    if (deleted.size === 0) return
+    state.messages = state.messages.filter((m) => !deleted.has(m.id))
+  }
+
   // 验收反馈④c：重试终局（completed/failed/cancelled）时摘除被取代的旧气泡。
   let retryTargetId: string | null = null
   function consumeRetryTarget(): void {
@@ -324,6 +339,7 @@ export const useChatStore = defineStore('chat', () => {
     send,
     stop,
     retry,
+    deleteTurn,
     applyStream,
     subscribe,
     reset

@@ -4,20 +4,26 @@
 // 菜单集合（沿用 M-38 验收标准）：
 //   - 输入框（textarea/文本类 input）：剪切/复制/粘贴（按选中可用）+ 全选
 //   - 只读区域有选中文本：复制 + 全选
-//   - 无选中且非输入框：不弹空菜单
+//   - 聊天气泡（[data-message-id] 内）：额外出现「删除这轮对话」（验收反馈⑥）；
+//     无选中时点气泡也会单独出现该项。流式进行中不显示（main 侧另有 CHAT_BUSY 兜底）。
+//   - 无选中且非输入框、非气泡：不弹空菜单
 //
 // 行为说明：
 //   - 剪贴板走 navigator.clipboard（异步）；粘贴总是可用，空剪贴板时点击无操作
 //   - 输入框改值用 setRangeText + 派发 input 事件，v-model/@input 链路（Composer draft）正常感知
+//   - 删除是两段式：点第一次菜单项变「确认删除？」，3 秒内再点才真删（防手滑）
 //   - 关闭：点菜单外 / Esc / 滚动 / 窗口失焦 / 尺寸变化
 
 import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { useChatStore } from '../../stores/chat'
 
 interface MenuItem {
-  id: 'cut' | 'copy' | 'paste' | 'selectAll'
+  id: 'cut' | 'copy' | 'paste' | 'selectAll' | 'deleteTurn'
   label: string
   enabled: boolean
 }
+
+const chatStore = useChatStore()
 
 const visible = ref(false)
 const x = ref(0)
@@ -26,6 +32,13 @@ const items = ref<MenuItem[]>([])
 
 /** 本次菜单作用的输入框（只读区域菜单时为 null） */
 let editableTarget: HTMLInputElement | HTMLTextAreaElement | null = null
+/** 本次菜单作用的气泡 message id（非气泡菜单时为 null） */
+let bubbleMessageId: string | null = null
+
+// 验收反馈⑥：删除两段式确认
+const armedDelete = ref(false)
+const DELETE_ARM_MS = 3000
+let armTimer: ReturnType<typeof setTimeout> | null = null
 
 const MENU_WIDTH = 124
 const ITEM_HEIGHT = 32
@@ -37,15 +50,32 @@ function isTextEditable(el: EventTarget | null): el is HTMLInputElement | HTMLTe
   return el instanceof HTMLInputElement && /^(text|search|url|tel|password)$/.test(el.type)
 }
 
+function disarmDelete(): void {
+  armedDelete.value = false
+  if (armTimer !== null) {
+    clearTimeout(armTimer)
+    armTimer = null
+  }
+  items.value = items.value.map((it) =>
+    it.id === 'deleteTurn' ? { ...it, label: '删除这轮对话' } : it
+  )
+}
+
 function close(): void {
   visible.value = false
   editableTarget = null
+  bubbleMessageId = null
+  disarmDelete()
 }
 
 function onContextMenu(e: MouseEvent): void {
   const sel = window.getSelection()
   const next: MenuItem[] = []
   editableTarget = null
+  bubbleMessageId = null
+
+  const targetEl = e.target instanceof Element ? e.target : null
+  const bubbleEl = targetEl?.closest('[data-message-id]') ?? null
 
   if (isTextEditable(e.target)) {
     const el = e.target
@@ -57,14 +87,23 @@ function onContextMenu(e: MouseEvent): void {
       { id: 'selectAll', label: '全选', enabled: el.value.length > 0 }
     )
     editableTarget = el
-  } else if (sel && !sel.isCollapsed && sel.toString().length > 0) {
-    next.push(
-      { id: 'copy', label: '复制', enabled: true },
-      { id: 'selectAll', label: '全选', enabled: true }
-    )
+  } else {
+    if (sel && !sel.isCollapsed && sel.toString().length > 0) {
+      next.push(
+        { id: 'copy', label: '复制', enabled: true },
+        { id: 'selectAll', label: '全选', enabled: true }
+      )
+    }
+    // 气泡上的删除项：流式进行中不显示（删除被 CHAT_BUSY 拒绝，避免无效入口）
+    if (bubbleEl && !chatStore.state.activeTurn) {
+      bubbleMessageId = bubbleEl.getAttribute('data-message-id')
+      if (bubbleMessageId) {
+        next.push({ id: 'deleteTurn', label: '删除这轮对话', enabled: true })
+      }
+    }
   }
 
-  // 无选中且非输入框：不弹空菜单（交给浏览器默认——Electron 里即什么都不弹）
+  // 无选中且非输入框、非气泡：不弹空菜单（交给浏览器默认——Electron 里即什么都不弹）
   if (next.length === 0) return
 
   e.preventDefault()
@@ -92,10 +131,24 @@ function replaceEditableRange(
 }
 
 async function run(id: MenuItem['id']): Promise<void> {
+  // 验收反馈⑥：删除两段式——第一次点击只"上膛"（菜单不关，3 秒未确认自动复位）
+  if (id === 'deleteTurn' && !armedDelete.value) {
+    armedDelete.value = true
+    items.value = items.value.map((it) =>
+      it.id === 'deleteTurn' ? { ...it, label: '确认删除？' } : it
+    )
+    armTimer = setTimeout(disarmDelete, DELETE_ARM_MS)
+    return
+  }
+
   const el = editableTarget
   const sel = window.getSelection()
   try {
-    if (el) {
+    if (id === 'deleteTurn') {
+      // 走 store action（S-002 铁律3：组件不直接调 window.companion）；
+      // main 删整轮后返回被删行 id，store 同步摘除气泡
+      if (bubbleMessageId) await chatStore.deleteTurn(bubbleMessageId)
+    } else if (el) {
       const start = el.selectionStart ?? 0
       const end = el.selectionEnd ?? 0
       if (id === 'cut' || id === 'copy') {
@@ -144,6 +197,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (armTimer !== null) clearTimeout(armTimer)
   window.removeEventListener('contextmenu', onContextMenu)
   window.removeEventListener('pointerdown', onGlobalPointerDown, true)
   window.removeEventListener('keydown', onKeyDown, true)
@@ -166,6 +220,7 @@ onBeforeUnmount(() => {
         v-for="item in items"
         :key="item.id"
         class="app-context-menu-item"
+        :class="{ danger: item.id === 'deleteTurn' }"
         :disabled="!item.enabled"
         role="menuitem"
         type="button"
@@ -220,6 +275,16 @@ onBeforeUnmount(() => {
 .app-context-menu-item:focus-visible {
   outline: 1px solid var(--color-border-focus, var(--color-accent));
   outline-offset: -1px;
+}
+
+/* 删除项：静默时是错误色文字；上膛（确认删除？）后整行染错误底，明确"再点一次就真删" */
+.app-context-menu-item.danger:not(:disabled) {
+  color: var(--color-error);
+}
+
+.app-context-menu-item.danger:hover:not(:disabled),
+.app-context-menu-item.danger:active:not(:disabled) {
+  background: var(--color-error-bg);
 }
 
 @keyframes context-menu-in {

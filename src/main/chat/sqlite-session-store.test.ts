@@ -302,3 +302,62 @@ describe('验收反馈④c：deleteSupersededAssistantMessages（重试终局清
     expect(sqlite.deleteSupersededAssistantMessages(sid, 't1', 'a2')).toBe(0)
   })
 })
+
+describe('验收反馈⑥：deleteTurnMessages / deleteMessage（按轮删除对话）', () => {
+  it('deleteTurnMessages 删除整轮（user + assistant，任何状态），返回被删 id；其他轮不动', () => {
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'complete', content: '答' })
+    )
+    // M-47 残留现场：zombie user + CHAT_INTERRUPTED 占位同 turnId
+    store.appendMessage(sid, makeMessage({ id: 'u2', turnId: 't2', content: '我是你的制造者' }))
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'ph', role: 'assistant', turnId: 't2', status: 'failed', errorCode: 'CHAT_INTERRUPTED' })
+    )
+
+    const deleted = store.deleteTurnMessages(sid, 't2')
+    expect(deleted.sort()).toEqual(['ph', 'u2'])
+
+    const msgs = store.getMessages(sid, 100)
+    expect(msgs.map((m) => m.id)).toEqual(['u1', 'a1'])
+    expect(store.getTurnMessages(sid, 't2')).toBeNull()
+  })
+
+  it('deleteTurnMessages 无匹配返回空列表；deleteMessage 删单条并返回是否删到', () => {
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    store.appendMessage(sid, makeMessage({ id: 'legacy' })) // 无 turnId 遗产行
+    store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+
+    expect(store.deleteTurnMessages(sid, 'ghost-turn')).toEqual([])
+    expect(store.deleteMessage(sid, 'legacy')).toBe(true)
+    expect(store.deleteMessage(sid, 'legacy')).toBe(false) // 已删，再删 false
+    expect(store.getMessages(sid, 100).map((m) => m.id)).toEqual(['u1'])
+  })
+
+  it('与内存实现语义一致（整轮删除 + 单条删除）', () => {
+    const sqlite = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const memory = createMemorySessionStore()
+    const sid = 's-1'
+    const seed = (store: typeof sqlite): void => {
+      store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+      store.appendMessage(
+        sid,
+        makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'failed', errorCode: 'NET_TIMEOUT' })
+      )
+      store.appendMessage(sid, makeMessage({ id: 'legacy' }))
+    }
+    seed(sqlite)
+    seed(memory)
+
+    expect(sqlite.deleteTurnMessages(sid, 't1').sort()).toEqual(
+      memory.deleteTurnMessages(sid, 't1').sort()
+    )
+    expect(sqlite.deleteMessage(sid, 'legacy')).toBe(memory.deleteMessage(sid, 'legacy'))
+    expect(sqlite.getMessages(sid, 100)).toEqual(memory.getMessages(sid, 100))
+  })
+})

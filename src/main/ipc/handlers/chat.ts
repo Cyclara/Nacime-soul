@@ -136,5 +136,18 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
     return { requestId: ack.requestId }
   })
 
+  // === companion:chat:delete-turn ===
+  // 验收反馈⑥：按轮删除（用户自助清理残留/发错的对话）。删除即退出 prompt 历史。
+  registerValidatedHandler('companion:chat:delete-turn', async (_ctx, payload) => {
+    const { sessionId, messageId } = payload
+    const result = chatService.deleteTurn(sessionId, messageId)
+    chatLogger.info('chat delete-turn', {
+      scope: 'chat',
+      tags: { sessionId, messageId },
+      metrics: { removed: result.deletedIds.length }
+    })
+    return result
+  })
+
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })
 }

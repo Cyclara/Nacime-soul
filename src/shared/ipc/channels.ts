@@ -21,6 +21,8 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:chat:send',
   'companion:chat:cancel',
   'companion:chat:retry',
+  // ── 验收反馈⑥：按轮删除对话（additive 新增，不动既有通道）──
+  'companion:chat:delete-turn',
   'companion:debug:get-snapshot',
   'companion:debug:open-log-folder',
   // ── Phase 2：memory + growth（S-003-补充 §3.1：12 invoke）──

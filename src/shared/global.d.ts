@@ -84,6 +84,10 @@ export interface CompanionApi {
       sessionId: string
       messageId: string
     }): Promise<IpcResult<{ requestId: string }>>
+    deleteTurn(input: {
+      sessionId: string
+      messageId: string
+    }): Promise<IpcResult<{ deletedIds: string[] }>>
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe
   }
   debug: {

@@ -37,7 +37,11 @@ const items = computed<ListItem[]>(() => {
   let prev: number | null = null
   for (const m of orderedMessages.value) {
     if (shouldShowDivider(prev, m.createdAt)) {
-      out.push({ type: 'divider', key: `t-${m.id}`, label: formatDividerLabel(m.createdAt, now.value) })
+      out.push({
+        type: 'divider',
+        key: `t-${m.id}`,
+        label: formatDividerLabel(m.createdAt, now.value)
+      })
     }
     out.push({ type: 'message', key: m.id, message: m })
     prev = m.createdAt

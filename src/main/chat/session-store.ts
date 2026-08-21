@@ -69,6 +69,13 @@ export interface SessionStore {
     turnId: string,
     keepMessageId: MessageId
   ): number
+  /**
+   * 删除一整轮（验收反馈⑥ 用户自助删除）：user + assistant 全部行、任何状态。
+   * 返回被删行的 id 列表（renderer 据此同步摘除气泡）。
+   */
+  deleteTurnMessages(sessionId: SessionId, turnId: string): string[]
+  /** 删除单条消息（遗产无 turnId 行的回退路径）。返回是否删到。 */
+  deleteMessage(sessionId: SessionId, messageId: MessageId): boolean
   /** 更新消息的部分字段（流式完成后回写 status/content/errorCode） */
   updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void
   /** 最近活跃会话（P2-43 启动恢复）。空库/无会话返回 null */
@@ -154,6 +161,27 @@ export function createMemorySessionStore(): SessionStore {
       if (kept.length === before) return 0
       sessions.set(sessionId, kept)
       return before - kept.length
+    },
+
+    deleteTurnMessages(sessionId: SessionId, turnId: string): string[] {
+      const msgs = sessions.get(sessionId)
+      if (!msgs) return []
+      const removed = msgs.filter((m) => m.turnId === turnId).map((m) => m.id)
+      if (removed.length === 0) return []
+      sessions.set(
+        sessionId,
+        msgs.filter((m) => m.turnId !== turnId)
+      )
+      return removed
+    },
+
+    deleteMessage(sessionId: SessionId, messageId: MessageId): boolean {
+      const msgs = sessions.get(sessionId)
+      if (!msgs) return false
+      const idx = msgs.findIndex((m) => m.id === messageId)
+      if (idx < 0) return false
+      msgs.splice(idx, 1)
+      return true
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {

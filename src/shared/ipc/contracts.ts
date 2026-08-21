@@ -13,6 +13,7 @@ import type {
 } from '../config/types'
 import type {
   ChatCancelRequest,
+  ChatDeleteTurnRequest,
   ChatHistorySnapshot,
   ChatListRequest,
   ChatRetryRequest,
@@ -88,6 +89,7 @@ export interface IpcInvokeMap {
   'companion:chat:send': { req: ChatSendRequest; res: ChatSendAck }
   'companion:chat:cancel': { req: ChatCancelRequest; res: void }
   'companion:chat:retry': { req: ChatRetryRequest; res: { requestId: string } }
+  'companion:chat:delete-turn': { req: ChatDeleteTurnRequest; res: { deletedIds: string[] } }
   'companion:debug:get-snapshot': { req: undefined; res: DebugSnapshot }
   'companion:debug:open-log-folder': { req: undefined; res: void }
   // ── Phase 2：memory（9 invoke，S-003-补充 §3.1）──

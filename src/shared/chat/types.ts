@@ -79,6 +79,16 @@ export interface ChatRetryRequest {
   messageId: MessageId
 }
 
+/**
+ * 按轮删除（验收反馈⑥）：messageId 定位一轮（取其 turnId），
+ * 删除该轮全部行（user + assistant，含 failed/cancelled/CHAT_INTERRUPTED 占位）。
+ * 返回被删行的 id 列表（renderer 据此同步摘除气泡）。
+ */
+export interface ChatDeleteTurnRequest {
+  sessionId: SessionId
+  messageId: MessageId
+}
+
 // === ChatStreamEvent。依据 S-003 §3.8 ===
 export type ChatStreamEvent =
   | {

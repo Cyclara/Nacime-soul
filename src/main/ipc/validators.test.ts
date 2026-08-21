@@ -24,9 +24,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（36 + M-44 编辑 2 通道 = 38）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(38)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(38)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（38 + 验收反馈⑥ delete-turn = 39）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(39)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(39)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -256,6 +256,31 @@ describe('P1-11 ChatRetryRequest validator', () => {
 
   it('缺少 messageId 被拒绝', () => {
     expect(validateIpcPayload('companion:chat:retry', { sessionId: 'sess_01JG' })).toBe(false)
+  })
+})
+
+describe('验收反馈⑥ ChatDeleteTurnRequest validator', () => {
+  it('合法 payload 通过', () => {
+    expect(
+      validateIpcPayload('companion:chat:delete-turn', {
+        sessionId: 'sess_01JG',
+        messageId: 'msg_abc123'
+      })
+    ).toBe(true)
+  })
+
+  it('缺字段 / 多余字段 / 非字符串被拒绝', () => {
+    expect(validateIpcPayload('companion:chat:delete-turn', { sessionId: 'sess_01JG' })).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:delete-turn', {
+        sessionId: 'sess_01JG',
+        messageId: 'msg_abc',
+        turnId: 't1'
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:delete-turn', { sessionId: 'sess_01JG', messageId: 42 })
+    ).toBe(false)
   })
 })
 

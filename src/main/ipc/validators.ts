@@ -19,6 +19,7 @@ import type { IpcInvokeMap } from '@shared/ipc/contracts'
 import { THEME_SETTING_IDS } from '@shared/config/themes'
 import type {
   ChatCancelRequest,
+  ChatDeleteTurnRequest,
   ChatListRequest,
   ChatRetryRequest,
   ChatSendRequest
@@ -99,6 +100,15 @@ function isChatCancelRequest(value: unknown): value is ChatCancelRequest {
 
 // --- ChatRetryRequest ---
 function isChatRetryRequest(value: unknown): value is ChatRetryRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['sessionId', 'messageId'])) return false
+  if (!isId(value.sessionId)) return false
+  if (!isId(value.messageId)) return false
+  return true
+}
+
+// --- ChatDeleteTurnRequest（验收反馈⑥：与 retry 同形状） ---
+function isChatDeleteTurnRequest(value: unknown): value is ChatDeleteTurnRequest {
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['sessionId', 'messageId'])) return false
   if (!isId(value.sessionId)) return false
@@ -641,6 +651,7 @@ export const IPC_VALIDATORS = {
   'companion:chat:send': isChatSendRequest,
   'companion:chat:cancel': isChatCancelRequest,
   'companion:chat:retry': isChatRetryRequest,
+  'companion:chat:delete-turn': isChatDeleteTurnRequest,
   'companion:debug:get-snapshot': (v: unknown): v is undefined => v === undefined,
   'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined,
   // ── Phase 2：memory（9 invoke）──

@@ -117,6 +117,10 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
        WHERE session_id = ? AND turn_id = ? AND role = 'assistant'
          AND id != ? AND status != 'complete'`
     ),
+    deleteTurn: db.prepare(
+      `DELETE FROM messages WHERE session_id = ? AND turn_id = ? RETURNING id`
+    ),
+    deleteById: db.prepare(`DELETE FROM messages WHERE session_id = ? AND id = ?`),
     orphanUserTurns: db.prepare(
       `SELECT m.session_id AS session_id, m.turn_id AS turn_id FROM messages m
        WHERE m.role = 'user' AND m.turn_id IS NOT NULL
@@ -227,6 +231,15 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
       keepMessageId: MessageId
     ): number {
       return stmts.deleteSupersededAssistant.run(sessionId, turnId, keepMessageId).changes
+    },
+
+    deleteTurnMessages(sessionId: SessionId, turnId: string): string[] {
+      const rows = stmts.deleteTurn.all(sessionId, turnId) as Array<{ id: string }>
+      return rows.map((r) => r.id)
+    },
+
+    deleteMessage(sessionId: SessionId, messageId: MessageId): boolean {
+      return stmts.deleteById.run(sessionId, messageId).changes > 0
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {

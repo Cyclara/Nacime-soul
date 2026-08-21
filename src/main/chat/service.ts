@@ -125,6 +125,13 @@ export interface ChatService {
    * 气泡是旧投影，主库已清理），调用方静默忽略即可。
    */
   retryTurn(request: RetryTurnRequest, sink: ChatEventSink): Promise<TurnAck | null>
+  /**
+   * 按轮删除（验收反馈⑥ 用户自助删除）：messageId 定位一轮，删除该轮全部行
+   * （user + assistant，任何状态）；遗产无 turnId 行只删自己。
+   * 返回被删行 id 列表；目标不存在返回空数组（幂等容错）。
+   * 有 active turn 时拒绝（CHAT_BUSY）——防删到在途轮的用户消息。
+   */
+  deleteTurn(sessionId: SessionId, messageId: MessageId): { deletedIds: string[] }
   cancel(requestId: RequestId): boolean
   hasActiveTurn(sessionId: SessionId): boolean
 }
@@ -508,6 +515,42 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
       throw err
     }
+  }
+
+  /**
+   * 按轮删除（验收反馈⑥）。
+   * 一轮 = 同 turnId 的全部行（user + assistant，任何状态）——失败/中断占位随轮一起消失。
+   * 删除即退出后续 prompt 历史（buildBudgetHistoryTurns 从库读），等于"让她忘记这一轮"；
+   * 已提取的记忆条目不受影响（记忆面板另有管理入口）。
+   */
+  function deleteTurn(sessionId: SessionId, messageId: MessageId): { deletedIds: string[] } {
+    if (hasActiveTurn(sessionId)) {
+      throw new AppError({
+        code: 'CHAT_BUSY',
+        userMessage: '她还在回复中，等回复结束后再删除',
+        severity: 'error',
+        retryable: false
+      })
+    }
+
+    const target = sessionStore.getMessage(sessionId, messageId)
+    if (!target) return { deletedIds: [] }
+
+    const deletedIds = target.turnId
+      ? sessionStore.deleteTurnMessages(sessionId, target.turnId)
+      : sessionStore.deleteMessage(sessionId, messageId)
+        ? [messageId]
+        : []
+
+    if (deletedIds.length > 0) {
+      chatLogger.info('turn deleted by user', {
+        scope: 'chat',
+        ...(target.turnId ? { turnId: target.turnId } : {}),
+        tags: { sessionId },
+        metrics: { removed: deletedIds.length }
+      })
+    }
+    return { deletedIds }
   }
 
   /**
@@ -986,6 +1029,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     list,
     send,
     retryTurn,
+    deleteTurn,
     cancel,
     hasActiveTurn
   }

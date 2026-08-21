@@ -2,11 +2,14 @@
 // src/renderer/src/components/common/AppContextMenu.test.ts
 // 验收反馈⑤：主题化右键菜单。
 // 菜单集合沿用 M-38 验收标准：输入框=剪切/复制/粘贴/全选；只读选中=复制/全选；空白不弹。
+// 验收反馈⑥：气泡（[data-message-id]）上出现「删除这轮对话」，两段式确认，流式中不显示。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import { setActivePinia, createPinia } from 'pinia'
 import AppContextMenu from './AppContextMenu.vue'
+import { useChatStore } from '../../stores/chat'
 
 const writeText = vi.fn(async () => {})
 const readText = vi.fn(async () => '贴上来')
@@ -48,6 +51,7 @@ describe('AppContextMenu（验收反馈⑤）', () => {
   let wrapper: ReturnType<typeof mount> | null = null
 
   beforeEach(() => {
+    setActivePinia(createPinia())
     mockClipboard()
     writeText.mockClear()
     readText.mockClear()
@@ -205,5 +209,149 @@ describe('AppContextMenu（验收反馈⑤）', () => {
     const top = parseInt(menu.style.top, 10)
     expect(left).toBeLessThanOrEqual(window.innerWidth - 124 - 8)
     expect(top).toBeLessThanOrEqual(window.innerHeight - 8)
+  })
+})
+
+// 验收反馈⑥：气泡上的「删除这轮对话」
+describe('AppContextMenu 气泡删除（验收反馈⑥）', () => {
+  let wrapper: ReturnType<typeof mount> | null = null
+  const deleteTurn = vi.fn(async () => ({ ok: true, data: { deletedIds: ['u1', 'a1'] } }))
+
+  function makeBubble(messageId: string): HTMLDivElement {
+    const row = document.createElement('div')
+    row.setAttribute('data-message-id', messageId)
+    const bubble = document.createElement('div')
+    bubble.textContent = '她的回答'
+    row.appendChild(bubble)
+    document.body.appendChild(row)
+    return bubble
+  }
+
+  function deleteBtn(): HTMLButtonElement | undefined {
+    return [...document.body.querySelectorAll<HTMLButtonElement>('.app-context-menu-item')].find(
+      (b) => b.classList.contains('danger')
+    )
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    deleteTurn.mockClear()
+    Object.defineProperty(window, 'companion', {
+      value: { chat: { deleteTurn } },
+      writable: true,
+      configurable: true
+    })
+    // store action 需要 sessionId 才会真正发 IPC
+    useChatStore().state.sessionId = 's1'
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    document.body.innerHTML = ''
+  })
+
+  it('气泡右键（无选中）：只显示「删除这轮对话」', async () => {
+    wrapper = mount(AppContextMenu)
+    rightClick(makeBubble('a1'))
+    await nextTick()
+
+    expect(menuItems()).toEqual([{ text: '删除这轮对话', disabled: false }])
+  })
+
+  it('气泡右键（有选中）：复制/全选 + 删除这轮对话', async () => {
+    wrapper = mount(AppContextMenu)
+    const bubble = makeBubble('a1')
+
+    const realGetSelection = window.getSelection.bind(window)
+    Object.defineProperty(window, 'getSelection', {
+      configurable: true,
+      value: () => ({ isCollapsed: false, toString: () => '她的', selectAllChildren: vi.fn() })
+    })
+
+    rightClick(bubble)
+    await nextTick()
+
+    expect(menuItems()).toEqual([
+      { text: '复制', disabled: false },
+      { text: '全选', disabled: false },
+      { text: '删除这轮对话', disabled: false }
+    ])
+
+    Object.defineProperty(window, 'getSelection', { configurable: true, value: realGetSelection })
+  })
+
+  it('两段式：第一次点只上膛（菜单不关、标签变确认），第二次点才真删并关菜单', async () => {
+    wrapper = mount(AppContextMenu)
+    rightClick(makeBubble('a1'))
+    await nextTick()
+
+    deleteBtn()!.click()
+    await flushPromises()
+    // 上膛：菜单还开着，标签变了，IPC 未调
+    expect(menuEl()).not.toBeNull()
+    expect(deleteBtn()?.textContent?.trim()).toBe('确认删除？')
+    expect(deleteTurn).not.toHaveBeenCalled()
+
+    deleteBtn()!.click()
+    await flushPromises()
+    expect(deleteTurn).toHaveBeenCalledWith({ sessionId: 's1', messageId: 'a1' })
+    expect(menuEl()).toBeNull()
+  })
+
+  it('上膛后 3 秒未确认：自动复位回「删除这轮对话」', async () => {
+    vi.useFakeTimers()
+    try {
+      wrapper = mount(AppContextMenu)
+      rightClick(makeBubble('a1'))
+      await nextTick()
+
+      deleteBtn()!.click()
+      await nextTick()
+      expect(deleteBtn()?.textContent?.trim()).toBe('确认删除？')
+
+      vi.advanceTimersByTime(3000)
+      await nextTick()
+      expect(deleteBtn()?.textContent?.trim()).toBe('删除这轮对话')
+      expect(menuEl()).not.toBeNull() // 菜单仍开着，只是解除上膛
+      expect(deleteTurn).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('上膛后关闭菜单再打开：回到未上膛状态', async () => {
+    wrapper = mount(AppContextMenu)
+    const bubble = makeBubble('a1')
+    rightClick(bubble)
+    await nextTick()
+
+    deleteBtn()!.click()
+    await flushPromises()
+    expect(deleteBtn()?.textContent?.trim()).toBe('确认删除？')
+
+    // Esc 关闭
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+    expect(menuEl()).toBeNull()
+
+    // 重新右键：标签复位
+    rightClick(bubble)
+    await nextTick()
+    expect(deleteBtn()?.textContent?.trim()).toBe('删除这轮对话')
+  })
+
+  it('流式进行中（activeTurn 非空）：气泡右键不出现删除项', async () => {
+    useChatStore().state.activeTurn = {
+      requestId: 'r1',
+      assistantMessageId: 'a9',
+      lastSequence: 0,
+      startedAt: 1
+    }
+    wrapper = mount(AppContextMenu)
+    rightClick(makeBubble('a1'))
+    await nextTick()
+
+    expect(menuEl()).toBeNull() // 无选中 + 删除项被隐藏 -> 空菜单不弹
   })
 })

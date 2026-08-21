@@ -229,10 +229,20 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(typeof companionApi.window.onState).toBe('function')
   })
 
-  it('chat namespace 恰好 6 invoke 方法 + onStream（P2-43 增 getLastSession）', () => {
+  it('chat namespace 恰好 7 invoke 方法 + onStream（P2-43 增 getLastSession，验收反馈⑥增 deleteTurn）', () => {
     expect(Object.keys(companionApi.chat).sort()).toEqual(
-      ['cancel', 'createSession', 'getLastSession', 'list', 'onStream', 'retry', 'send'].sort()
+      ['cancel', 'createSession', 'deleteTurn', 'getLastSession', 'list', 'onStream', 'retry', 'send'].sort()
     )
+  })
+
+  it('chat.deleteTurn 固定调用 companion:chat:delete-turn', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { deletedIds: ['u1', 'a1'] } })
+    const result = await companionApi.chat.deleteTurn({ sessionId: 's1', messageId: 'a1' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:delete-turn', {
+      sessionId: 's1',
+      messageId: 'a1'
+    })
+    expect(result).toEqual({ ok: true, data: { deletedIds: ['u1', 'a1'] } })
   })
 
   it('chat.getLastSession 固定调用 companion:chat:get-last-session', async () => {

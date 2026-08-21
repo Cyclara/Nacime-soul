@@ -66,7 +66,8 @@ const visibleReasoning = computed(() => showReasoning.value && hasReasoning.valu
 </script>
 
 <template>
-  <div class="message-row" :class="{ user: isUser, assistant: !isUser }">
+  <!-- data-message-id：右键菜单（AppContextMenu）靠 closest('[data-message-id]') 定位气泡所在轮 -->
+  <div class="message-row" :class="{ user: isUser, assistant: !isUser }" :data-message-id="message.id">
     <div class="bubble" :class="{ user: isUser, assistant: !isUser }">
       <span class="sender-label">{{ isUser ? '你' : 'Nacime' }}</span>
       <div v-if="isError" class="status-tag error">

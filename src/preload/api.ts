@@ -178,6 +178,16 @@ export const companionApi: CompanionApi = Object.freeze({
         input as unknown as IpcInvokeMap['companion:chat:retry']['req']
       )
     },
+    // 验收反馈⑥：按轮删除对话（删除即退出她的上下文；记忆条目不受影响）
+    deleteTurn(input: {
+      sessionId: string
+      messageId: string
+    }): Promise<IpcResult<{ deletedIds: string[] }>> {
+      return typedInvoke(
+        'companion:chat:delete-turn',
+        input as unknown as IpcInvokeMap['companion:chat:delete-turn']['req']
+      )
+    },
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe {
       return typedSubscribe('companion:event:chat-stream', cb)
     }

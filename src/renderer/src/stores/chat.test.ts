@@ -374,3 +374,86 @@ describe('chat store retry（验收反馈④c：终局摘除旧失败气泡）',
     expect(store.state.messages.find((m) => m.id === 'a-old')).toBeDefined()
   })
 })
+
+// 验收反馈⑥：按轮删除——main 返回被删行 id，store 同步摘除气泡
+describe('chat store deleteTurn（验收反馈⑥：按轮删除对话）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.defineProperty(window, 'companion', {
+      value: {
+        chat: {
+          deleteTurn: vi.fn(async () => ({ ok: true, data: { deletedIds: ['u2', 'a2'] } }))
+        }
+      },
+      writable: true,
+      configurable: true
+    })
+  })
+
+  function seedTwoTurns(store: ReturnType<typeof useChatStore>): void {
+    store.state.sessionId = 's1'
+    store.state.messages.push(
+      { id: 'u1', role: 'user', content: '问一', createdAt: 1, status: 'complete' },
+      { id: 'a1', role: 'assistant', content: '答一', createdAt: 2, status: 'complete' },
+      { id: 'u2', role: 'user', content: '问二', createdAt: 3, status: 'complete' },
+      { id: 'a2', role: 'assistant', content: '答二', createdAt: 4, status: 'complete' }
+    )
+  }
+
+  it('删除成功：按 deletedIds 摘除气泡，其他轮保留', async () => {
+    const store = useChatStore()
+    seedTwoTurns(store)
+
+    await store.deleteTurn('a2')
+    expect(window.companion.chat.deleteTurn).toHaveBeenCalledWith({
+      sessionId: 's1',
+      messageId: 'a2'
+    })
+    expect(store.state.messages.map((m) => m.id)).toEqual(['u1', 'a1'])
+  })
+
+  it('空删除列表：不动任何气泡', async () => {
+    const store = useChatStore()
+    seedTwoTurns(store)
+    ;(window.companion.chat.deleteTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      data: { deletedIds: [] }
+    })
+
+    await store.deleteTurn('ghost')
+    expect(store.state.messages).toHaveLength(4)
+  })
+
+  it('IPC 失败：不动任何气泡', async () => {
+    const store = useChatStore()
+    seedTwoTurns(store)
+    ;(window.companion.chat.deleteTurn as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'CHAT_BUSY',
+        message: '忙',
+        userMessage: '她还在回复中',
+        severity: 'error',
+        retryable: false
+      }
+    })
+
+    await store.deleteTurn('a2')
+    expect(store.state.messages).toHaveLength(4)
+  })
+
+  it('流式进行中（activeTurn 非空）：不调 IPC 直接返回', async () => {
+    const store = useChatStore()
+    seedTwoTurns(store)
+    store.state.activeTurn = {
+      requestId: 'r1',
+      assistantMessageId: 'a9',
+      lastSequence: 0,
+      startedAt: 1
+    }
+
+    await store.deleteTurn('a2')
+    expect(window.companion.chat.deleteTurn).not.toHaveBeenCalled()
+    expect(store.state.messages).toHaveLength(4)
+  })
+})
