@@ -13,6 +13,7 @@ import { isThemeId } from '@shared/config/themes'
 import DebugPanel from './components/debug/DebugPanel.vue'
 import SettingsDrawer from './components/settings/SettingsDrawer.vue'
 import AppErrorBanner from './components/common/AppErrorBanner.vue'
+import AppContextMenu from './components/common/AppContextMenu.vue'
 
 const appStore = useAppStore()
 const configStore = useConfigStore()
@@ -114,6 +115,8 @@ onUnmounted(() => {
   <RouterView />
   <SettingsDrawer />
   <DebugPanel />
+  <!-- 验收反馈⑤：主题化右键菜单（替代 M-38 原生菜单） -->
+  <AppContextMenu />
 </template>
 
 <style scoped>
