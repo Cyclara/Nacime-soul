@@ -3,15 +3,47 @@
 // 依据：S-001 P1-24、S-002 §3.2 orderedMessages（main 已排序，禁止组件再排序）
 // 无业务逻辑：只展示 store.orderedMessages，自动滚动到底部
 
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/chat'
 import MessageBubble from './MessageBubble.vue'
+import { shouldShowDivider, formatDividerLabel } from '../../utils/time-divider'
+import type { ChatMessageView } from '@shared/chat/types'
 
 const chatStore = useChatStore()
 const { orderedMessages } = storeToRefs(chatStore)
 
 const scrollContainer = ref<HTMLElement | null>(null)
+
+// 验收反馈④b：QQ/微信式时间分隔条。now 每 30s 走一格，
+// 标签随时间推移自动老化（今天 HH:mm → 昨天 HH:mm → …）。
+const now = ref(Date.now())
+let nowTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  nowTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 30_000)
+})
+onBeforeUnmount(() => {
+  if (nowTimer !== null) clearInterval(nowTimer)
+})
+
+type ListItem =
+  | { type: 'divider'; key: string; label: string }
+  | { type: 'message'; key: string; message: ChatMessageView }
+
+const items = computed<ListItem[]>(() => {
+  const out: ListItem[] = []
+  let prev: number | null = null
+  for (const m of orderedMessages.value) {
+    if (shouldShowDivider(prev, m.createdAt)) {
+      out.push({ type: 'divider', key: `t-${m.id}`, label: formatDividerLabel(m.createdAt, now.value) })
+    }
+    out.push({ type: 'message', key: m.id, message: m })
+    prev = m.createdAt
+  }
+  return out
+})
 
 // 用户是否上滑离开了底部（距底部 > 80px 视为"正在读历史"，不再强制滚底）。
 // S-02 修复：流式输出时上滑阅读不被拽回；滑回底部后自动跟随恢复。
@@ -54,7 +86,12 @@ watch(
       <span class="empty-subtitle">不必想好开场，想到什么就慢慢说。</span>
     </div>
     <div v-if="orderedMessages.length > 0" class="message-column">
-      <MessageBubble v-for="msg in orderedMessages" :key="msg.id" :message="msg" />
+      <template v-for="item in items" :key="item.key">
+        <div v-if="item.type === 'divider'" class="time-divider">
+          <span>{{ item.label }}</span>
+        </div>
+        <MessageBubble v-else :message="item.message" />
+      </template>
     </div>
   </div>
 </template>
@@ -73,6 +110,20 @@ watch(
 .message-column {
   width: min(100%, 1040px);
   margin-inline: auto;
+}
+
+/* QQ/微信式时间分隔条：居中、浅字，安静不抢戏 */
+.time-divider {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0 12px;
+  user-select: none;
+}
+
+.time-divider span {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
 }
 
 .empty-hint {
