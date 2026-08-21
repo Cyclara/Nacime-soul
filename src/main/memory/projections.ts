@@ -46,6 +46,8 @@ export function projectL0(l0Store: L0Store): L0ProfileView {
       label: L0_FIELD_DESCRIPTIONS[key],
       // M-43：非称呼类字段与 L2 统一做人称转换（"伙伴喜欢…" -> "你喜欢…"）
       value: f ? (L0_HUMANIZE_EXEMPT.has(key) ? f.value : humanizeMemoryContent(f.value)) : null,
+      // M-44：原始值供编辑草稿（显示用 value，绝不用 rawValue 显示，避免人称混排回流）
+      rawValue: f ? f.value : null,
       isPinned: f ? f.isPinned : false,
       updatedAt: f ? f.updatedAt : null
     }
@@ -89,7 +91,9 @@ export function projectL2View(mem: L2Memory, activation: number): L2MemoryView {
     isPinned: mem.isPinned,
     accessCount: mem.accessCount,
     // id 格式 l2_{createdAtMs}_{random}：提取时间戳部分
-    createdAt: extractCreatedAt(mem.id)
+    createdAt: extractCreatedAt(mem.id),
+    // M-44：编辑标记（null = 从未被用户编辑）
+    editedAt: mem.editedAt
   }
 }
 
@@ -97,6 +101,8 @@ export function projectL2View(mem: L2Memory, activation: number): L2MemoryView {
 export function projectL2Detail(mem: L2Memory, activation: number): L2MemoryDetail {
   return {
     ...projectL2View(mem, activation),
+    // M-44：原始 content 供编辑草稿（content 已 humanize 仅供显示）
+    rawContent: mem.content,
     triggerText: mem.triggerText ?? '',
     evidenceIds: mem.evidenceIds,
     sourceMessageIds: mem.sourceMessageIds

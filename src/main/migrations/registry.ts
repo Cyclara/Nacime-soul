@@ -9,5 +9,6 @@ import { migration as m003 } from './scripts/003_dmae_history'
 import { migration as m004 } from './scripts/004_dmae_state_v2'
 import { migration as m005 } from './scripts/005_dmae_turn_stats'
 import { migration as m006 } from './scripts/006_l2_source'
+import { migration as m007 } from './scripts/007_l2_pin_edit'
 
-export const MIGRATIONS: Migration[] = [m001, m002, m003, m004, m005, m006]
+export const MIGRATIONS: Migration[] = [m001, m002, m003, m004, m005, m006, m007]

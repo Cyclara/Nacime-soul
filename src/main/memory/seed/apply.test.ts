@@ -80,7 +80,9 @@ function mockL2Store(existing: Map<string, L2Memory> = new Map()): {
           importance: input.importance ?? 5,
           archivedAt: null,
           extractionKey: input.extractionKey ?? null,
-          source: input.source ?? 'user_explicit'
+          source: input.source ?? 'user_explicit',
+          importanceBeforePin: null,
+          editedAt: null
         }
         existing.set(mem.id, mem)
         added.push(mem)
@@ -197,7 +199,9 @@ describe('applySeeds', () => {
           importance: 10,
           archivedAt: null,
           extractionKey: 'seed:old',
-          source: 'creator'
+          source: 'creator',
+          importanceBeforePin: null,
+          editedAt: null
         }
       ]
     ])
@@ -240,7 +244,9 @@ describe('applySeeds', () => {
           importance: 10,
           archivedAt: null,
           extractionKey: 'seed:done',
-          source: 'creator'
+          source: 'creator',
+          importanceBeforePin: null,
+          editedAt: null
         }
       ]
     ])

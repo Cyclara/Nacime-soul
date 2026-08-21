@@ -191,6 +191,22 @@ export const useMemoryStore = defineStore('memory', () => {
     return res.ok
   }
 
+  /** M-44 用户操作：编辑 L2 记忆内容。不乐观更新，等 event 回流刷新（S-012 §1.4） */
+  async function updateContent(memoryId: string, content: string): Promise<boolean> {
+    if (!window.companion) return false
+    const res = await window.companion.memory.updateContent({ memoryId, content })
+    if (!res.ok) setLastError(toPublicAppError(res.error))
+    return res.ok
+  }
+
+  /** M-44 用户操作：设定/清空 L0 画像字段（空串 = 清空）。不乐观更新。 */
+  async function setL0Field(field: string, value: string): Promise<boolean> {
+    if (!window.companion) return false
+    const res = await window.companion.memory.setL0Field({ field, value })
+    if (!res.ok) setLastError(toPublicAppError(res.error))
+    return res.ok
+  }
+
   /**
    * memory-updated 事件入口。S-012 §1.4 hint 矩阵：
    *   l0 -> get-l0；l1 -> 忽略拉取但推进 revision；l2 -> list-l2 + get-dmae-snapshot；
@@ -374,6 +390,8 @@ export const useMemoryStore = defineStore('memory', () => {
     setPinned,
     softDelete,
     restore,
+    updateContent,
+    setL0Field,
     applyUpdate,
     revalidate,
     subscribe,

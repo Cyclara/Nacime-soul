@@ -131,7 +131,9 @@ describe('P2-18 集成：九层全链路', () => {
       importance: 5,
       archivedAt: null,
       extractionKey: null,
-      source: 'user_explicit'
+      source: 'user_explicit',
+      importanceBeforePin: null,
+      editedAt: null
     }
 
     // 创建 assembler

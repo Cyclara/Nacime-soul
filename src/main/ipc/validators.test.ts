@@ -23,9 +23,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（35 invoke + M-26 mute-anomaly = 36）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(36)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(36)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（36 + M-44 编辑 2 通道 = 38）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(38)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(38)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -1365,6 +1365,87 @@ describe('P2-29 memory/growth invoke validator', () => {
   // memory:restore
   it('restore 合法通过', () => {
     expect(validateIpcPayload('companion:memory:restore', { memoryId: 'l2_1_a' })).toBe(true)
+  })
+
+  // M-44 memory:update-content
+  it('update-content：合法通过；空串/超长/多字段拒绝', () => {
+    expect(
+      validateIpcPayload('companion:memory:update-content', {
+        memoryId: 'l2_1_a',
+        content: '改过的内容'
+      })
+    ).toBe(true)
+    // 空串拒绝（trim 后为空由 handler 再判；validator 先挡真空串）
+    expect(
+      validateIpcPayload('companion:memory:update-content', { memoryId: 'l2_1_a', content: '' })
+    ).toBe(false)
+    // 501 字符超长（上限与提取管线 judge L2=500 一致）
+    expect(
+      validateIpcPayload('companion:memory:update-content', {
+        memoryId: 'l2_1_a',
+        content: 'x'.repeat(501)
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:memory:update-content', {
+        memoryId: 'l2_1_a',
+        content: 'x'.repeat(500)
+      })
+    ).toBe(true)
+    // 多余字段拒绝
+    expect(
+      validateIpcPayload('companion:memory:update-content', {
+        memoryId: 'l2_1_a',
+        content: 'x',
+        extra: 1
+      })
+    ).toBe(false)
+    // 非字符串 content 拒绝
+    expect(
+      validateIpcPayload('companion:memory:update-content', { memoryId: 'l2_1_a', content: 42 })
+    ).toBe(false)
+  })
+
+  // M-44 memory:set-l0-field
+  it('set-l0-field：白名单字段通过；未知字段/超长/多字段拒绝', () => {
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', { field: 'occupation', value: '工程师' })
+    ).toBe(true)
+    // 空串合法（= 清空字段）
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', { field: 'likes', value: '' })
+    ).toBe(true)
+    // 蛇形字段名（白名单成员）
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', {
+        field: 'relationship_status',
+        value: '单身'
+      })
+    ).toBe(true)
+    // 非白名单字段拒绝（防任意键注入 L0）
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', { field: 'password', value: 'x' })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', { field: 'Occupation', value: 'x' })
+    ).toBe(false)
+    // 121 字符超长（上限与提取管线 judge L0=120 一致）
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', {
+        field: 'likes',
+        value: 'x'.repeat(121)
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', {
+        field: 'likes',
+        value: 'x'.repeat(120)
+      })
+    ).toBe(true)
+    // 多余字段拒绝
+    expect(
+      validateIpcPayload('companion:memory:set-l0-field', { field: 'likes', value: 'x', extra: 1 })
+    ).toBe(false)
   })
 
   // memory:get-dmae-history

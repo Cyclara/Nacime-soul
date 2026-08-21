@@ -31,6 +31,9 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:memory:set-pinned',
   'companion:memory:soft-delete',
   'companion:memory:restore',
+  // ── M-44：记忆编辑（L2 内容 + L0 字段；additive 新增，不动既有通道）──
+  'companion:memory:update-content',
+  'companion:memory:set-l0-field',
   'companion:memory:get-dmae-snapshot',
   'companion:memory:get-dmae-history',
   'companion:growth:get-profile',

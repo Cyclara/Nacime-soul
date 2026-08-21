@@ -241,7 +241,7 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:get-last-session', undefined)
   })
 
-  it('memory namespace 恰好 9 invoke 方法 + onUpdated（S-003-补充 §3.6）', () => {
+  it('memory namespace 恰好 11 invoke 方法 + onUpdated（S-003-补充 §3.6 + M-44 编辑 2 方法）', () => {
     const memoryKeys = Object.keys(companionApi.memory).sort()
     expect(memoryKeys).toEqual(
       [
@@ -253,8 +253,10 @@ describe('S-004 #35: API 只暴露固定通道', () => {
         'listL2',
         'onUpdated',
         'restore',
+        'setL0Field',
         'setPinned',
-        'softDelete'
+        'softDelete',
+        'updateContent'
       ].sort()
     )
     for (const k of memoryKeys) {

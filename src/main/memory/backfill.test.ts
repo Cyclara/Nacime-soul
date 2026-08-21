@@ -55,7 +55,9 @@ function makeMemory(id: string, content: string, syncStatus: MemorySyncStatus): 
     importance: 6,
     archivedAt: null,
     extractionKey: `key-${id}`,
-    source: 'user_explicit'
+    source: 'user_explicit',
+    importanceBeforePin: null,
+    editedAt: null
   }
 }
 

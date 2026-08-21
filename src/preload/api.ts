@@ -58,6 +58,8 @@ import type {
   MemoryOverview,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  MemorySetL0FieldRequest,
+  MemoryUpdateContentRequest,
   MemoryUpdatedEvent
 } from '../shared/memory/types'
 import type {
@@ -212,6 +214,14 @@ export const companionApi: CompanionApi = Object.freeze({
     },
     restore(input: MemoryRestoreRequest): Promise<IpcResult<void>> {
       return typedInvoke('companion:memory:restore', input)
+    },
+    // M-44：编辑 L2 记忆内容（走 store action → IPC → main；不乐观更新）
+    updateContent(input: MemoryUpdateContentRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:memory:update-content', input)
+    },
+    // M-44：设定/清空 L0 画像字段（空串 value = 清空）
+    setL0Field(input: MemorySetL0FieldRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:memory:set-l0-field', input)
     },
     getDmaeSnapshot(): Promise<IpcResult<DmaeSnapshotView>> {
       return typedInvoke('companion:memory:get-dmae-snapshot', undefined)

@@ -50,6 +50,8 @@ import type {
   MemoryOverview,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  MemorySetL0FieldRequest,
+  MemoryUpdateContentRequest,
   MemoryUpdatedEvent
 } from '../memory/types'
 
@@ -96,6 +98,9 @@ export interface IpcInvokeMap {
   'companion:memory:set-pinned': { req: MemoryPinRequest; res: void }
   'companion:memory:soft-delete': { req: MemoryDeleteRequest; res: void }
   'companion:memory:restore': { req: MemoryRestoreRequest; res: void }
+  // ── M-44：记忆编辑（L2 内容 + L0 字段）──
+  'companion:memory:update-content': { req: MemoryUpdateContentRequest; res: void }
+  'companion:memory:set-l0-field': { req: MemorySetL0FieldRequest; res: void }
   'companion:memory:get-dmae-snapshot': { req: undefined; res: DmaeSnapshotView }
   'companion:memory:get-dmae-history': { req: DmaeHistoryRequest; res: DmaeHistoryResponse }
   // ── Phase 2：growth（3 invoke，S-003-补充 §3.1）──

@@ -126,7 +126,7 @@ describe('C-α 约束 2：JSON 迁移版本写入对称', () => {
     atomicWriteJson(dmaeFile, { schemaVersion: 1, entries: {} })
 
     const dmaeMig: Migration = {
-      id: 7,
+      id: 8,
       store: 'dmae',
       title: 'test dmae upgrade',
       up({ dataDir: dd }) {
@@ -151,11 +151,11 @@ describe('C-α 约束 2：JSON 迁移版本写入对称', () => {
     )
     const report = await runner.run()
     expect(report.ok).toBe(true)
-    expect(report.ran).toContain(7)
+    expect(report.ran).toContain(8)
 
     const after = JSON.parse(readFileSync(dmaeFile, 'utf8')) as Record<string, unknown>
     // 关键断言：runner 在 JSON 迁移成功后写入版本号（= 迁移 id），与 db 分支 setDbVersion 对称
-    expect(after.schemaVersion).toBe(7)
+    expect(after.schemaVersion).toBe(8)
     expect(after.migrated).toBe(true)
   })
 
@@ -396,7 +396,7 @@ describe('C-α-3：registry 校验 + fresh 重置 + 回滚删新文件', () => {
     const dmaeFile = join(dataDir, 'dmae-state.json')
 
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'fails on real run',
       up() {
@@ -416,7 +416,7 @@ describe('C-α-3：registry 校验 + fresh 重置 + 回滚删新文件', () => {
     )
     const report = await runner.run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.restored).toBe(true)
     // fresh 重置：db 和 JSON 文件都应被删除
     expect(existsSync(dbPath)).toBe(false)
@@ -499,7 +499,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
     })
     // 追加一条 id=7 迁移触发备份路径
     const extra: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'needs backup',
       up() {
@@ -514,7 +514,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
     ).rejects.toMatchObject({ code: 'MEM_MIGRATE_FAIL', severity: 'fatal' })
     // 真身未动
     db = new Database(dbPath)
-    expect(db.pragma('user_version', { simple: true })).toBe(6)
+    expect(db.pragma('user_version', { simple: true })).toBe(7)
     expect(db.prepare(`SELECT content FROM l2_memories WHERE id='A'`).get()).toEqual({
       content: 'rowA'
     })
@@ -529,7 +529,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
     db.close()
 
     const alwaysFails: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'always throws',
       up() {
@@ -548,7 +548,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
       () => 2_000
     ).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.ran).toEqual([])
     expect(clearSentinel(dataDir)).toBe(true) // 一次性 mock 已消耗
   })
@@ -562,7 +562,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
 
     let calls = 0
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'passes dry-run, throws on real run, restore breaks',
       up() {
@@ -578,7 +578,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
     })
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.restored).toBe(false)
     expect(restoreBackup).toHaveBeenCalled()
   })
@@ -586,7 +586,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
   it('fresh 路径真跑失败 + 清哨兵失败 -> ok:false 且 warn（restore 分支之外）', async () => {
     const { dataDir, dbPath } = paths()
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'fails on fresh real run',
       up() {
@@ -600,7 +600,7 @@ describe('C-α-4：runner 剩余分支（P2-45 100% branch 补测）', () => {
     vi.mocked(clearSentinel).mockReturnValueOnce(false)
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.restored).toBe(true) // fresh 重置也算 restored
     expect(clearSentinel(dataDir)).toBe(true) // 一次性 mock 已消耗
   })
@@ -634,43 +634,43 @@ describe('C-α-5：runOne 内部错误分支（P2-45 补测）', () => {
   it('db 迁移 up 返回 Promise（异步）-> dry-run 失败', async () => {
     const { dataDir, dbPath } = paths()
     await seedV6(dataDir, dbPath)
-    const mig = dbMig(7, {
+    const mig = dbMig(8, {
       up: async () => {
         void 0
       }
     })
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
   })
 
   it('db 迁移 validate 返回 Promise -> dry-run 失败', async () => {
     const { dataDir, dbPath } = paths()
     await seedV6(dataDir, dbPath)
-    const mig = dbMig(7, {
+    const mig = dbMig(8, {
       validate: async () => ({ ok: true }) as const
     })
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
   })
 
   it('db 迁移 validate 返回 not ok -> dry-run 失败', async () => {
     const { dataDir, dbPath } = paths()
     await seedV6(dataDir, dbPath)
-    const mig = dbMig(7, {
+    const mig = dbMig(8, {
       validate: () => ({ ok: false, detail: 'schema mismatch' })
     })
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
   })
 
   it('JSON 迁移 validate 返回 not ok -> dry-run 失败', async () => {
     const { dataDir, dbPath } = paths()
     await seedV6(dataDir, dbPath)
     const mig: Migration = {
-      id: 7,
+      id: 8,
       store: 'dmae',
       title: 'bad json validate',
       async up() {
@@ -682,14 +682,14 @@ describe('C-α-5：runOne 内部错误分支（P2-45 补测）', () => {
     }
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
   })
 
   it('JSON 迁移 store 未在 jsonStores 注册 -> dry-run 失败', async () => {
     const { dataDir, dbPath } = paths()
     await seedV6(dataDir, dbPath)
     const mig: Migration = {
-      id: 7,
+      id: 8,
       store: 'l0',
       title: 'l0 not registered',
       async up() {
@@ -701,14 +701,14 @@ describe('C-α-5：runOne 内部错误分支（P2-45 补测）', () => {
     }
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
   })
 
   it('JSON 版本后置断言失败（getJsonVersion != m.id）-> dry-run 失败', async () => {
     const { dataDir, dbPath } = paths()
     await seedV6(dataDir, dbPath)
     const mig: Migration = {
-      id: 7,
+      id: 8,
       store: 'dmae',
       title: 'version mismatch',
       async up() {
@@ -718,11 +718,11 @@ describe('C-α-5：runOne 内部错误分支（P2-45 补测）', () => {
         return { ok: true }
       }
     }
-    // dry-run 里 setJsonVersion(7) 后 getJsonVersion 被 mock 成 8 -> 断言失败
-    vi.mocked(getJsonVersion).mockReturnValueOnce(8)
+    // dry-run 里 setJsonVersion(8) 后 getJsonVersion 被 mock 成 9 -> 断言失败
+    vi.mocked(getJsonVersion).mockReturnValueOnce(9)
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, mig], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     // 一次性 mock 已消耗，恢复真实实现（后续调用走真实 getJsonVersion）
     vi.mocked(getJsonVersion).mockClear()
   })
@@ -764,7 +764,7 @@ describe('C-α-7：runner 可达剩余分支（P2-45 补测）', () => {
     await seedV6(dataDir, dbPath)
     let calls = 0
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'throws string on real run',
       up() {
@@ -777,7 +777,7 @@ describe('C-α-7：runner 可达剩余分支（P2-45 补测）', () => {
     }
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.restored).toBe(true)
   })
 
@@ -786,7 +786,7 @@ describe('C-α-7：runner 可达剩余分支（P2-45 补测）', () => {
     await seedV6(dataDir, dbPath)
     let calls = 0
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'passes dry-run throws on real',
       up() {
@@ -867,7 +867,7 @@ describe('C-α-8：jsonStore kind 防御 + dry-run 非 Error（P2-45 补测）',
     db.close()
 
     const alwaysFailsString: Migration = {
-      id: 7,
+      id: 8,
       store: 'db',
       title: 'always throws string',
       up() {
@@ -884,7 +884,7 @@ describe('C-α-8：jsonStore kind 防御 + dry-run 非 Error（P2-45 补测）',
       () => 2_000
     ).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.ran).toEqual([])
   })
 })

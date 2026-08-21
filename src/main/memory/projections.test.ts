@@ -41,6 +41,8 @@ function makeL2(over: Partial<L2Memory> = {}): L2Memory {
     archivedAt: null,
     extractionKey: null,
     source: 'user_explicit',
+    importanceBeforePin: null,
+    editedAt: null,
     ...over
   }
 }
@@ -140,6 +142,18 @@ describe('P2-29 projections', () => {
       expect(view.fields.find((f) => f.key === 'preferredName')!.value).toBe('伙伴')
       expect(view.fields.find((f) => f.key === 'name')!.value).toBe('伙伴们叫我老王')
     })
+
+    it('M-44：rawValue 带原文（value 已 humanize；编辑草稿必须用 rawValue）', () => {
+      const store = makeL0Store({
+        likes: { value: '伙伴喜欢打游戏', isPinned: false, updatedAt: 1 }
+      })
+      const view = projectL0(store)
+      const likes = view.fields.find((f) => f.key === 'likes')!
+      expect(likes.value).toBe('你喜欢打游戏')
+      expect(likes.rawValue).toBe('伙伴喜欢打游戏')
+      // 未填字段 rawValue 同为 null
+      expect(view.fields.find((f) => f.key === 'age')!.rawValue).toBeNull()
+    })
   })
 
   describe('projectL2View', () => {
@@ -191,6 +205,11 @@ describe('P2-29 projections', () => {
       const view = projectL2View(makeL2({ lifecycleState: 'purged' }), 0)
       expect(view.lifecycleState).toBe('archived')
     })
+
+    it('M-44：editedAt 透传（null = 从未编辑）', () => {
+      expect(projectL2View(makeL2(), 0).editedAt).toBeNull()
+      expect(projectL2View(makeL2({ editedAt: 1720000000000 }), 0).editedAt).toBe(1720000000000)
+    })
   })
 
   describe('projectL2Detail', () => {
@@ -205,6 +224,12 @@ describe('P2-29 projections', () => {
     it('triggerText null -> 空字符串', () => {
       const detail = projectL2Detail(makeL2({ triggerText: null }), 0)
       expect(detail.triggerText).toBe('')
+    })
+
+    it('M-44：rawContent 带原文（content 已 humanize，编辑草稿必须用 rawContent）', () => {
+      const detail = projectL2Detail(makeL2({ content: '伙伴最大的兴趣是打游戏' }), 0)
+      expect(detail.content).toBe('你最大的兴趣是打游戏')
+      expect(detail.rawContent).toBe('伙伴最大的兴趣是打游戏')
     })
   })
 

@@ -22,7 +22,7 @@ export type { MemoryLifecycleState, MemoryType }
  */
 export type MemorySource = 'creator' | 'user_explicit' | 'inferred'
 
-/** L2 记忆完整模型（16 字段，002 迁移增加 extraction_key，006 迁移增加 source） */
+/** L2 记忆完整模型（16 字段，002 迁移增加 extraction_key，006 迁移增加 source，007 迁移增加 importance_before_pin/edited_at） */
 export interface L2Memory {
   id: string
   evidenceIds: string[]
@@ -42,6 +42,10 @@ export interface L2Memory {
   extractionKey: string | null
   /** P2-37: 记忆来源（006 迁移增加；旧数据默认 'user_explicit'） */
   source: MemorySource
+  /** M-48: pin 前的原始 importance（unpin 时恢复）；从未 pin 过为 null（007 迁移增加） */
+  importanceBeforePin: number | null
+  /** M-44: 用户最后一次手动编辑内容的时间（ms epoch）；从未编辑为 null（007 迁移增加） */
+  editedAt: number | null
 }
 
 export interface L2CreateInput {
@@ -115,6 +119,8 @@ interface Row {
   archived_at: number | null
   extraction_key: string | null
   source: MemorySource
+  importance_before_pin: number | null
+  edited_at: number | null
 }
 
 function rowToMemory(r: Row): L2Memory {
@@ -134,7 +140,9 @@ function rowToMemory(r: Row): L2Memory {
     importance: r.importance,
     archivedAt: r.archived_at,
     extractionKey: r.extraction_key,
-    source: r.source
+    source: r.source,
+    importanceBeforePin: r.importance_before_pin,
+    editedAt: r.edited_at
   }
 }
 
@@ -168,10 +176,12 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
   const insertStmt = db.prepare(
     `INSERT INTO l2_memories
        (id, evidence_ids, source_message_ids, trigger_text, content, confidence,
-        sync_status, lifecycle_state, is_pinned, access_count, weight, type, importance, archived_at, extraction_key, source)
+        sync_status, lifecycle_state, is_pinned, access_count, weight, type, importance, archived_at, extraction_key, source,
+        importance_before_pin, edited_at)
      VALUES
        (@id, @evidence_ids, @source_message_ids, @trigger_text, @content, @confidence,
-        @sync_status, @lifecycle_state, @is_pinned, @access_count, @weight, @type, @importance, @archived_at, @extraction_key, @source)`
+        @sync_status, @lifecycle_state, @is_pinned, @access_count, @weight, @type, @importance, @archived_at, @extraction_key, @source,
+        @importance_before_pin, @edited_at)`
   )
   const getStmt = db.prepare(`SELECT * FROM l2_memories WHERE id = ?`)
 
@@ -192,7 +202,9 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
       importance: m.importance,
       archived_at: m.archivedAt,
       extraction_key: m.extractionKey,
-      source: m.source
+      source: m.source,
+      importance_before_pin: m.importanceBeforePin,
+      edited_at: m.editedAt
     }
   }
 
@@ -253,7 +265,9 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
         importance: input.importance ?? 5,
         archivedAt: null,
         extractionKey: input.extractionKey ?? null,
-        source: input.source ?? 'user_explicit'
+        source: input.source ?? 'user_explicit',
+        importanceBeforePin: null,
+        editedAt: null
       }
       insert(mem)
       // shouldEmit=false 时由调用方（writer 事务）commit 后统一 emitAdded，
@@ -286,7 +300,8 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
            evidence_ids=@evidence_ids, source_message_ids=@source_message_ids, trigger_text=@trigger_text,
            content=@content, confidence=@confidence, sync_status=@sync_status, lifecycle_state=@lifecycle_state,
            is_pinned=@is_pinned, access_count=@access_count, weight=@weight, type=@type,
-           importance=@importance, archived_at=@archived_at, extraction_key=@extraction_key, source=@source
+           importance=@importance, archived_at=@archived_at, extraction_key=@extraction_key, source=@source,
+           importance_before_pin=@importance_before_pin, edited_at=@edited_at
          WHERE id=@id`
       ).run(r)
     },

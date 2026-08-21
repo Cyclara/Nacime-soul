@@ -33,6 +33,8 @@ interface MockState {
   dmaeSnapshot: unknown
   detail: unknown | null
   setPinnedError: boolean
+  updateContentError: boolean
+  setL0FieldError: boolean
 }
 
 function setupCompanionApi(over: Partial<MockState> = {}): {
@@ -52,6 +54,8 @@ function setupCompanionApi(over: Partial<MockState> = {}): {
     },
     detail: null,
     setPinnedError: false,
+    updateContentError: false,
+    setL0FieldError: false,
     ...over
   }
 
@@ -71,6 +75,24 @@ function setupCompanionApi(over: Partial<MockState> = {}): {
     }),
     softDelete: vi.fn(async () => makeResult(true, undefined)),
     restore: vi.fn(async () => makeResult(true, undefined)),
+    updateContent: vi.fn(async () => {
+      if (state.updateContentError)
+        return makeResult(false, undefined, {
+          code: 'IPC_VALIDATION',
+          message: '记忆内容不能为空（想删掉请用删除）',
+          retryable: false
+        })
+      return makeResult(true, undefined)
+    }),
+    setL0Field: vi.fn(async () => {
+      if (state.setL0FieldError)
+        return makeResult(false, undefined, {
+          code: 'MEM_DISABLED',
+          message: '记忆功能未开启',
+          retryable: false
+        })
+      return makeResult(true, undefined)
+    }),
     getDmaeSnapshot: vi.fn(async () => makeResult(true, state.dmaeSnapshot)),
     getDmaeHistory: vi.fn(async () => makeResult(true, { memoryId: 'x', points: [] })),
     onUpdated: vi.fn((cb: (e: MemoryUpdatedEvent) => void) => () => {
@@ -280,6 +302,58 @@ describe('P2-30 memory store', () => {
       const ok = await store.setPinned('l2_x', true)
       expect(ok).toBe(false)
       expect(store.state.lastError?.code).toBe('MEM_NOT_FOUND')
+    })
+  })
+
+  describe('M-44 编辑操作', () => {
+    it('updateContent 成功 -> 参数原样透传（trim 由 main 做），不乐观更新', async () => {
+      const { memory } = setupCompanionApi({
+        overview: { revision: 1, enabled: true, l0: null, dmae: null },
+        listResponse: { items: [ITEM], total: 1, revision: 1 }
+      })
+      const store = useMemoryStore()
+      await store.hydrate()
+      const ok = await store.updateContent('l2_1', '  新内容  ')
+      expect(ok).toBe(true)
+      expect(memory.updateContent).toHaveBeenCalledWith({ memoryId: 'l2_1', content: '  新内容  ' })
+      // 不乐观更新：本地列表内容不变，等 event 回流
+      expect(store.state.l2Items[0].content).toBe('x')
+    })
+
+    it('updateContent 失败 -> lastError 设置', async () => {
+      setupCompanionApi({
+        overview: { revision: 1, enabled: true, l0: null, dmae: null },
+        updateContentError: true
+      })
+      const store = useMemoryStore()
+      await store.hydrate()
+      const ok = await store.updateContent('l2_1', '   ')
+      expect(ok).toBe(false)
+      expect(store.state.lastError?.code).toBe('IPC_VALIDATION')
+    })
+
+    it('setL0Field 成功 -> 参数透传（空串 = 清空字段）', async () => {
+      const { memory } = setupCompanionApi({
+        overview: { revision: 1, enabled: true, l0: null, dmae: null }
+      })
+      const store = useMemoryStore()
+      await store.hydrate()
+      expect(await store.setL0Field('occupation', '工程师')).toBe(true)
+      expect(memory.setL0Field).toHaveBeenCalledWith({ field: 'occupation', value: '工程师' })
+      expect(await store.setL0Field('likes', '')).toBe(true)
+      expect(memory.setL0Field).toHaveBeenCalledWith({ field: 'likes', value: '' })
+    })
+
+    it('setL0Field 失败 -> lastError 设置', async () => {
+      setupCompanionApi({
+        overview: { revision: 1, enabled: true, l0: null, dmae: null },
+        setL0FieldError: true
+      })
+      const store = useMemoryStore()
+      await store.hydrate()
+      const ok = await store.setL0Field('likes', 'x')
+      expect(ok).toBe(false)
+      expect(store.state.lastError?.code).toBe('MEM_DISABLED')
     })
   })
 

@@ -4,6 +4,8 @@
 // DmaeHistoryChart 延后到 P2-32/F5-002（S-012 §3.1）。功能版（视觉待前端模型美化）。
 // M-14：补齐焦点管理（打开移焦到关闭按钮、Tab 圈闭、Esc 关闭、关闭恢复焦点），
 //       修复旧实现 Esc 处理器挂在 overlay 上、而焦点停留在背景导致 Esc 失效的问题。
+// M-44：内联编辑（功能版）——编辑草稿取 rawContent（显示 content 已做人称转换，
+//       直接编辑显示值会把"你…"写回库污染原文）；保存后等 event 回流 + 重新拉详情。
 
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -19,6 +21,11 @@ let active = false
 
 const detail = computed(() => state.value.selectedDetail)
 const isSoftDeleted = computed(() => detail.value?.lifecycleState === 'soft_deleted')
+
+// M-44：内联编辑状态（功能版）
+const editing = ref(false)
+const editDraft = ref('')
+const saving = ref(false)
 
 const stateMeta = computed(() => {
   const map: Record<string, { label: string; colorVar: string; bgVar: string }> = {
@@ -73,6 +80,9 @@ function onDocumentKeydown(e: KeyboardEvent): void {
 }
 
 watch(detail, async (val) => {
+  // M-44：切换详情时退出编辑态（草稿不跨记忆残留）
+  editing.value = false
+  saving.value = false
   if (val) {
     if (!active) {
       active = true
@@ -115,6 +125,38 @@ async function onRestore(): Promise<void> {
   if (ok) await memoryStore.openDetail(detail.value.id)
 }
 
+// === M-44：内联编辑 ===
+
+function startEdit(): void {
+  if (!detail.value) return
+  // 草稿取原始 content（rawContent）：显示值已做人称转换（"伙伴…"->"你…"），
+  // 从显示值起草会把翻译后的文本写回库，污染原文与 prompt 注入语义。
+  editDraft.value = detail.value.rawContent
+  editing.value = true
+}
+
+function cancelEdit(): void {
+  editing.value = false
+  editDraft.value = ''
+}
+
+async function saveEdit(): Promise<void> {
+  if (!detail.value || saving.value) return
+  const content = editDraft.value.trim()
+  if (content.length === 0) return // 空内容由 main 侧拒绝；这里直接不交
+  saving.value = true
+  try {
+    const ok = await memoryStore.updateContent(detail.value.id, content)
+    if (ok) {
+      editing.value = false
+      // event 回流刷新列表；详情手动重拉以立即反映新内容 + editedAt 标记
+      await memoryStore.openDetail(detail.value.id)
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
 function close(): void {
   memoryStore.closeDetail()
 }
@@ -154,10 +196,34 @@ function close(): void {
 
         <div class="drawer-body">
           <section class="detail-section main-section">
-            <p class="detail-content">{{ detail.content }}</p>
+            <template v-if="!editing">
+              <p class="detail-content">{{ detail.content }}</p>
+            </template>
+            <template v-else>
+              <textarea
+                v-model="editDraft"
+                class="edit-textarea"
+                rows="4"
+                maxlength="500"
+                aria-label="编辑记忆内容"
+                @keydown.esc.stop="cancelEdit"
+              ></textarea>
+              <div class="edit-actions">
+                <button class="edit-btn primary" :disabled="saving" @click="saveEdit">
+                  {{ saving ? '保存中…' : '保存' }}
+                </button>
+                <button class="edit-btn" :disabled="saving" @click="cancelEdit">取消</button>
+              </div>
+            </template>
 
             <div class="detail-meta">
               <span v-if="detail.isPinned" class="pin-mark">📌 已固定</span>
+              <span
+                v-if="detail.editedAt"
+                class="edited-mark"
+                :title="`编辑于 ${new Date(detail.editedAt).toLocaleString()}`"
+                >✎ 已编辑</span
+              >
               <span class="type-tag">{{ detail.type }}</span>
             </div>
 
@@ -209,7 +275,7 @@ function close(): void {
 
         <footer class="drawer-footer">
           <button
-            v-if="!isSoftDeleted"
+            v-if="!isSoftDeleted && !editing"
             class="action-btn"
             :class="{ active: detail.isPinned }"
             @click="togglePin"
@@ -217,7 +283,15 @@ function close(): void {
             <span class="btn-icon">{{ detail.isPinned ? '✕' : '📌' }}</span>
             <span>{{ detail.isPinned ? '取消固定' : '固定' }}</span>
           </button>
-          <button v-if="!isSoftDeleted" class="action-btn danger" @click="onSoftDelete">
+          <button v-if="!isSoftDeleted && !editing" class="action-btn" @click="startEdit">
+            <span class="btn-icon">✎</span>
+            <span>编辑</span>
+          </button>
+          <button
+            v-if="!isSoftDeleted && !editing"
+            class="action-btn danger"
+            @click="onSoftDelete"
+          >
             <span class="btn-icon">🗑</span>
             <span>删除</span>
           </button>
@@ -403,6 +477,65 @@ function close(): void {
   filter: grayscale(1);
   color: var(--color-accent);
   font-weight: 500;
+}
+
+/* M-44：编辑标记 + 内联编辑（功能版，视觉待前端模型美化） */
+.edited-mark {
+  padding: 2px 8px;
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+}
+
+.edit-textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.edit-textarea:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.edit-btn {
+  min-height: 34px;
+  padding: 5px 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.edit-btn:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.edit-btn.primary {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.edit-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .type-tag {

@@ -125,7 +125,9 @@ function makeL2(id: string): L2Memory {
     importance: 5,
     archivedAt: null,
     extractionKey: null,
-    source: 'user_explicit'
+    source: 'user_explicit',
+    importanceBeforePin: null,
+    editedAt: null
   }
 }
 

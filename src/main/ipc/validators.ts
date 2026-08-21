@@ -41,8 +41,11 @@ import type {
   MemoryId,
   MemoryListRequest,
   MemoryPinRequest,
-  MemoryRestoreRequest
+  MemoryRestoreRequest,
+  MemorySetL0FieldRequest,
+  MemoryUpdateContentRequest
 } from '@shared/memory/types'
+import { L0_FIELD_DESCRIPTIONS } from '../memory/l0-store'
 
 // helper 函数从 shared 导入（main 的 invoke validator 复用）
 import {
@@ -518,6 +521,25 @@ function isMemoryRestoreRequest(value: unknown): value is MemoryRestoreRequest {
   return isMemoryId(value.memoryId)
 }
 
+/** M-44：编辑 L2 内容——trim 前 1..500 字符（上限与提取管线 judge.ts L2 一致） */
+function isMemoryUpdateContentRequest(value: unknown): value is MemoryUpdateContentRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['memoryId', 'content'])) return false
+  return isMemoryId(value.memoryId) && isString(value.content, { minLen: 1, maxLen: 500 })
+}
+
+/** L0 白名单字段 key 真源：main 侧 L0_FIELD_DESCRIPTIONS（S-011 §1.3） */
+const L0_FIELD_KEY_SET: ReadonlySet<string> = new Set(Object.keys(L0_FIELD_DESCRIPTIONS))
+
+/** M-44：设定/清空 L0 字段——field 白名单 + value 0..120（上限与提取管线 judge.ts L0 一致；空串=清空） */
+function isMemorySetL0FieldRequest(value: unknown): value is MemorySetL0FieldRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['field', 'value'])) return false
+  if (!isString(value.field, { minLen: 1, maxLen: 32 })) return false
+  if (!L0_FIELD_KEY_SET.has(value.field)) return false
+  return isString(value.value, { minLen: 0, maxLen: 120 })
+}
+
 const DMAE_HISTORY_DAYS = new Set([7, 30, 90])
 
 function isDmaeHistoryRequest(value: unknown): value is DmaeHistoryRequest {
@@ -616,6 +638,8 @@ export const IPC_VALIDATORS = {
   'companion:memory:set-pinned': isMemoryPinRequest,
   'companion:memory:soft-delete': isMemoryDeleteRequest,
   'companion:memory:restore': isMemoryRestoreRequest,
+  'companion:memory:update-content': isMemoryUpdateContentRequest,
+  'companion:memory:set-l0-field': isMemorySetL0FieldRequest,
   'companion:memory:get-dmae-snapshot': (v: unknown): v is undefined => v === undefined,
   'companion:memory:get-dmae-history': isDmaeHistoryRequest,
   // ── Phase 2：growth（3 invoke）──

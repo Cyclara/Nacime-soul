@@ -43,6 +43,8 @@ import type {
   MemoryOverview,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  MemorySetL0FieldRequest,
+  MemoryUpdateContentRequest,
   MemoryUpdatedEvent
 } from './memory/types'
 import type {
@@ -97,6 +99,9 @@ export interface CompanionApi {
     setPinned(input: MemoryPinRequest): Promise<IpcResult<void>>
     softDelete(input: MemoryDeleteRequest): Promise<IpcResult<void>>
     restore(input: MemoryRestoreRequest): Promise<IpcResult<void>>
+    // M-44：编辑 L2 记忆内容 / 设定·清空 L0 画像字段
+    updateContent(input: MemoryUpdateContentRequest): Promise<IpcResult<void>>
+    setL0Field(input: MemorySetL0FieldRequest): Promise<IpcResult<void>>
     getDmaeSnapshot(): Promise<IpcResult<DmaeSnapshotView>>
     getDmaeHistory(input: DmaeHistoryRequest): Promise<IpcResult<DmaeHistoryResponse>>
     onUpdated(cb: (e: MemoryUpdatedEvent) => void): Unsubscribe

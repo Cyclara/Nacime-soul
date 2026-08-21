@@ -138,4 +138,35 @@ describe('P2-07 L2Store', () => {
       String.raw`路径 C:\temp`
     ])
   })
+
+  it('M-48/M-44：007 新列默认 null 且 update 往返（importanceBeforePin / editedAt）', () => {
+    const mem = store.add({ content: 'x', confidence: 0.5 })
+    // 新建条目两列为 null（007 迁移：NULL = 从未 pin 过 / 从未编辑过）
+    expect(mem.importanceBeforePin).toBeNull()
+    expect(mem.editedAt).toBeNull()
+    expect(store.get(mem.id)?.importanceBeforePin).toBeNull()
+    expect(store.get(mem.id)?.editedAt).toBeNull()
+
+    // pin：存原 importance + 提到豁免档
+    store.update(mem.id, { isPinned: true, importanceBeforePin: 5, importance: 10 })
+    let got = store.get(mem.id)
+    expect(got?.isPinned).toBe(true)
+    expect(got?.importanceBeforePin).toBe(5)
+    expect(got?.importance).toBe(10)
+
+    // unpin：恢复原值、清备份
+    store.update(mem.id, { isPinned: false, importance: 5, importanceBeforePin: null })
+    got = store.get(mem.id)
+    expect(got?.isPinned).toBe(false)
+    expect(got?.importance).toBe(5)
+    expect(got?.importanceBeforePin).toBeNull()
+
+    // 编辑：editedAt 落库往返
+    store.update(mem.id, { content: 'x2', syncStatus: 'pending', editedAt: 1720000000000 })
+    got = store.get(mem.id)
+    expect(got?.content).toBe('x2')
+    expect(got?.editedAt).toBe(1720000000000)
+    // 未 patch 的字段不受影响
+    expect(got?.importance).toBe(5)
+  })
 })

@@ -16,10 +16,11 @@
 import type { Logger } from '@shared/observability/types'
 import type { MemoryConfig } from '@shared/config/types'
 import { AppError } from '@shared/errors'
-import type { L0Store } from '../../memory/l0-store'
+import type { L0FieldKey, L0Store } from '../../memory/l0-store'
 import type { L2Store, MemoryLifecycleState } from '../../memory/l2-store'
 import type { DmaeEngineService } from '../../memory/dmae/service'
 import type { DmaeDiagnosticsService } from '../../memory/dmae/diagnostics'
+import { IMPORTANCE_EXEMPT_THRESHOLD } from '../../memory/dmae/formulas'
 import type { MemoryRevisionClock } from '../../memory/revision-clock'
 import type { MemoryEventBroadcaster } from '../../memory/event-broadcaster'
 import {
@@ -145,12 +146,33 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
   )
 
   // === companion:memory:set-pinned ===
+  // M-48（2026-08-21）：pin 接真豁免——固定时 importance 提到豁免档（IMPORTANCE_EXEMPT_THRESHOLD=10，
+  // DMAE Decay=0，不再衰减、不进"想不起来"），原值存 importance_before_pin；unpin 恢复原值。
+  // L0 的 pin 语义（防覆盖）不动，见 set-l0-field。
   registerValidatedHandler('companion:memory:set-pinned', async (_ctx, input): Promise<void> => {
     if (disabled()) throw memDisabled()
-    const { l2Store, revisionClock, broadcaster } = services!
+    const { l2Store, dmaeService, revisionClock, broadcaster } = services!
     const mem = l2Store.get(input.memoryId)
     if (!mem || mem.lifecycleState === 'purged') throw memNotFound()
-    l2Store.update(input.memoryId, { isPinned: input.pinned })
+    if (input.pinned) {
+      if (mem.isPinned) return // 幂等：重复 pin 不改写（保住 importanceBeforePin 原件）
+      l2Store.update(input.memoryId, {
+        isPinned: true,
+        importanceBeforePin: mem.importance,
+        importance: IMPORTANCE_EXEMPT_THRESHOLD
+      })
+      // 激活值抬到 Active 档（立即回到"她记得"集合）；已有更高 activation 不覆盖。
+      // dmaeService=null（dmae 关闭）时跳过，importance=10 仍在 DMAE 重开时天然豁免衰减。
+      dmaeService?.seedActivation(input.memoryId, getMemoryConfig().dmae.promptThreshold)
+    } else {
+      if (!mem.isPinned) return // 幂等：未 pin 的 unpin 是空操作
+      // 恢复 pin 前 importance；007 迁移前的旧 pin 数据无备份（null）则保持现值
+      l2Store.update(input.memoryId, {
+        isPinned: false,
+        importance: mem.importanceBeforePin ?? mem.importance,
+        importanceBeforePin: null
+      })
+    }
     // S-012 §1.4：用户写操作 revision++ + hint='l2'
     revisionClock.next()
     broadcaster.notify('l2')
@@ -191,6 +213,55 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
     logger.debug('memory restored', {
       scope: 'memory-ipc',
       tags: { memoryId: input.memoryId }
+    })
+  })
+
+  // === companion:memory:update-content（M-44）===
+  // 用户编辑 L2 记忆内容：trim 非空 -> 落库 + syncStatus 打回 pending（改过的内容需重新向量化）
+  // + editedAt 编辑标记（provenance，面板显示"已编辑"）。内容无变化时不写不 bump revision。
+  registerValidatedHandler(
+    'companion:memory:update-content',
+    async (_ctx, input): Promise<void> => {
+      if (disabled()) throw memDisabled()
+      const { l2Store, revisionClock, broadcaster } = services!
+      const mem = l2Store.get(input.memoryId)
+      if (!mem || mem.lifecycleState === 'purged') throw memNotFound()
+      const content = input.content.trim()
+      if (content.length === 0) {
+        throw new AppError({
+          code: 'IPC_VALIDATION',
+          userMessage: '记忆内容不能为空（想删掉请用删除）',
+          severity: 'error',
+          retryable: false
+        })
+      }
+      if (content === mem.content) return // 无变化：不写、不盖 editedAt、不 bump revision
+      l2Store.update(input.memoryId, { content, syncStatus: 'pending', editedAt: Date.now() })
+      revisionClock.next()
+      broadcaster.notify('l2')
+      logger.debug('memory content edited', {
+        scope: 'memory-ipc',
+        tags: { memoryId: input.memoryId }
+      })
+    }
+  )
+
+  // === companion:memory:set-l0-field（M-44）===
+  // 用户设定/清空 L0 画像字段：非空 -> setPinned（user_pinned，防自动覆盖，L0 pin 语义不动）；
+  // 空串 -> clearField（允许 fillRate 下降）。l0Store 内部自做 revision++ + 广播（P2-29），
+  // handler 不重复 notify。
+  registerValidatedHandler('companion:memory:set-l0-field', async (_ctx, input): Promise<void> => {
+    if (disabled()) throw memDisabled()
+    const { l0Store } = services!
+    const value = input.value.trim()
+    if (value.length === 0) {
+      l0Store.clearField(input.field as L0FieldKey)
+    } else {
+      l0Store.setPinned(input.field as L0FieldKey, value)
+    }
+    logger.debug('memory l0 field set by user', {
+      scope: 'memory-ipc',
+      tags: { field: input.field, cleared: String(value.length === 0) }
     })
   })
 

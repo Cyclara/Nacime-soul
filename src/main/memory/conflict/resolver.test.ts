@@ -117,7 +117,9 @@ describe('P2-20 ConflictResolver (LLM 裁决)', () => {
       importance: 8,
       archivedAt: null,
       extractionKey: null,
-      source: 'user_explicit'
+      source: 'user_explicit',
+      importanceBeforePin: null,
+      editedAt: null
     }
     const existingMemory: L2Memory = {
       id: 'l2_old1',
@@ -135,7 +137,9 @@ describe('P2-20 ConflictResolver (LLM 裁决)', () => {
       importance: 8,
       archivedAt: null,
       extractionKey: null,
-      source: 'user_explicit'
+      source: 'user_explicit',
+      importanceBeforePin: null,
+      editedAt: null
     }
     return {
       newMemory,
@@ -232,7 +236,9 @@ describe('P2-20 computeConflictSignals (启发式信号)', () => {
       importance: 8,
       archivedAt: null,
       extractionKey: null,
-      source: 'user_explicit'
+      source: 'user_explicit',
+      importanceBeforePin: null,
+      editedAt: null
     }
     return {
       newMemory: { ...base, id: 'l2_new', content: newContent, triggerText: trigger },
@@ -687,7 +693,9 @@ describe('P2-20/21 ConflictService (检测 + 解决 + 日志)', () => {
       importance: 3,
       archivedAt: null,
       extractionKey: null,
-      source: 'user_explicit'
+      source: 'user_explicit',
+      importanceBeforePin: null,
+      editedAt: null
     }
     const oldMem = { ...baseMem, id: 'l2_old_manual', content: '用户去过北京' }
     const newMem = { ...baseMem, id: 'l2_new_manual', content: '用户去过上海' }

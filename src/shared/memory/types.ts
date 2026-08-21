@@ -30,7 +30,9 @@ export interface L0ProfileView {
   fields: Array<{
     key: string // L0FieldKey（preferredName | name | occupation | ...）
     label: string // 中文标签（main 侧 L0_FIELD_DESCRIPTIONS 提供）
-    value: string | null // null = "未知/待发现"
+    value: string | null // null = "未知/待发现"（M-43：显示值，行首"用户/伙伴"已转"你"）
+    /** M-44：未做人称转换的原始值（编辑草稿用；显示永远用 value） */
+    rawValue: string | null
     isPinned: boolean
     updatedAt: number | null
   }>
@@ -53,10 +55,14 @@ export interface L2MemoryView {
   isPinned: boolean
   accessCount: number
   createdAt: number
+  /** M-44: 用户最后一次手动编辑时间（ms epoch）；从未编辑为 null（面板显示"已编辑"标记） */
+  editedAt: number | null
 }
 
 /** 记忆详情（详情抽屉用；evidence 只有 ID，正文按需单独拉） */
 export interface L2MemoryDetail extends L2MemoryView {
+  /** M-44：未做人称转换的原始 content（编辑草稿用；显示永远用 content） */
+  rawContent: string
   triggerText: string
   evidenceIds: string[]
   sourceMessageIds: string[]
@@ -106,6 +112,22 @@ export interface MemoryDetailRequest {
 export interface MemoryPinRequest {
   memoryId: MemoryId
   pinned: boolean
+}
+
+/** M-44：编辑 L2 记忆内容（trim 后 1..500 字符，与提取管线 judge 上限一致） */
+export interface MemoryUpdateContentRequest {
+  memoryId: MemoryId
+  content: string
+}
+
+/**
+ * M-44：设定/清空 L0 画像字段。
+ * field 必须是 L0 白名单 key（preferredName/name/occupation/...，main 侧 L0_FIELD_DESCRIPTIONS 真源）；
+ * value trim 后 0..120 字符（与提取管线 L0 上限一致）；空串 = 清空该字段。
+ */
+export interface MemorySetL0FieldRequest {
+  field: string
+  value: string
 }
 
 export interface MemoryDeleteRequest {

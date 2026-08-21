@@ -56,7 +56,9 @@ function makeMemory(
     importance: 6,
     archivedAt,
     extractionKey: null,
-    source: 'user_explicit'
+    source: 'user_explicit',
+    importanceBeforePin: null,
+    editedAt: null
   }
 }
 

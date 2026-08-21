@@ -2,12 +2,43 @@
 // P2-31: L0ProfileCard -- 画像字段网格（"未知/待发现"灰态 + 已知值 + pin 图标）。
 // 依据：S-006 §1.2、S-011 §1.3（L0 按白名单固定顺序）、S-006 §1.4（空态人格化）。
 // 功能版（视觉待前端模型美化）。
+// M-44：字段内联编辑（功能版）——草稿取 rawValue（显示 value 已做人称转换）；
+//       保存非空 -> setPinned（user_pinned 防自动覆盖）；保存空串 -> clearField。
 
+import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMemoryStore } from '../../stores/memory'
 
 const memoryStore = useMemoryStore()
 const { state } = storeToRefs(memoryStore)
+
+// M-44：内联编辑状态（一次只编一个字段）
+const editingKey = ref<string | null>(null)
+const editDraft = ref('')
+const saving = ref(false)
+
+function startEdit(key: string, rawValue: string | null): void {
+  editingKey.value = key
+  // 草稿取原始值（rawValue）：显示值已做人称转换，直接编辑会把"你…"写回库
+  editDraft.value = rawValue ?? ''
+}
+
+function cancelEdit(): void {
+  editingKey.value = null
+  editDraft.value = ''
+}
+
+async function saveEdit(key: string): Promise<void> {
+  if (saving.value) return
+  saving.value = true
+  try {
+    // 空串 = 清空该字段（main 侧 clearField）；非空 = setPinned
+    const ok = await memoryStore.setL0Field(key, editDraft.value.trim())
+    if (ok) cancelEdit()
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -37,11 +68,43 @@ const { state } = storeToRefs(memoryStore)
       >
         <div class="field-header">
           <span class="field-label">{{ field.label }}</span>
-          <span v-if="field.isPinned" class="pin-badge" title="已固定（不会被覆盖）">📌</span>
+          <span class="field-tools">
+            <span v-if="field.isPinned" class="pin-badge" title="已固定（不会被覆盖）">📌</span>
+            <button
+              v-if="editingKey !== field.key"
+              class="field-edit-btn"
+              :aria-label="`编辑${field.label}`"
+              title="编辑"
+              @click="startEdit(field.key, field.rawValue)"
+            >
+              ✎
+            </button>
+          </span>
         </div>
-        <div class="field-value">
+        <div v-if="editingKey !== field.key" class="field-value">
           <span v-if="field.value !== null">{{ field.value }}</span>
           <span v-else class="value-placeholder">待发现</span>
+        </div>
+        <div v-else class="field-edit">
+          <input
+            v-model="editDraft"
+            class="field-edit-input"
+            type="text"
+            maxlength="120"
+            :aria-label="`编辑${field.label}（留空保存 = 清空）`"
+            @keydown.enter="saveEdit(field.key)"
+            @keydown.esc.stop="cancelEdit"
+          />
+          <div class="field-edit-actions">
+            <button
+              class="field-edit-action primary"
+              :disabled="saving"
+              @click="saveEdit(field.key)"
+            >
+              {{ saving ? '…' : '✓' }}
+            </button>
+            <button class="field-edit-action" :disabled="saving" @click="cancelEdit">✕</button>
+          </div>
         </div>
       </div>
     </div>
@@ -163,11 +226,89 @@ const { state } = storeToRefs(memoryStore)
   letter-spacing: 0.015em;
 }
 
+.field-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .pin-badge {
   filter: grayscale(1);
   font-size: 10px;
   cursor: help;
   opacity: 0.72;
+}
+
+/* M-44：字段内联编辑（功能版，视觉待前端模型美化） */
+.field-edit-btn {
+  padding: 1px 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.field-edit-btn:hover {
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  opacity: 1;
+}
+
+.field-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-edit-input {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.field-edit-input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.field-edit-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.field-edit-action {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.field-edit-action:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.field-edit-action.primary {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.field-edit-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .field-value {

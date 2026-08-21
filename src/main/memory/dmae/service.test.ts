@@ -101,7 +101,9 @@ function makeL2(
     importance,
     archivedAt: null,
     extractionKey: null,
-    source: 'user_explicit'
+    source: 'user_explicit',
+    importanceBeforePin: null,
+    editedAt: null
   }
 }
 

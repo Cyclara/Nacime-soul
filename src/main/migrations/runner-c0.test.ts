@@ -96,7 +96,7 @@ describe('P2-31.5C0-2: JSON 迁移 dry-run 失败中止', () => {
 
     // 造一条会在 dry-run 阶段抛错的 JSON 迁移（id=7，在 006 之后）
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'dmae',
       title: 'throws during up()',
       up() {
@@ -109,7 +109,7 @@ describe('P2-31.5C0-2: JSON 迁移 dry-run 失败中止', () => {
 
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     // 真实文件字节不变
     expect(readFileSync(dmaePath, 'utf8')).toBe(originalContent)
   })
@@ -121,7 +121,7 @@ describe('P2-31.5C0-2: JSON 迁移 dry-run 失败中止', () => {
 
     // up() 写入无效 JSON（不是合法 JSON 对象）
     const badJson: Migration = {
-      id: 7,
+      id: 8,
       store: 'dmae',
       title: 'writes invalid json',
       up({ dataDir: dd }) {
@@ -134,7 +134,7 @@ describe('P2-31.5C0-2: JSON 迁移 dry-run 失败中止', () => {
 
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, badJson], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     // 真实文件字节不变（dry-run 在副本上跑，真身未动）
     expect(readFileSync(dmaePath, 'utf8')).toBe(originalContent)
   })
@@ -189,7 +189,7 @@ describe('P2-31.5C0-4: JSON 迁移真跑失败 -> 备份恢复', () => {
     // 造一条 dry-run 通过、真跑抛错的 JSON 迁移
     let calls = 0
     const failing: Migration = {
-      id: 7,
+      id: 8,
       store: 'dmae',
       title: 'passes dry-run, throws on real run',
       up() {
@@ -203,7 +203,7 @@ describe('P2-31.5C0-4: JSON 迁移真跑失败 -> 备份恢复', () => {
 
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(7)
+    expect(report.failedAt).toBe(8)
     expect(report.restored).toBe(true)
     // 备份恢复后文件字节级一致
     expect(readFileSync(dmaePath, 'utf8')).toBe(knownContent)
@@ -310,14 +310,14 @@ describe('P2-31.5C0-5: backup.ts JSON 备份/恢复', () => {
 
 // === C0-6: 回归：db 分支原有用例仍全绿 ===
 describe('P2-31.5C0-6: 回归 - db 分支仍正常', () => {
-  it('db 迁移 fresh 路径正常（001+002+003+004+005+006）', async () => {
+  it('db 迁移 fresh 路径正常（001+002+003+004+005+006+007）', async () => {
     const { dataDir, dbPath } = paths()
     const report = await makeRunner(dbPath, dataDir, MIGRATIONS).run()
     expect(report.ok).toBe(true)
-    expect(report.ran).toEqual([1, 2, 3, 4, 5, 6])
+    expect(report.ran).toEqual([1, 2, 3, 4, 5, 6, 7])
 
     const db = new Database(dbPath)
-    expect(db.pragma('user_version', { simple: true })).toBe(6)
+    expect(db.pragma('user_version', { simple: true })).toBe(7)
     db.close()
   })
 
