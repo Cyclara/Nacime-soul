@@ -3,6 +3,7 @@
 // 依据：S-001 P1-24、S-006 §1.2（ChatHeader 菜单入口；当前用浮动按钮简化，前端模型可美化）
 // 无业务逻辑：组合 MessageList + Composer + 记忆入口
 
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
@@ -12,6 +13,17 @@ import { useChatStore } from '../../stores/chat'
 const router = useRouter()
 const settingsUi = useSettingsUiStore()
 const chatStore = useChatStore()
+
+// 2026-08-21 布局③：会呼吸的存在指示——只读 chat store 推导她的当下状态，
+// 不写回任何 store：无轮次=慢慢听；有轮次但 assistant 还没出字=在想；开始出字=在回应。
+const presencePhase = computed<'idle' | 'thinking' | 'responding'>(() => {
+  const turn = chatStore.state.activeTurn
+  if (!turn) return chatStore.state.isSending ? 'thinking' : 'idle'
+  const msg = chatStore.state.messages.find((m) => m.id === turn.assistantMessageId)
+  return msg && msg.content.length > 0 ? 'responding' : 'thinking'
+})
+const PRESENCE_TEXT = { idle: '慢慢听你说', thinking: '在想…', responding: '在回应你' } as const
+const presenceText = computed(() => PRESENCE_TEXT[presencePhase.value])
 </script>
 
 <template>
@@ -23,7 +35,10 @@ const chatStore = useChatStore()
           <span class="companion-avatar" aria-hidden="true">N</span>
           <span class="identity-copy">
             <strong>Nacime</strong>
-            <span class="presence"><i aria-hidden="true"></i>慢慢听你说</span>
+            <span class="presence" :data-phase="presencePhase" role="status" aria-live="polite"
+              ><i aria-hidden="true"></i
+              ><span :key="presencePhase" class="presence-text">{{ presenceText }}</span></span
+            >
           </span>
         </div>
         <div class="header-actions">
@@ -168,6 +183,68 @@ const chatStore = useChatStore()
   border-radius: 50%;
   background: var(--color-companion);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-companion) 12%, transparent);
+  /* 布局③：idle 慢呼吸（4.6s），像睡着了一样安稳 */
+  animation: presence-breathe 4.6s ease-in-out infinite;
+}
+
+/* 在想：短促的专注脉搏 */
+.presence[data-phase='thinking'] i {
+  animation: presence-pulse 1.15s ease-in-out infinite;
+}
+
+/* 在回应：说话般的稳定节律 */
+.presence[data-phase='responding'] i {
+  animation: presence-breathe 1.7s ease-in-out infinite;
+}
+
+.presence[data-phase='thinking'] .presence-text {
+  color: var(--color-companion);
+}
+
+/* 阶段切换时文字轻轻浮入（:key 重挂载触发） */
+.presence-text {
+  animation: presence-text-in 0.24s ease;
+  transition: color 0.2s ease;
+}
+
+@keyframes presence-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.84);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes presence-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-companion) 9%, transparent);
+    opacity: 0.5;
+    transform: scale(0.78);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-companion) 17%, transparent);
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes presence-text-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .header-actions {
