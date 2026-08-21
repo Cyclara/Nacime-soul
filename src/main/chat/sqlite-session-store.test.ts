@@ -226,3 +226,79 @@ describe('M-39 SQLiteSessionStore：孤儿轮次修复（启动中断修复第�
     expect(bMsgs[1].errorCode).toBe('CHAT_INTERRUPTED')
   })
 })
+
+describe('验收反馈④c：deleteSupersededAssistantMessages（重试终局清理）', () => {
+  it('删除同轮 failed/cancelled assistant 行，保留 keep 行与 complete 行；user 行不动', () => {
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a-old', role: 'assistant', turnId: 't1', status: 'failed', errorCode: 'NET_TIMEOUT' })
+    )
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a-cancel', role: 'assistant', turnId: 't1', status: 'cancelled' })
+    )
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a-new', role: 'assistant', turnId: 't1', status: 'complete', content: '新回答' })
+    )
+    // 另一轮的 failed 行不受影响
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a-other', role: 'assistant', turnId: 't2', status: 'failed', errorCode: 'NET_TIMEOUT' })
+    )
+
+    const removed = store.deleteSupersededAssistantMessages(sid, 't1', 'a-new')
+    expect(removed).toBe(2)
+
+    const msgs = store.getMessages(sid, 100)
+    expect(msgs.map((m) => m.id)).toEqual(['u1', 'a-new', 'a-other'])
+  })
+
+  it('complete 行绝不删（防御：同一轮出现两条 complete 也不动旧的）', () => {
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = 's-1'
+    store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a-good', role: 'assistant', turnId: 't1', status: 'complete', content: '旧好回答' })
+    )
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a-new', role: 'assistant', turnId: 't1', status: 'complete', content: '新回答' })
+    )
+
+    const removed = store.deleteSupersededAssistantMessages(sid, 't1', 'a-new')
+    expect(removed).toBe(0)
+    expect(store.getMessages(sid, 100)).toHaveLength(3)
+  })
+
+  it('无可删行返回 0；与内存实现语义一致', () => {
+    const sqlite = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const memory = createMemorySessionStore()
+    const sid = 's-1'
+    const seed = (store: typeof sqlite): void => {
+      store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
+      store.appendMessage(
+        sid,
+        makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'failed', errorCode: 'CHAT_INTERRUPTED' })
+      )
+      store.appendMessage(
+        sid,
+        makeMessage({ id: 'a2', role: 'assistant', turnId: 't1', status: 'complete', content: '答' })
+      )
+    }
+    seed(sqlite)
+    seed(memory)
+
+    expect(sqlite.deleteSupersededAssistantMessages(sid, 't1', 'a2')).toBe(1)
+    expect(memory.deleteSupersededAssistantMessages(sid, 't1', 'a2')).toBe(1)
+    expect(sqlite.getMessages(sid, 100).map((m) => m.id)).toEqual(
+      memory.getMessages(sid, 100).map((m) => m.id)
+    )
+    // 再删一次：幂等 0
+    expect(sqlite.deleteSupersededAssistantMessages(sid, 't1', 'a2')).toBe(0)
+  })
+})

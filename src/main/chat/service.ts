@@ -93,6 +93,19 @@ export interface TurnRequest {
   clientRequestId: RequestId
 }
 
+/**
+ * 重试请求（验收反馈④c）。
+ * 与 send 的根本区别：重发的是**既有**用户消息——不写新 user 行、复用原 turnId，
+ * 新 assistant 行落回原轮；到达终局后同轮旧 failed/cancelled assistant 行被删除。
+ * 一轮在历史和界面上都只剩"user + 最新 assistant"，不再出现重复提问/重复回答。
+ */
+export interface RetryTurnRequest {
+  sessionId: SessionId
+  /** 被点击的失败/中断气泡 id（assistant 或 user 均可） */
+  messageId: MessageId
+  clientRequestId: RequestId
+}
+
 /** 发送确认（ACK） */
 export interface TurnAck {
   requestId: RequestId
@@ -107,6 +120,11 @@ export interface ChatService {
   getLastSessionId(): SessionId | null
   list(sessionId: SessionId, limit: number): ChatHistorySnapshot
   send(request: TurnRequest, sink: ChatEventSink): Promise<TurnAck>
+  /**
+   * 重试既有用户消息所在轮（验收反馈④c）。返回 null 表示目标已不存在（容错：
+   * 气泡是旧投影，主库已清理），调用方静默忽略即可。
+   */
+  retryTurn(request: RetryTurnRequest, sink: ChatEventSink): Promise<TurnAck | null>
   cancel(requestId: RequestId): boolean
   hasActiveTurn(sessionId: SessionId): boolean
 }
@@ -344,6 +362,155 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
   }
 
   /**
+   * 重试既有用户消息所在轮（验收反馈④c）。
+   *
+   * 与 send 的差异：
+   *   - 目标定位按 turnId 精确匹配（被点气泡带哪个 turnId 就重试哪一轮），
+   *     不再"往前找最近 user"——旧 walk-back 在 M-47 现场会重试错的轮次
+   *     （表尾占位气泡实际属于更早的孤儿轮，walk-back 却命中了它前面那条完整轮的 user）。
+   *   - 不写新 user 行、不跑 sanitize（原文已清理并落库）；复用原 turnId。
+   *   - streamTurn 终局删除同轮被取代的 assistant 行（supersedeTurnId）。
+   * 幂等与 send 同一套两层账本（clientRequests + idempotencyLedger）。
+   */
+  async function retryTurn(request: RetryTurnRequest, sink: ChatEventSink): Promise<TurnAck | null> {
+    const { sessionId, messageId, clientRequestId } = request
+
+    // === 定位目标轮（先于幂等账本：目标不存在时不必占用账本记录）===
+    const clicked = sessionStore.getMessage(sessionId, messageId)
+    if (!clicked) return null
+
+    let userMessage: ChatMessage | null = null
+    if (clicked.role === 'user') {
+      userMessage = clicked
+    } else if (clicked.turnId) {
+      // 精确按 turnId 定位该轮的 user 行
+      userMessage =
+        sessionStore
+          .getMessages(sessionId, 1000)
+          .find((m) => m.role === 'user' && m.turnId === clicked.turnId) ?? null
+    }
+    if (!userMessage) {
+      // 兜底：无 turnId 的遗产数据走旧 walk-back（往前找最近 user）
+      const history = sessionStore.getMessages(sessionId, 500)
+      const idx = history.findIndex((m) => m.id === messageId)
+      for (let i = idx; i >= 0; i--) {
+        if (history[i].role === 'user') {
+          userMessage = history[i]
+          break
+        }
+      }
+    }
+    if (!userMessage) {
+      chatLogger.warn('retry: no user message for target', {
+        scope: 'chat',
+        tags: { sessionId, messageId }
+      })
+      return null
+    }
+    const targetUser = userMessage
+    const retryText = targetUser.content
+
+    // === 幂等（与 send 相同的两层检查；text 用目标 user 原文）===
+    const existing = clientRequests.get(clientRequestId)
+    if (existing) {
+      if (existing.sessionId !== sessionId || existing.text !== retryText) {
+        throw new AppError({
+          code: 'IPC_VALIDATION',
+          userMessage: '同一请求标识不能用于不同的聊天请求',
+          severity: 'error',
+          retryable: false
+        })
+      }
+      return existing.ackPromise
+    }
+    const persisted = idempotencyLedger?.get(clientRequestId)
+    if (persisted) {
+      if (persisted.sessionId !== sessionId || persisted.textHash !== hashIdempotencyText(retryText)) {
+        throw new AppError({
+          code: 'IPC_VALIDATION',
+          userMessage: '同一请求标识不能用于不同的聊天请求',
+          severity: 'error',
+          retryable: false
+        })
+      }
+      if (persisted.state === 'completed') {
+        return persisted.ack
+      }
+      idempotencyLedger?.remove(clientRequestId)
+    }
+
+    // === active turn 检查 + 原子占位（与 send 同序：检查与登记之间无 await）===
+    if (hasActiveTurn(sessionId)) {
+      throw new AppError({
+        code: 'CHAT_BUSY',
+        userMessage: '当前对话正在进行中，请等待完成或停止后再发送',
+        severity: 'error',
+        retryable: false
+      })
+    }
+
+    // turnId 复用：新 assistant 行归回原轮。遗产 user 行无 turnId 时补写，保证分组语义。
+    let turnId = targetUser.turnId
+    if (!turnId) {
+      turnId = randomUUID()
+      sessionStore.updateMessage(sessionId, targetUser.id, { turnId })
+    }
+
+    const requestId = randomUUID()
+    const assistantMessageId = randomUUID()
+    const controller = new AbortController()
+    activeTurns.set(requestId, { sessionId, assistantMessageId, controller })
+    sessionActiveTurn.set(sessionId, requestId)
+
+    const ackPromise = Promise.resolve().then(async (): Promise<TurnAck> => {
+      chatLogger.info('retry turn started', {
+        scope: 'chat',
+        turnId,
+        tags: { requestId, sessionId },
+        metrics: { inputLen: retryText.length }
+      })
+
+      const ack: TurnAck = { requestId, userMessageId: targetUser.id, assistantMessageId }
+
+      void streamTurn({
+        ack,
+        turnId,
+        sessionId,
+        sanitizedText: retryText,
+        wasStopped: false,
+        sink,
+        controller,
+        clientRequestId,
+        text: retryText,
+        supersedeTurnId: turnId
+      }).catch((err) => {
+        chatLogger.error('retry turn streaming failed unexpectedly', {
+          scope: 'chat',
+          code: 'UNKNOWN',
+          turnId,
+          detail: err instanceof Error ? err.message : String(err)
+        })
+      })
+
+      return ack
+    })
+
+    const record: ClientRequestRecord = { sessionId, text: retryText, ackPromise }
+    clientRequests.set(clientRequestId, record)
+
+    try {
+      return await ackPromise
+    } catch (err) {
+      if (clientRequests.get(clientRequestId) === record) {
+        clientRequests.delete(clientRequestId)
+      }
+      activeTurns.delete(requestId)
+      releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
+      throw err
+    }
+  }
+
+  /**
    * 后台流式执行一轮对话。
    * 不阻塞 send() 返回 ACK。
    *
@@ -360,10 +527,43 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     /** P2-43：幂等账本落盘所需的原始请求键与原文（非 sanitized） */
     clientRequestId: RequestId
     text: string
+    /**
+     * 验收反馈④c：重试轮标记。到达终局（completed/failed/cancelled）写入新 assistant 行后，
+     * 删除同 turnId 被取代的旧 assistant 行（failed/cancelled/CHAT_INTERRUPTED 占位），
+     * 保证一轮只剩最新 assistant——历史不堆重复回答，getTurnMessages 也不被旧失败行挡住。
+     */
+    supersedeTurnId?: string
   }): Promise<void> {
     const { ack, turnId, sessionId, sanitizedText, wasStopped, sink, controller } = opts
-    const { clientRequestId, text } = opts
+    const { clientRequestId, text, supersedeTurnId } = opts
     const { requestId, assistantMessageId } = ack
+
+    // 终局清理：删除同轮被取代的 assistant 行。持久化尽力而为（V-03a 同则：
+    // 写盘失败不得影响事件送达）。必须在 turn.end hook 之前完成（finally 里发射），
+    // 否则 getTurnMessages 会先命中旧 failed 行，成功重试的记忆提取被静默跳过。
+    function removeSupersededRows(): void {
+      if (!supersedeTurnId) return
+      try {
+        const removed = sessionStore.deleteSupersededAssistantMessages(
+          sessionId,
+          supersedeTurnId,
+          assistantMessageId
+        )
+        if (removed > 0) {
+          chatLogger.info('superseded assistant rows removed', {
+            scope: 'chat',
+            turnId,
+            metrics: { removed }
+          })
+        }
+      } catch (err) {
+        chatLogger.warn('superseded rows cleanup skipped', {
+          scope: 'chat',
+          turnId,
+          detail: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
 
     let sequence = 0
     let status: 'completed' | 'failed' | 'cancelled' = 'completed'
@@ -593,6 +793,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           metrics: { outputLen: accumulated.length }
         })
 
+        removeSupersededRows()
+
         sink({
           type: 'failed',
           requestId,
@@ -628,6 +830,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           metrics: { outputLen: accumulated.length }
         })
 
+        removeSupersededRows()
+
         sink({ type: 'cancelled', requestId, sequence })
         return
       }
@@ -643,6 +847,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         status: 'complete',
         turnId
       })
+
+      removeSupersededRows()
 
       // provider 正常完成且 assistant 非空 -> 符合记忆提取条件（S-010 §1.1）
       memoryEligible = accumulated.trim().length > 0
@@ -702,6 +908,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         tags: { requestId },
         metrics: { outputLen: accumulated.length }
       })
+      removeSupersededRows()
       sink({
         type: 'failed',
         requestId,
@@ -778,6 +985,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     getLastSessionId,
     list,
     send,
+    retryTurn,
     cancel,
     hasActiveTurn
   }

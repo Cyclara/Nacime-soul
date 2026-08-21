@@ -56,6 +56,19 @@ export interface SessionStore {
   getTurnMessages(sessionId: SessionId, turnId: string): TurnMessagePair | null
   /** 按 messageId 查找单条消息 */
   getMessage(sessionId: SessionId, messageId: MessageId): ChatMessage | null
+  /**
+   * 删除一轮中被取代的 assistant 行（验收反馈④c 重试不增消息）。
+   * 重试到达终局后，同 turnId 的旧 failed/cancelled assistant 行（含 CHAT_INTERRUPTED
+   * 占位）已被新行取代，删除以保持"一轮 = user + 最新 assistant"，
+   * 同时保证 getTurnMessages 的 find(assistant) 命中的是最新行（记忆提取不被旧失败行挡掉）。
+   * complete 行绝不删；keepMessageId（本次终局新写入的行）不在删除范围。
+   * 返回删除条数。
+   */
+  deleteSupersededAssistantMessages(
+    sessionId: SessionId,
+    turnId: string,
+    keepMessageId: MessageId
+  ): number
   /** 更新消息的部分字段（流式完成后回写 status/content/errorCode） */
   updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void
   /** 最近活跃会话（P2-43 启动恢复）。空库/无会话返回 null */
@@ -119,6 +132,28 @@ export function createMemorySessionStore(): SessionStore {
       const msgs = sessions.get(sessionId)
       if (!msgs) return null
       return msgs.find((m) => m.id === messageId) ?? null
+    },
+
+    deleteSupersededAssistantMessages(
+      sessionId: SessionId,
+      turnId: string,
+      keepMessageId: MessageId
+    ): number {
+      const msgs = sessions.get(sessionId)
+      if (!msgs) return 0
+      const before = msgs.length
+      const kept = msgs.filter(
+        (m) =>
+          !(
+            m.role === 'assistant' &&
+            m.turnId === turnId &&
+            m.id !== keepMessageId &&
+            m.status !== 'complete'
+          )
+      )
+      if (kept.length === before) return 0
+      sessions.set(sessionId, kept)
+      return before - kept.length
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {

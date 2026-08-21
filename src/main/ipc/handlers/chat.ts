@@ -8,7 +8,7 @@
 //   companion:chat:get-last-session -> service.getLastSessionId
 //   companion:chat:send          -> service.send（事件通过 webContents.send 推送）
 //   companion:chat:cancel        -> service.cancel
-//   companion:chat:retry         -> 查找原用户消息 -> service.send
+//   companion:chat:retry         -> service.retryTurn（按 turnId 精确重试，不增消息）
 //
 // 安全红线：
 //   - 聊天正文不写 IPC 日志（只记通道、长度、requestId、耗时）
@@ -17,7 +17,7 @@
 
 import type { WebContents } from 'electron'
 import type { Logger } from '@shared/observability/types'
-import type { ChatStreamEvent, ChatMessageView } from '@shared/chat/types'
+import type { ChatStreamEvent } from '@shared/chat/types'
 import type { ChatService } from '../../chat/service'
 import { registerValidatedHandler, sendEvent } from '../register'
 
@@ -108,50 +108,25 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
   })
 
   // === companion:chat:retry ===
-  // Phase 1：查找原用户消息，重新发送
+  // 验收反馈④c：重试不增消息。定位与轮次复用全在 service.retryTurn——
+  // 按被点气泡的 turnId 精确重试原轮，不写新 user 行，终局删除同轮旧失败行。
   registerValidatedHandler('companion:chat:retry', async (ctx, payload) => {
     const { sessionId, messageId } = payload
-
-    // 获取会话消息，查找要重试的消息
-    const history = chatService.list(sessionId, 500)
-    const messages = history.messages
-    const msgIdx = messages.findIndex((m) => m.id === messageId)
-
-    if (msgIdx < 0) {
-      chatLogger.warn('retry: message not found', {
-        scope: 'chat',
-        tags: { sessionId, messageId }
-      })
-      // 找不到消息：返回新的 requestId 但不发送（容错）
-      return { requestId: '' }
-    }
-
-    // 找到用户消息：如果指定的是 assistant 消息，往前找最近的 user 消息
-    let userMessage: ChatMessageView | null = null
-    for (let i = msgIdx; i >= 0; i--) {
-      if (messages[i].role === 'user') {
-        userMessage = messages[i]
-        break
-      }
-    }
-
-    if (!userMessage) {
-      chatLogger.warn('retry: no preceding user message', {
-        scope: 'chat',
-        tags: { sessionId, messageId }
-      })
-      return { requestId: '' }
-    }
-
     const sink = createSink(ctx.sender, chatLogger)
-    const ack = await chatService.send(
-      {
-        sessionId,
-        text: userMessage.content,
-        clientRequestId: `retry-${messageId}`
-      },
+
+    const ack = await chatService.retryTurn(
+      { sessionId, messageId, clientRequestId: `retry-${messageId}` },
       sink
     )
+
+    if (!ack) {
+      // 目标已不存在（旧投影/已清理）：容错静默，renderer 不做事
+      chatLogger.warn('retry: target message gone', {
+        scope: 'chat',
+        tags: { sessionId, messageId }
+      })
+      return { requestId: '' }
+    }
 
     chatLogger.info('chat retry ack', {
       scope: 'chat',

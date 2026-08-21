@@ -161,7 +161,22 @@ export const useChatStore = defineStore('chat', () => {
 
   async function retry(messageId: string): Promise<void> {
     if (!state.sessionId || !window.companion || state.activeTurn) return
-    await window.companion.chat.retry({ sessionId: state.sessionId, messageId })
+    // 验收反馈④c：main 重试到终局后会删掉同轮旧失败行；renderer 在对应终局事件里
+    // 同步摘除旧气泡（consumeRetryTarget），界面上一轮只留"user + 最新 assistant"。
+    retryTargetId = messageId
+    const result = await window.companion.chat.retry({ sessionId: state.sessionId, messageId })
+    // 发送失败或目标已不存在（requestId=''）：不会有流事件到来，撤销标记防误摘
+    if (!result.ok || !result.data.requestId) retryTargetId = null
+  }
+
+  // 验收反馈④c：重试终局（completed/failed/cancelled）时摘除被取代的旧气泡。
+  let retryTargetId: string | null = null
+  function consumeRetryTarget(): void {
+    if (retryTargetId === null) return
+    const idx = state.messages.findIndex((m) => m.id === retryTargetId)
+    // 只摘非 complete 的旧气泡；若它已被别的路径更新/删除则不动
+    if (idx >= 0 && state.messages[idx].status !== 'complete') state.messages.splice(idx, 1)
+    retryTargetId = null
   }
 
   // === 流式状态机（S-002 §3.2）===
@@ -220,6 +235,7 @@ export const useChatStore = defineStore('chat', () => {
           msg.status = 'complete'
         }
         state.activeTurn = null
+        consumeRetryTarget()
         break
       }
 
@@ -241,6 +257,7 @@ export const useChatStore = defineStore('chat', () => {
           retryable: event.error.retryable
         }
         state.activeTurn = null
+        consumeRetryTarget()
         break
       }
 
@@ -254,6 +271,7 @@ export const useChatStore = defineStore('chat', () => {
           msg.status = 'cancelled'
         }
         state.activeTurn = null
+        consumeRetryTarget()
         break
       }
     }

@@ -3,7 +3,7 @@
 // P1-24 chat store 测试
 // 依据：S-004 #28-#30（旧 requestId 丢弃、重复/逆序 sequence 丢弃、completed/failed/cancelled 清 activeTurn）
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from './chat'
 
@@ -274,5 +274,103 @@ describe('chat store applyStream state machine', () => {
     expect(store.state.messages).toEqual([])
     expect(store.state.draft).toBe('')
     expect(store.state.activeTurn).toBeNull()
+  })
+})
+
+// 验收反馈④c：重试不增消息——终局事件摘除被取代的旧失败气泡
+describe('chat store retry（验收反馈④c：终局摘除旧失败气泡）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    Object.defineProperty(window, 'companion', {
+      value: {
+        chat: {
+          retry: vi.fn(async () => ({ ok: true, data: { requestId: 'r2' } }))
+        }
+      },
+      writable: true,
+      configurable: true
+    })
+  })
+
+  function seedFailedTurn(store: ReturnType<typeof useChatStore>): void {
+    store.state.sessionId = 's1'
+    store.state.messages.push(
+      { id: 'u1', role: 'user', content: '问', createdAt: 1, status: 'complete' },
+      {
+        id: 'a-old',
+        role: 'assistant',
+        content: '',
+        createdAt: 2,
+        status: 'failed',
+        errorCode: 'NET_TIMEOUT'
+      }
+    )
+  }
+
+  it('completed 终局摘除旧失败气泡，列表只留 user + 新回答', async () => {
+    const store = useChatStore()
+    seedFailedTurn(store)
+
+    await store.retry('a-old')
+    expect(window.companion.chat.retry).toHaveBeenCalledWith({ sessionId: 's1', messageId: 'a-old' })
+
+    store.applyStream({
+      type: 'started',
+      requestId: 'r2',
+      sessionId: 's1',
+      assistantMessageId: 'a-new',
+      sequence: 0
+    })
+    store.applyStream({ type: 'chunk', requestId: 'r2', sequence: 1, delta: '答' })
+    store.applyStream({ type: 'completed', requestId: 'r2', sequence: 2 })
+
+    expect(store.state.messages.map((m) => m.id)).toEqual(['u1', 'a-new'])
+    expect(store.state.messages[1].status).toBe('complete')
+    expect(store.state.messages[1].content).toBe('答')
+  })
+
+  it('failed 终局同样摘除旧气泡（只剩最新失败气泡，可继续点重试）', async () => {
+    const store = useChatStore()
+    seedFailedTurn(store)
+
+    await store.retry('a-old')
+    store.applyStream({
+      type: 'started',
+      requestId: 'r2',
+      sessionId: 's1',
+      assistantMessageId: 'a-new',
+      sequence: 0
+    })
+    store.applyStream({
+      type: 'failed',
+      requestId: 'r2',
+      sequence: 1,
+      error: { code: 'NET_TIMEOUT', message: '超时', retryable: true, requestId: 'r2' }
+    })
+
+    expect(store.state.messages.map((m) => m.id)).toEqual(['u1', 'a-new'])
+    expect(store.state.messages[1].status).toBe('failed')
+  })
+
+  it('retry 目标已不存在（requestId 为空）时不摘任何气泡', async () => {
+    const store = useChatStore()
+    seedFailedTurn(store)
+    ;(window.companion.chat.retry as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      data: { requestId: '' }
+    })
+
+    await store.retry('a-old')
+    // 之后任何无关轮次的终局都不得误摘 a-old
+    store.applyStream({
+      type: 'started',
+      requestId: 'r9',
+      sessionId: 's1',
+      assistantMessageId: 'a9',
+      sequence: 0
+    })
+    store.applyStream({ type: 'completed', requestId: 'r9', sequence: 1 })
+
+    expect(store.state.messages.find((m) => m.id === 'a-old')).toBeDefined()
   })
 })

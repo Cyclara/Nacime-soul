@@ -112,6 +112,11 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     ),
     turnMessages: db.prepare(`SELECT * FROM messages WHERE session_id = ? AND turn_id = ?`),
     byId: db.prepare(`SELECT * FROM messages WHERE session_id = ? AND id = ?`),
+    deleteSupersededAssistant: db.prepare(
+      `DELETE FROM messages
+       WHERE session_id = ? AND turn_id = ? AND role = 'assistant'
+         AND id != ? AND status != 'complete'`
+    ),
     orphanUserTurns: db.prepare(
       `SELECT m.session_id AS session_id, m.turn_id AS turn_id FROM messages m
        WHERE m.role = 'user' AND m.turn_id IS NOT NULL
@@ -214,6 +219,14 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     getMessage(sessionId: SessionId, messageId: MessageId): ChatMessage | null {
       const row = stmts.byId.get(sessionId, messageId) as MessageRow | undefined
       return row ? rowToMessage(row) : null
+    },
+
+    deleteSupersededAssistantMessages(
+      sessionId: SessionId,
+      turnId: string,
+      keepMessageId: MessageId
+    ): number {
+      return stmts.deleteSupersededAssistant.run(sessionId, turnId, keepMessageId).changes
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {
