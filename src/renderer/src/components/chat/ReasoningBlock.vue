@@ -8,6 +8,9 @@
 //   - 流式过程中显示“思考中…”动画
 //   - 内容用纯文本展示（reasoning 通常已是自然语言，不需要 Markdown）
 //   - 参考 cc-haha ThinkingBlock 的交互模式
+// 2026-08-21 布局改进②：私语化——去掉信息框（边框/底色/左边条），
+//   改为页边批注式排版：衬线斜体 + 一行极淡的 companion 发丝线，
+//   读起来像"她的内心旁白"而不是系统日志。折叠交互不变。
 
 import { ref, computed } from 'vue'
 
@@ -102,22 +105,36 @@ function toggle(): void {
   }
 }
 
+/* 私语化：无框无底，一行 companion 发丝线 + 衬线斜体，像页边的内心旁白 */
 .reasoning-content {
-  margin-top: 5px;
-  padding: 10px 13px;
-  border: 1px solid var(--color-border-subtle);
-  border-left: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
-  border-radius: 4px var(--radius) var(--radius) 4px;
-  background: color-mix(in srgb, var(--color-bg-tertiary) 74%, transparent);
+  margin-top: 4px;
+  margin-left: 9px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid color-mix(in srgb, var(--color-companion) 26%, transparent);
   user-select: text;
+  animation: whisper-in 0.22s ease;
+}
+
+@keyframes whisper-in {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .reasoning-content pre {
   margin: 0;
-  color: var(--color-text-secondary);
-  font-family: inherit;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-display);
   font-size: var(--font-size-sm);
-  line-height: 1.58;
+  font-style: italic;
+  letter-spacing: 0.012em;
+  line-height: 1.72;
   white-space: pre-wrap;
   word-break: break-word;
 }
