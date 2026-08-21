@@ -178,12 +178,13 @@ const presenceText = computed(() => PRESENCE_TEXT[presencePhase.value])
 }
 
 .presence i {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--color-companion);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-companion) 12%, transparent);
-  /* 布局③：idle 慢呼吸（4.6s），像睡着了一样安稳 */
+  /* 布局③：idle 慢呼吸（4.6s），像睡着了一样安稳。
+     2026-08-21 验收反馈：起伏太含蓄看不出来——振幅/光环加大 */
   animation: presence-breathe 4.6s ease-in-out infinite;
 }
 
@@ -210,13 +211,15 @@ const presenceText = computed(() => PRESENCE_TEXT[presencePhase.value])
 @keyframes presence-breathe {
   0%,
   100% {
-    opacity: 0.55;
-    transform: scale(0.84);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-companion) 8%, transparent);
+    opacity: 0.42;
+    transform: scale(0.74);
   }
 
   50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-companion) 16%, transparent);
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1.12);
   }
 }
 
