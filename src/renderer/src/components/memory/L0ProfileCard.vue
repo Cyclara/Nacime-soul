@@ -76,10 +76,11 @@ async function saveEdit(key: string): Promise<void> {
       <!-- 已了解的字段：主角富卡片 -->
       <div v-if="filledFields.length" class="l0-grid">
         <div
-          v-for="field in filledFields"
+          v-for="(field, index) in filledFields"
           :key="field.key"
           class="l0-field"
           :class="{ pinned: field.isPinned, 'span-2': isLongValue(field.value) }"
+          :style="{ '--i': index }"
         >
           <div class="field-header">
             <span class="field-label">{{ field.label }}</span>
@@ -126,8 +127,8 @@ async function saveEdit(key: string): Promise<void> {
       <!-- 尚未了解的字段：低调 chips，点一下就能补答 -->
       <div v-if="unknownFields.length" class="unknown-strip">
         <span class="unknown-label">她还不了解</span>
-        <template v-for="field in unknownFields" :key="field.key">
-          <span v-if="editingKey === field.key" class="chip-edit">
+        <template v-for="(field, index) in unknownFields" :key="field.key">
+          <span v-if="editingKey === field.key" class="chip-edit" :style="{ '--i': index }">
             <input
               v-model="editDraft"
               class="field-edit-input chip-input"
@@ -158,6 +159,7 @@ async function saveEdit(key: string): Promise<void> {
           <button
             v-else
             class="unknown-chip"
+            :style="{ '--i': index }"
             :aria-label="`告诉她${field.label}`"
             title="点一下，亲口告诉她"
             @click="startEdit(field.key, field.rawValue)"
@@ -246,6 +248,21 @@ async function saveEdit(key: string): Promise<void> {
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease;
+  /* 布局④：staggered entrance（--i 由 v-for 注入，前 8 张错开 26ms） */
+  animation: card-enter 0.32s cubic-bezier(0.22, 0.8, 0.32, 1) backwards;
+  animation-delay: calc(min(var(--i, 0), 8) * 26ms);
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .l0-field:hover {
@@ -433,6 +450,9 @@ async function saveEdit(key: string): Promise<void> {
     color 0.15s ease,
     border-color 0.15s ease,
     background-color 0.15s ease;
+  /* chips 跟在富卡片后入场，延迟起点错开 80ms */
+  animation: card-enter 0.28s ease backwards;
+  animation-delay: calc(80ms + min(var(--i, 0), 8) * 18ms);
 }
 
 .unknown-chip:hover {

@@ -92,6 +92,22 @@ const stateMeta = STATE_LABELS[props.item.lifecycleState] ?? {
     border-color 0.15s ease,
     box-shadow 0.15s ease,
     transform 0.12s ease;
+  /* 2026-08-21 布局④：staggered entrance——--i 由父列表按序注入，
+     前 10 条依次错开 30ms，更后面的不再延迟（避免长列表拖沓） */
+  animation: item-enter 0.34s cubic-bezier(0.22, 0.8, 0.32, 1) backwards;
+  animation-delay: calc(min(var(--i, 0), 10) * 30ms);
+}
+
+@keyframes item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .l2-item::before {

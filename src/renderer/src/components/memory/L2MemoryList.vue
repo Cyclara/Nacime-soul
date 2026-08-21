@@ -152,6 +152,7 @@ function onListKeydown(e: KeyboardEvent): void {
         v-for="(item, index) in state.l2Items"
         :key="item.id"
         :item="item"
+        :style="{ '--i': index }"
         :tabindex="index === 0 ? 0 : -1"
         data-memory-item
         @open="onOpen"
