@@ -151,7 +151,14 @@ class LoggerImpl implements Logger {
     try {
       this.sink.write(level, line)
     } catch {
-      consoleSink.write(level, line)
+      // M-35：降级路径自身也可能写不动（console 底层 stdout 断管且同步抛错的极端组合）。
+      // F5-011 §5 "绝不 throw"——日志写不进任何目标时哑火，绝不能把异常甩回调用方
+      // （否则会经 uncaughtException -> crash-guard 让整应用为一条日志陪葬）。
+      try {
+        consoleSink.write(level, line)
+      } catch {
+        /* 日志写不进任何目标，哑火 */
+      }
     }
   }
 

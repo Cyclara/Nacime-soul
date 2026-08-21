@@ -55,6 +55,8 @@ class CrashGuardImpl implements CrashGuard {
   private readonly config: CrashGuardConfig
   private readonly rendererCrashes: number[] = []
   private installed = false
+  /** M-37：main 崩溃处理进行中标记（再入保护；uninstall 时复位供测试） */
+  private crashing = false
 
   constructor(config: CrashGuardConfig) {
     this.config = config
@@ -83,6 +85,7 @@ class CrashGuardImpl implements CrashGuard {
   uninstall(): void {
     if (!this.installed) return
     this.installed = false
+    this.crashing = false
 
     process.removeListener('uncaughtException', this.onMainCrash)
     process.removeListener('unhandledRejection', this.onUnhandledRejection)
@@ -94,6 +97,12 @@ class CrashGuardImpl implements CrashGuard {
   private onMainCrash = (error: Error): void => {
     const { logger, errorBuffer, userDataPath, appVersion, startTime, showCrashDialog } =
       this.config
+
+    // M-37：崩溃处理再入保护——fatal 路径上的二次异常（如日志写失败触发的连锁
+    // uncaughtException）不再重复弹窗/刷 FATAL。M-35 事故中同一 EPIPE 在 100 秒内
+    // 刷了 5 次 FATAL + 重复弹窗，每次循环还重新武装退出定时器，进程始终不死。
+    if (this.crashing) return
+    this.crashing = true
 
     const reason = scrub(error.message)
     const uptimeSec = Math.floor((Date.now() - startTime) / 1000)
@@ -121,21 +130,39 @@ class CrashGuardImpl implements CrashGuard {
       // 写盘失败：已经在崩溃流程中，静默
     }
 
-    logger.fatal(`uncaughtException: ${reason}`, {
-      scope: 'crash',
-      code: 'UNKNOWN',
-      metrics: { uptimeSec }
-    })
-
-    // 尝试显示对话框
-    if (showCrashDialog) {
-      showCrashDialog(reason)
+    // M-37：fatal 日志写不动（如 stdout 断管连锁）不能带走退出路径
+    try {
+      logger.fatal(`uncaughtException: ${reason}`, {
+        scope: 'crash',
+        code: 'UNKNOWN',
+        metrics: { uptimeSec }
+      })
+    } catch {
+      /* 日志哑火，退出路径继续 */
     }
 
-    // 给 Electron 一个机会写 minidump，然后退出
+    // M-37：先排定退出再弹窗——dialog.showErrorBox 是同步模态对话框，阻塞事件循环
+    // 期间定时器不触发；旧代码把定时器放在弹窗之后，弹窗一旦被异常打断退出路径就
+    // 永远排不上（M-35 事故中用户点完"确定"进程仍活着，靠 taskkill 才清掉）。
+    // 现在定时器必定 armed：弹窗返回（或被 try/catch 吞掉）后定时器立即到期执行。
+    // app.exit 之后再加 process.exit 硬兜底——will-quit 链路挂起时 2 秒后仍能退。
     setTimeout(() => {
-      app.exit(1)
+      try {
+        app.exit(1)
+      } catch {
+        /* app.exit 失败也继续走硬兜底 */
+      }
+      setTimeout(() => process.exit(1), 2000).unref()
     }, 1000)
+
+    // 尝试显示对话框（M-37：弹窗异常不能带走退出路径——定时器已在上面 armed）
+    if (showCrashDialog) {
+      try {
+        showCrashDialog(reason)
+      } catch {
+        /* 弹窗失败静默，退出定时器照常 */
+      }
+    }
   }
 
   private onUnhandledRejection = (reason: unknown): void => {

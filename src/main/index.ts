@@ -24,6 +24,7 @@ import { installGlobalAgentGuard, createSecureFetch } from './security/network-p
 import { configureLogger, getLogger, createElectronLogSink } from './observability/logger'
 import { createErrorBuffer } from './observability/error-buffer'
 import { createCrashGuard } from './observability/crash-guard'
+import { installStreamErrorTolerance } from './observability/stream-error-tolerance'
 import { createMetrics, configureMetrics } from './observability/metrics'
 import { createTracer, configureTracer } from './observability/tracer'
 import { setHookRunnerLogger } from './hooks/runner'
@@ -89,6 +90,20 @@ const appStartTime = Date.now()
 if (!app.isPackaged) {
   app.setName('nacime-soul')
 }
+
+// M-35（2026-08-21）：stdout/stderr 写入失败容忍（详见 stream-error-tolerance.ts 头注）。
+// 必须在任何日志写入之前安装：dev/管道启动时终端可合法消失（如 `electron . | head -30`
+// 收满即退），EPIPE 不应升级成 uncaughtException 让整应用陪葬。
+// 首次吞掉时用 log.warn 在文件日志留一句——console transport 走 Node console
+// （ignoreErrors 不同步抛错），断管后的异步 'error' 事件已被上面的监听吞掉，
+// 文件 transport 不经 stdout 正常落盘，不会打转转；留痕失败也哑火。
+installStreamErrorTolerance([process.stdout, process.stderr], (errorCode) => {
+  try {
+    log.warn(`stdout/stderr write failed (${errorCode}); console output muted, file log continues`)
+  } catch {
+    /* 留痕失败同样哑火 */
+  }
+})
 
 let mainWindow: BrowserWindow | null = null
 // P2-43：SessionStore 独立 WAL 连接，before-quit 显式关闭（Windows 文件锁）。
