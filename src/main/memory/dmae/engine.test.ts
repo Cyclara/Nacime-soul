@@ -333,12 +333,19 @@ describe('countStates', () => {
 // === createInitialEntryState ===
 
 describe('createInitialEntryState', () => {
-  it('新条目 activation=0（Archived 冷态），us/ms=0', () => {
-    const st = createInitialEntryState()
-    expect(st.activation).toBe(0)
+  it('M-46：新条目落 Dormant 缓冲带（activation=importance×2），us/ms=0，everActivated=true', () => {
+    const st = createInitialEntryState(5, P.promptThreshold)
+    expect(st.activation).toBe(10)
     expect(st.userSilence).toBe(0)
     expect(st.modelSilence).toBe(0)
-    expect(deriveEntryState(st, P.promptThreshold)).toBe('Archived')
+    expect(st.everActivated).toBe(true)
+    expect(deriveEntryState(st, P.promptThreshold)).toBe('Dormant')
+  })
+
+  it('初始永不 Active：clamp 到 threshold-1', () => {
+    const st = createInitialEntryState(10, 15)
+    expect(st.activation).toBe(14)
+    expect(deriveEntryState(st, 15)).toBe('Dormant')
   })
 })
 

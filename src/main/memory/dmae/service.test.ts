@@ -233,12 +233,13 @@ describe('P2-25 selectL2：按 activation 排序选 top maxActive', () => {
     expect(selected[0].content).toBe('content-m1')
   })
 
-  it('新 L2 无 state -> activation=0 -> 不进 prompt', () => {
+  it('新 L2 初始 Dormant（M-46：activation=importance×2 < threshold）-> 不进 prompt', () => {
     const { service } = makeService([makeL2('m1', 5)])
-    // m1 刚初始化 activation=0
+    // m1 刚初始化 activation=10（M-46 Dormant 缓冲带），仍 < threshold=30
+    expect(service.states.get('m1')!.activation).toBe(10)
     const hits = [makeHit('m1')]
     const selected = service.selectL2(hits, DEFAULT_CFG, 's1')
-    expect(selected).toHaveLength(0) // activation=0 < threshold
+    expect(selected).toHaveLength(0) // Dormant 不进 prompt
   })
 })
 
@@ -289,18 +290,19 @@ describe('P2-25 updateTurn：用 selectL2 记录的 userHitIds + modelHitIds 更
 // === reconcile ===
 
 describe('P2-25 updateTurn reconcile', () => {
-  it('新写入的 L2 在 updateTurn 时加入 states（activation=0）', () => {
+  it('新写入的 L2 在 updateTurn 时加入 states（M-46：importance 比例初始激活）', () => {
     const { service, l2Store } = makeService([makeL2('m1', 5)])
     expect(service.states.size).toBe(1)
 
     // 模拟新 L2 写入
     l2Store.add(makeL2('m2', 5))
 
-    // updateTurn reconcile -> m2 加入
+    // updateTurn reconcile -> m2 加入（M-46：5×2=10，Dormant 缓冲带）
+    // 注意：reconcile 后本轮引擎立即跑一遍——m2 无命中，沉默 1 轮衰减 (1.5+0.3)/√5
     service.updateTurn('s1', [])
     expect(service.states.size).toBe(2)
     expect(service.states.has('m2')).toBe(true)
-    expect(service.states.get('m2')!.activation).toBe(0)
+    expect(service.states.get('m2')!.activation).toBeCloseTo(10 - 1.8 / Math.sqrt(5), 5)
   })
 
   it('L2 被删（不在 list）-> states 孤儿清理', () => {

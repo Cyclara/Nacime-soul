@@ -20,6 +20,7 @@ import { AppError } from '@shared/errors'
 import { EXPECTED_VERSIONS } from '../../migrations/types'
 import type { Logger } from '@shared/observability/types'
 import { createInitialEntryState, type DmaeEntryState } from './engine'
+import type { L2Memory } from '../l2-store'
 
 /**
  * dmae-state.json 的 schema 版本。从 EXPECTED_VERSIONS.dmae 派生（F5-002 §6.3 S-F05）。
@@ -234,24 +235,35 @@ export interface ReconcileResult {
   removed: number
   /** 新增的初始状态数（L2 有但 stateFile 没有） */
   added: number
+  /** M-46 补偿：旧规则出生、从未被激活过的存量条目补发初始激活的条数 */
+  healed: number
 }
 
 /**
  * 状态文件与 L2 DB 对齐（以 DB 为准）。
  *
- * - states 有但 l2Ids 没有的 -> 删（孤儿清理）
- * - l2Ids 有但 states 没有的 -> 初始化 createInitialEntryState()（activation=0, Archived 冷态）
- * - 两者都有的 -> 保留
+ * - states 有但 l2Entries 没有的 -> 删（孤儿清理）
+ * - l2Entries 有但 states 没有的 -> 初始化 createInitialEntryState(importance, threshold)
+ *   （M-46：importance 比例初始激活，Dormant 缓冲带，不再 0 激活直落 Archived）
+ * - 两者都有的 -> 保留；但 M-46 前出生、从未被激活过的存量条目（everActivated=false 且
+ *   activation<=0，即旧规则"出生即 Archived"的受害者）按新规则补发一次初始激活。
+ *   一次性：补发后 everActivated=true 且落盘，不再重复触发；之后正常沉默衰减回 Archived
+ *   的条目（everActivated=true）不受影响。
  *
- * 原地更新 states；返回 removed/added 计数。
+ * 原地更新 states；返回 removed/added/healed 计数。
  */
 export function reconcileStates(
   states: Map<string, DmaeEntryState>,
-  l2Ids: Iterable<string>
+  l2Entries: Iterable<Pick<L2Memory, 'id' | 'importance'>>,
+  promptThreshold: number
 ): ReconcileResult {
-  const l2Set = new Set(l2Ids)
+  const l2Set = new Map<string, number>()
+  for (const e of l2Entries) {
+    l2Set.set(e.id, e.importance)
+  }
   let removed = 0
   let added = 0
+  let healed = 0
 
   // 孤儿清理：states 有但 L2 已删
   for (const id of states.keys()) {
@@ -261,13 +273,18 @@ export function reconcileStates(
     }
   }
 
-  // 新增初始化：L2 有但 states 没有
-  for (const id of l2Set) {
-    if (!states.has(id)) {
-      states.set(id, createInitialEntryState())
+  for (const [id, importance] of l2Set) {
+    const existing = states.get(id)
+    if (!existing) {
+      // 新增初始化：L2 有但 states 没有（M-46：importance 比例初始激活）
+      states.set(id, createInitialEntryState(importance, promptThreshold))
       added++
+    } else if (!existing.everActivated && existing.activation <= 0) {
+      // M-46 补偿：旧规则下出生即 0 激活、从未有过升温机会的存量条目，补发同样的初始激活
+      states.set(id, createInitialEntryState(importance, promptThreshold))
+      healed++
     }
   }
 
-  return { removed, added }
+  return { removed, added, healed }
 }

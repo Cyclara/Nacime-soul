@@ -401,10 +401,32 @@ function computeActivationStats(values: number[]): {
 }
 
 /**
- * 为新 L2 条目创建初始 DMAE 状态。
- * 新记忆 activation=0（Archived 冷态），与 Cyrene-Agent loadFromDirectory 一致。
- * 调用方在 L2 写入后调用此函数把新 id 加入 states。
+ * M-46（2026-08-21）：新记忆初始激活 = importance × 此系数。
+ * 取 2 的依据：典型新记忆（importance 5-7）初始落 Dormant 中段（10-14），
+ * 无命中时约 3-4 轮沉默才衰减到 Archived——给"刚记住的事"一段被检索/引用升温的窗口；
+ * importance 越高窗口越长，与 √I 抗衰减同向。
  */
-export function createInitialEntryState(): DmaeEntryState {
-  return { activation: 0, userSilence: 0, modelSilence: 0, everActivated: false }
+export const INITIAL_ACTIVATION_PER_IMPORTANCE = 2
+
+/**
+ * 为新 L2 条目创建初始 DMAE 状态。
+ *
+ * M-46（2026-08-21）：不再 0 激活直落 Archived（修复"当天聊到的新事实，
+ * 面板上就显示想不起来了"）。初始激活 = importance × 2，clamp 到 [1, threshold-1]：
+ *   - 落 Dormant 缓冲带，给检索命中/模型引用升温留窗口；
+ *   - 初始永不 Active——Active 必须靠真实命中挣得（诚实，不灌水）；
+ *   - importance≥10 硬豁免不衰减（formulas.ts IMPORTANCE_EXEMPT_THRESHOLD）不受影响。
+ *
+ * everActivated 与 004 迁移同规则（= activation > 0）：出生在 Dormant 即视为已激活，
+ * 否则下一轮 updateTurn 会把"出生"误计成 firstActivation，污染 trueFloorRevivals（R09）。
+ */
+export function createInitialEntryState(
+  importance: number,
+  promptThreshold: number
+): DmaeEntryState {
+  const activation = Math.max(
+    1,
+    Math.min(promptThreshold - 1, importance * INITIAL_ACTIVATION_PER_IMPORTANCE)
+  )
+  return { activation, userSilence: 0, modelSilence: 0, everActivated: true }
 }

@@ -44,7 +44,8 @@ export function projectL0(l0Store: L0Store): L0ProfileView {
     return {
       key,
       label: L0_FIELD_DESCRIPTIONS[key],
-      value: f ? f.value : null,
+      // M-43：非称呼类字段与 L2 统一做人称转换（"伙伴喜欢…" -> "你喜欢…"）
+      value: f ? (L0_HUMANIZE_EXEMPT.has(key) ? f.value : humanizeMemoryContent(f.value)) : null,
       isPinned: f ? f.isPinned : false,
       updatedAt: f ? f.updatedAt : null
     }
@@ -57,12 +58,22 @@ export function projectL0(l0Store: L0Store): L0ProfileView {
   }
 }
 
-/** 面向伙伴的 UI 文案：历史行可能以“用户…”开头，界面统一转换成自然的“你…”。 */
+/**
+ * 面向伙伴的 UI 文案：行首的"用户…/伙伴…"统一转换成自然的"你…"。
+ * M-43（2026-08-21）：去掉后续字白名单——白名单漏字导致"你/伙伴"混排
+ * （"伙伴最大的兴趣"的"最"不在名单就原样显示）。改为只排除非指代场景：
+ * 伙伴们（复数）、伙伴关系、伙伴这个、伙伴本身。
+ */
 export function humanizeMemoryContent(content: string): string {
-  return content
-    .replace(/^用户(?=的|是|在|曾|会|不|喜欢|希望|想|要|有|没有|正在|偏好|讨厌|叫|来自)/, '你')
-    .replace(/^伙伴(?=的|是|在|曾|会|不|喜欢|希望|想|要|有|没有|正在|偏好|讨厌|叫|来自)/, '你')
+  return content.replace(/^(?:用户|伙伴)(?!们|关系|这个|本身)/, '你')
 }
+
+/**
+ * L0 中不做人称转换的字段：称呼类字段的值本身可能就是"伙伴"
+ * （用户自选希望被叫"伙伴"时，翻成"你"就破坏了语义）。
+ * 其余字段（喜好/厌恶/职业等）的值可能是"伙伴喜欢…"整句，与 L2 列表统一转"你"（M-43）。
+ */
+const L0_HUMANIZE_EXEMPT: ReadonlySet<L0FieldKey> = new Set(['preferredName', 'name'])
 
 /** L2Memory -> L2MemoryView（列表轻量投影，不含 embedding） */
 export function projectL2View(mem: L2Memory, activation: number): L2MemoryView {

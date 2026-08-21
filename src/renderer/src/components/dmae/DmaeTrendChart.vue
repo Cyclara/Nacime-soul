@@ -126,7 +126,7 @@ const xLabels = computed(() => {
       aria-label="记忆状态趋势图"
     >
       <title>记忆状态趋势</title>
-      <desc>清楚记得、正在淡忘与想不起来的记忆数量随日期变化。</desc>
+      <desc>清楚记得、正在淡忘与一时想不起的记忆数量随日期变化。</desc>
       <!-- Y 轴刻度线 + 标签 -->
       <g class="axis-y">
         <line
@@ -186,7 +186,7 @@ const xLabels = computed(() => {
     <div v-if="hasData" class="trend-legend">
       <span class="legend-item"><span class="legend-dot legend-active"></span>清楚记得</span>
       <span class="legend-item"><span class="legend-dot legend-dormant"></span>正在淡忘</span>
-      <span class="legend-item"><span class="legend-dot legend-archived"></span>想不起来</span>
+      <span class="legend-item"><span class="legend-dot legend-archived"></span>一时想不起</span>
     </div>
   </div>
 </template>

@@ -190,19 +190,19 @@ export function createDmaeEngineService(deps: DmaeEngineServiceDeps): DmaeEngine
   }
 
   /**
-   * 与 L2 DB 对齐：清理孤儿（stateFile 有但 L2 已删）+ 新增初始化（L2 有但 stateFile 没有）。
+   * 与 L2 DB 对齐：清理孤儿（stateFile 有但 L2 已删）+ 新增初始化（L2 有但 stateFile 没有，
+   * M-46：importance 比例初始激活落 Dormant 缓冲带）。
    * 返回 importanceMap（id -> importance），供 updateTurn 复用，避免 15k 次逐条 l2Store.get。
    */
   function reconcileWithL2(): Map<string, number> {
     const l2List = l2Store.list({
       lifecycleState: ['active', 'dormant', 'archived']
     })
-    const l2Ids = l2List.map((m) => m.id)
-    const res = reconcileStates(states, l2Ids)
-    if (res.removed > 0 || res.added > 0) {
+    const res = reconcileStates(states, l2List, getMemoryConfig().dmae.promptThreshold)
+    if (res.removed > 0 || res.added > 0 || res.healed > 0) {
       logger.info('dmae state reconciled with L2 DB', {
         scope: 'memory',
-        metrics: { removed: res.removed, added: res.added, total: states.size }
+        metrics: { removed: res.removed, added: res.added, healed: res.healed, total: states.size }
       })
     }
     return new Map(l2List.map((m) => [m.id, m.importance]))

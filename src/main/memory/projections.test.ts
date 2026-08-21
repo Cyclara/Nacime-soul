@@ -125,6 +125,21 @@ describe('P2-29 projections', () => {
       expect(view.fields[0].key).toBe('preferredName')
       expect(view.fields[8].key).toBe('permanentNote')
     })
+
+    it('M-43：非称呼类字段统一转“你”，称呼类字段原样保留', () => {
+      const store = makeL0Store({
+        likes: { value: '伙伴喜欢打游戏和雨天', isPinned: false, updatedAt: 1 },
+        occupation: { value: '伙伴是在校大学生', isPinned: false, updatedAt: 1 },
+        preferredName: { value: '伙伴', isPinned: true, updatedAt: 1 },
+        name: { value: '伙伴们叫我老王', isPinned: false, updatedAt: 1 }
+      })
+      const view = projectL0(store)
+      expect(view.fields.find((f) => f.key === 'likes')!.value).toBe('你喜欢打游戏和雨天')
+      expect(view.fields.find((f) => f.key === 'occupation')!.value).toBe('你是在校大学生')
+      // 称呼类字段不做人称转换（值本身可能就是"伙伴"）
+      expect(view.fields.find((f) => f.key === 'preferredName')!.value).toBe('伙伴')
+      expect(view.fields.find((f) => f.key === 'name')!.value).toBe('伙伴们叫我老王')
+    })
   })
 
   describe('projectL2View', () => {
@@ -146,6 +161,30 @@ describe('P2-29 projections', () => {
         '你希望被叫星河'
       )
       expect(projectL2View(makeL2({ content: '咖啡店在楼下' }), 0).content).toBe('咖啡店在楼下')
+    })
+
+    it('M-43：去白名单——“最/打算”等原本漏翻的后续字也统一转“你”', () => {
+      expect(projectL2View(makeL2({ content: '伙伴最大的兴趣是打游戏' }), 0).content).toBe(
+        '你最大的兴趣是打游戏'
+      )
+      expect(projectL2View(makeL2({ content: '伙伴打算明年换工作' }), 0).content).toBe(
+        '你打算明年换工作'
+      )
+      expect(projectL2View(makeL2({ content: '用户在荆州读大学' }), 0).content).toBe(
+        '你在荆州读大学'
+      )
+    })
+
+    it('M-43：非指代场景不误翻（伙伴们/伙伴关系/伙伴这个/伙伴本身）', () => {
+      expect(projectL2View(makeL2({ content: '伙伴们都很热情' }), 0).content).toBe(
+        '伙伴们都很热情'
+      )
+      expect(projectL2View(makeL2({ content: '伙伴关系是平等的' }), 0).content).toBe(
+        '伙伴关系是平等的'
+      )
+      expect(projectL2View(makeL2({ content: '伙伴这个词很温暖' }), 0).content).toBe(
+        '伙伴这个词很温暖'
+      )
     })
 
     it('purged 状态降级为 archived（不暴露 purged）', () => {

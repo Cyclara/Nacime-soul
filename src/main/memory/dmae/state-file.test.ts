@@ -211,13 +211,19 @@ describe('DmaeStateStore 损坏 = 阻断启动（C-α-2：不许静默清空）'
 })
 
 describe('reconcileStates 孤儿清理 + 新增初始化', () => {
+  const THRESHOLD = 30
+  const e = (id: string, importance = 5): { id: string; importance: number } => ({
+    id,
+    importance
+  })
+
   it('孤儿清理：stateFile 有但 L2 已删 -> 删', () => {
     const states = makeStates([
       ['m1', 50, 0, 0],
       ['m2', 30, 0, 0],
       ['m3', 0, 0, 0] // 孤儿
     ])
-    const res = reconcileStates(states, ['m1', 'm2'])
+    const res = reconcileStates(states, [e('m1'), e('m2')], THRESHOLD)
     expect(res.removed).toBe(1)
     expect(res.added).toBe(0)
     expect(states.size).toBe(2)
@@ -226,13 +232,14 @@ describe('reconcileStates 孤儿清理 + 新增初始化', () => {
     expect(states.has('m3')).toBe(false)
   })
 
-  it('新增初始化：L2 有但 stateFile 没有 -> activation=0（Archived 冷态）', () => {
+  it('新增初始化：M-46 importance 比例初始激活（5 -> 10，Dormant 缓冲带）', () => {
     const states = makeStates([['m1', 50, 0, 0]])
-    const res = reconcileStates(states, ['m1', 'm2_new'])
+    const res = reconcileStates(states, [e('m1'), e('m2_new')], THRESHOLD)
     expect(res.removed).toBe(0)
     expect(res.added).toBe(1)
-    expect(states.get('m2_new')).toEqual(createInitialEntryState())
-    expect(states.get('m2_new')!.activation).toBe(0)
+    expect(states.get('m2_new')).toEqual(createInitialEntryState(5, THRESHOLD))
+    expect(states.get('m2_new')!.activation).toBe(10)
+    expect(states.get('m2_new')!.everActivated).toBe(true)
   })
 
   it('混合：删 + 加 + 保留', () => {
@@ -241,13 +248,13 @@ describe('reconcileStates 孤儿清理 + 新增初始化', () => {
       ['m2', 30, 2, 2], // 保留
       ['orphan', 10, 0, 0] // 删
     ])
-    const res = reconcileStates(states, ['m1', 'm2', 'm3_new'])
+    const res = reconcileStates(states, [e('m1'), e('m2'), e('m3_new')], THRESHOLD)
     expect(res.removed).toBe(1)
     expect(res.added).toBe(1)
     expect(states.size).toBe(3)
     expect(states.get('m1')!.activation).toBe(50) // 保留原值
     expect(states.get('m2')!.activation).toBe(30)
-    expect(states.get('m3_new')!.activation).toBe(0) // 新增初始
+    expect(states.get('m3_new')!.activation).toBe(10) // M-46：importance 5 × 2
     expect(states.has('orphan')).toBe(false)
   })
 
@@ -256,21 +263,65 @@ describe('reconcileStates 孤儿清理 + 新增初始化', () => {
       ['m1', 50, 0, 0],
       ['m2', 30, 0, 0]
     ])
-    const res = reconcileStates(states, [])
+    const res = reconcileStates(states, [], THRESHOLD)
     expect(res.removed).toBe(2)
     expect(res.added).toBe(0)
     expect(states.size).toBe(0)
   })
 
-  it('L2 全新 -> 全部初始化', () => {
+  it('L2 全新 -> 全部初始化（M-46：importance 比例初始激活）', () => {
     const states = new Map<string, DmaeEntryState>()
-    const res = reconcileStates(states, ['m1', 'm2', 'm3'])
+    const res = reconcileStates(states, [e('m1'), e('m2', 8), e('m3', 10)], THRESHOLD)
     expect(res.removed).toBe(0)
     expect(res.added).toBe(3)
     expect(states.size).toBe(3)
-    for (const st of states.values()) {
-      expect(st.activation).toBe(0)
-    }
+    expect(states.get('m1')!.activation).toBe(10) // 5 × 2
+    expect(states.get('m2')!.activation).toBe(16) // 8 × 2
+    expect(states.get('m3')!.activation).toBe(20) // 10 × 2
+  })
+
+  it('M-46：初始激活 clamp 到 threshold-1（初始永不 Active）', () => {
+    const states = new Map<string, DmaeEntryState>()
+    reconcileStates(states, [e('m1', 10)], 15)
+    expect(states.get('m1')!.activation).toBe(14)
+  })
+
+  it('M-46 补偿：旧规则出生、从未激活的存量条目（everActivated=false 且 activation=0）补发初始激活', () => {
+    const states = new Map<string, DmaeEntryState>([
+      // 旧规则受害者：出生即 0 激活，从未有过升温机会
+      ['stuck', { activation: 0, userSilence: 12, modelSilence: 12, everActivated: false }],
+      // 正常衰减回 Archived 的旧条目：已激活过，不补发
+      ['decayed', { activation: 0, userSilence: 30, modelSilence: 30, everActivated: true }],
+      // 活着的条目：不受影响
+      ['alive', { activation: 50, userSilence: 0, modelSilence: 0, everActivated: true }]
+    ])
+    const res = reconcileStates(states, [e('stuck', 5), e('decayed', 5), e('alive', 5)], THRESHOLD)
+    expect(res.added).toBe(0)
+    expect(res.removed).toBe(0)
+    expect(res.healed).toBe(1)
+    // 补发：初始激活 5×2=10，沉默计数清零（视同新生）
+    expect(states.get('stuck')).toEqual({
+      activation: 10,
+      userSilence: 0,
+      modelSilence: 0,
+      everActivated: true
+    })
+    // 已激活过的 Archived 条目不补发（真正淡忘的不灌水）
+    expect(states.get('decayed')!.activation).toBe(0)
+    expect(states.get('alive')!.activation).toBe(50)
+  })
+
+  it('M-46 补偿一次性：补发后的条目再次 reconcile 不重复触发', () => {
+    const states = new Map<string, DmaeEntryState>([
+      ['stuck', { activation: 0, userSilence: 5, modelSilence: 5, everActivated: false }]
+    ])
+    const first = reconcileStates(states, [e('stuck', 5)], THRESHOLD)
+    expect(first.healed).toBe(1)
+    // 模拟补发后又沉默衰减回 0（everActivated 保持 true）
+    states.get('stuck')!.activation = 0
+    const second = reconcileStates(states, [e('stuck', 5)], THRESHOLD)
+    expect(second.healed).toBe(0)
+    expect(states.get('stuck')!.activation).toBe(0)
   })
 })
 

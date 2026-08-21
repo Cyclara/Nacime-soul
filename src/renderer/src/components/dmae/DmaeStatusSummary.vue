@@ -37,7 +37,9 @@ const narrative = computed(() => {
   const selected = selection.value?.lastPromptSelectedCount ?? 0
   const retrieved = selection.value?.lastRetrievalHits ?? 0
   if (total.value === 0) return '她还没有留下任何记忆。'
-  return `她现在清楚记得 ${a} 件事，${d} 件正在淡忘，${arch} 件已经想不起来了。上一轮送进思考的是 ${selected} 条（本轮共想起 ${retrieved} 条相关的）。`
+  // M-46：archived 措辞"一时想不起来"——DMAE 语义下任何命中都能经 Floor 复活，
+  // "已经想不起来了"暗示永久遗忘，与实际机制（再聊起相关话题会重新想起）不符。
+  return `她现在清楚记得 ${a} 件事，${d} 件正在淡忘，${arch} 件一时想不起来。上一轮送进思考的是 ${selected} 条（本轮共想起 ${retrieved} 条相关的）。`
 })
 </script>
 
@@ -52,7 +54,7 @@ const narrative = computed(() => {
       v-if="total > 0"
       class="state-bar"
       role="img"
-      :aria-label="`清楚记得 ${counts.eligibleActive}，正在淡忘 ${counts.dormant}，想不起来 ${counts.archived}`"
+      :aria-label="`清楚记得 ${counts.eligibleActive}，正在淡忘 ${counts.dormant}，一时想不起 ${counts.archived}`"
     >
       <div
         class="state-seg state-active"
@@ -71,7 +73,7 @@ const narrative = computed(() => {
       <div
         class="state-seg state-archived"
         :style="{ width: archivedPct + '%' }"
-        :title="`想不起来 ${counts.archived}`"
+        :title="`一时想不起 ${counts.archived}`"
       >
         <span v-if="archivedPct > 8" class="seg-label">{{ counts.archived }}</span>
       </div>
@@ -85,7 +87,7 @@ const narrative = computed(() => {
         ><i class="legend-dot dormant"></i>正在淡忘 {{ counts.dormant }}</span
       >
       <span class="legend-item"
-        ><i class="legend-dot archived"></i>想不起来 {{ counts.archived }}</span
+        ><i class="legend-dot archived"></i>一时想不起 {{ counts.archived }}</span
       >
     </div>
 
