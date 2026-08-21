@@ -138,15 +138,10 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
 
   // === companion:chat:delete-turn ===
   // 验收反馈⑥：按轮删除（用户自助清理残留/发错的对话）。删除即退出 prompt 历史。
+  // 日志只由 service.deleteTurn 记一条（turnId + 删除数）——electron-log 是同步写盘，
+  // handler 再记一条等于链路上双倍磁盘延迟（验收反馈⑥b"删除延迟大"优化）。
   registerValidatedHandler('companion:chat:delete-turn', async (_ctx, payload) => {
-    const { sessionId, messageId } = payload
-    const result = chatService.deleteTurn(sessionId, messageId)
-    chatLogger.info('chat delete-turn', {
-      scope: 'chat',
-      tags: { sessionId, messageId },
-      metrics: { removed: result.deletedIds.length }
-    })
-    return result
+    return chatService.deleteTurn(payload.sessionId, payload.messageId)
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

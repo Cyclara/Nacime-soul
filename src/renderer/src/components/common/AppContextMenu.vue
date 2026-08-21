@@ -11,7 +11,8 @@
 // 行为说明：
 //   - 剪贴板走 navigator.clipboard（异步）；粘贴总是可用，空剪贴板时点击无操作
 //   - 输入框改值用 setRangeText + 派发 input 事件，v-model/@input 链路（Composer draft）正常感知
-//   - 删除是两段式：点第一次菜单项变「确认删除？」，3 秒内再点才真删（防手滑）
+//   - 删除是两段式：点第一次菜单项变「确认删除？」，3 秒内再点才真删（防手滑）；
+//     确认点击后菜单立即关闭，删除在后台完成（不等 IPC 回包，点击即反馈）
 //   - 关闭：点菜单外 / Esc / 滚动 / 窗口失焦 / 尺寸变化
 
 import { onMounted, onBeforeUnmount, ref } from 'vue'
@@ -141,14 +142,22 @@ async function run(id: MenuItem['id']): Promise<void> {
     return
   }
 
+  // 删除确认：先关菜单再删——点击即反馈，删除在后台完成。
+  // （此前在 finally 里等 IPC 回包才关菜单，链路上的同步日志写盘让菜单"挂"几百 ms，
+  //   用户验收反馈"删除延迟大"。菜单即时关闭后，真实耗时仅 IPC+DELETE ≈ 毫秒级。）
+  if (id === 'deleteTurn') {
+    const targetId = bubbleMessageId // close() 会清空，先捕获
+    close()
+    // 走 store action（S-002 铁律3：组件不直接调 window.companion）；
+    // main 删整轮后返回被删行 id，store 同步摘除气泡。失败（如竞态 CHAT_BUSY）静默——气泡保留可重试
+    if (targetId) void chatStore.deleteTurn(targetId)
+    return
+  }
+
   const el = editableTarget
   const sel = window.getSelection()
   try {
-    if (id === 'deleteTurn') {
-      // 走 store action（S-002 铁律3：组件不直接调 window.companion）；
-      // main 删整轮后返回被删行 id，store 同步摘除气泡
-      if (bubbleMessageId) await chatStore.deleteTurn(bubbleMessageId)
-    } else if (el) {
+    if (el) {
       const start = el.selectionStart ?? 0
       const end = el.selectionEnd ?? 0
       if (id === 'cut' || id === 'copy') {
