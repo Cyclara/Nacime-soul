@@ -57,13 +57,19 @@ const stateMeta = STATE_LABELS[props.item.lifecycleState] ?? {
           <span>{{ stateMeta.label }}</span>
         </span>
         <span class="type-tag">{{ TYPE_LABELS[item.type] ?? item.type }}</span>
-        <span v-if="item.isPinned" class="pin-mark" title="已固定">📌</span>
+        <span
+          v-if="item.isPinned"
+          v-tooltip="'已固定（不参与衰减）'"
+          class="pin-mark"
+          aria-label="已固定"
+          >📌</span
+        >
       </div>
     </div>
 
     <div
+      v-tooltip="`激活值 ${item.activation.toFixed(1)}`"
       class="activation-bar"
-      :title="`激活值 ${item.activation.toFixed(1)}`"
       :aria-label="`记忆激活值 ${item.activation.toFixed(1)}`"
     >
       <div class="bar-track">

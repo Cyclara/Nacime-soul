@@ -208,6 +208,9 @@ function close(): void {
                 aria-label="编辑记忆内容"
                 @keydown.esc.stop="cancelEdit"
               ></textarea>
+              <p v-if="detail.rawContent !== detail.content" class="edit-hint">
+                这是她记下的原文，保存后这里会自动换成「你」的说法
+              </p>
               <div class="edit-actions">
                 <button class="edit-btn primary" :disabled="saving" @click="saveEdit">
                   {{ saving ? '保存中…' : '保存' }}
@@ -220,8 +223,8 @@ function close(): void {
               <span v-if="detail.isPinned" class="pin-mark">📌 已固定</span>
               <span
                 v-if="detail.editedAt"
+                v-tooltip="`编辑于 ${new Date(detail.editedAt).toLocaleString()}`"
                 class="edited-mark"
-                :title="`编辑于 ${new Date(detail.editedAt).toLocaleString()}`"
                 >✎ 已编辑</span
               >
               <span class="type-tag">{{ detail.type }}</span>
@@ -229,8 +232,8 @@ function close(): void {
 
             <div class="detail-stats">
               <div
+                v-tooltip="`激活值 ${detail.activation.toFixed(1)}`"
                 class="stat-item"
-                :title="`激活值 ${detail.activation.toFixed(1)}`"
                 :aria-label="`激活值 ${detail.activation.toFixed(1)}`"
               >
                 <span class="stat-label">激活</span>
@@ -532,6 +535,15 @@ function close(): void {
   justify-content: flex-end;
   gap: 8px;
   animation: edit-in 0.18s ease 0.05s backwards;
+}
+
+/* 2026-08-21 验收反馈：编辑草稿是 rawContent（第三人称原文），
+   与显示值（已转「你」）不一致会让用户困惑——补一句说明 */
+.edit-hint {
+  margin-top: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
 }
 
 .edit-btn {

@@ -85,12 +85,18 @@ async function saveEdit(key: string): Promise<void> {
           <div class="field-header">
             <span class="field-label">{{ field.label }}</span>
             <span class="field-tools">
-              <span v-if="field.isPinned" class="pin-badge" title="已固定（不会被覆盖）">📌</span>
+              <span
+                v-if="field.isPinned"
+                v-tooltip="'已固定，不会被自动覆盖'"
+                class="pin-badge"
+                aria-label="已固定，不会被自动覆盖"
+                >📌</span
+              >
               <button
                 v-if="editingKey !== field.key"
+                v-tooltip="'编辑'"
                 class="field-edit-btn"
                 :aria-label="`编辑${field.label}`"
-                title="编辑"
                 @click="startEdit(field.key, field.rawValue)"
               >
                 ✎
@@ -101,25 +107,30 @@ async function saveEdit(key: string): Promise<void> {
             <span>{{ field.value }}</span>
           </div>
           <div v-else class="field-edit">
-            <input
-              v-model="editDraft"
-              class="field-edit-input"
-              type="text"
-              maxlength="120"
-              :aria-label="`编辑${field.label}（留空保存 = 清空）`"
-              @keydown.enter="saveEdit(field.key)"
-              @keydown.esc.stop="cancelEdit"
-            />
-            <div class="field-edit-actions">
-              <button
-                class="field-edit-action primary"
-                :disabled="saving"
-                @click="saveEdit(field.key)"
-              >
-                {{ saving ? '…' : '✓' }}
-              </button>
-              <button class="field-edit-action" :disabled="saving" @click="cancelEdit">✕</button>
+            <div class="field-edit-row">
+              <input
+                v-model="editDraft"
+                class="field-edit-input"
+                type="text"
+                maxlength="120"
+                :aria-label="`编辑${field.label}（留空保存 = 清空）`"
+                @keydown.enter="saveEdit(field.key)"
+                @keydown.esc.stop="cancelEdit"
+              />
+              <div class="field-edit-actions">
+                <button
+                  class="field-edit-action primary"
+                  :disabled="saving"
+                  @click="saveEdit(field.key)"
+                >
+                  {{ saving ? '…' : '✓' }}
+                </button>
+                <button class="field-edit-action" :disabled="saving" @click="cancelEdit">✕</button>
+              </div>
             </div>
+            <span v-if="field.rawValue && field.rawValue !== field.value" class="field-edit-hint">
+              这是她记下的原文，保存后这里会自动换成「你」的说法
+            </span>
           </div>
         </div>
       </div>
@@ -158,10 +169,10 @@ async function saveEdit(key: string): Promise<void> {
           </span>
           <button
             v-else
+            v-tooltip="'点一下，亲口告诉她'"
             class="unknown-chip"
             :style="{ '--i': index }"
             :aria-label="`告诉她${field.label}`"
-            title="点一下，亲口告诉她"
             @click="startEdit(field.key, field.rawValue)"
           >
             {{ field.label }}
@@ -348,9 +359,21 @@ async function saveEdit(key: string): Promise<void> {
 
 .field-edit {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   animation: edit-in 0.16s ease;
+}
+
+.field-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-edit-hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
 }
 
 .field-edit-input {
@@ -440,12 +463,14 @@ async function saveEdit(key: string): Promise<void> {
 }
 
 .unknown-chip {
-  padding: 3px 10px;
+  padding: 4px 11px;
   border: 1px dashed var(--color-border-subtle);
   border-radius: var(--radius-full);
   background: transparent;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  /* 2026-08-21 验收反馈：11px 太小，13px(sm) 又压过 chips 的低调气质 -> 取 12px 中间档，
+     颜色从 muted 提到 secondary 补可读性 */
+  color: var(--color-text-secondary);
+  font-size: 12px;
   transition:
     color 0.15s ease,
     border-color 0.15s ease,

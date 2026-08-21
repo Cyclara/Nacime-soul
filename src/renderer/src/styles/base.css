@@ -404,6 +404,33 @@ a:hover {
   outline-offset: 3px;
 }
 
+/* v-tooltip 共享浮层（directives/tooltip.ts）：替代纯黑原生 title */
+.app-tooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 240px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  word-break: break-word;
+}
+
+.app-tooltip.is-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html,
   body {
