@@ -184,6 +184,9 @@ interface ActiveTurnState {
   sessionId: SessionId
   assistantMessageId: MessageId
   controller: AbortController
+  /** 轮次看门狗：true = 本轮因停滞被看门狗 abort（区别于用户主动 cancel） */
+  stalled: boolean
+  stallTimer?: ReturnType<typeof setTimeout>
 }
 
 interface ClientRequestRecord {
@@ -231,6 +234,38 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
 
   function hasActiveTurn(sessionId: SessionId): boolean {
     return sessionActiveTurn.has(sessionId)
+  }
+
+  // === 轮次看门狗（停滞自愈） ===
+  // provider 层已有 idle timeout（无数据 timeoutMs 即断，思考模式首字节地板 120s），
+  // 但它只覆盖 provider.stream 内部——prompt 装配/记忆检索/hook/未来新 provider
+  // 不在其保护范围。看门狗站在轮次级：登记后任何阶段超过预算没有任何流事件 ->
+  // 判停滞 -> abort，走 failed(NET_TIMEOUT) 终局释放轮次——应用不再只能靠重启解锁。
+  // 预算 360s：必须超过 provider 合法静默上限（timeoutMs 最大 300s / 思考地板 120s），
+  // 保证永不误杀。已知未覆盖的缝隙：streamTurn 启动前的 hook 挂起（abort 无法打断
+  // 一个永不 settle 的 emitLifecycle）——当前 hook 全是本地同步逻辑，不构成现实风险。
+  const TURN_STALL_TIMEOUT_MS = 360_000
+
+  /** 布防/重置看门狗：每个流事件都是"还活着"的证据，重置计时 */
+  function armStallWatchdog(state: ActiveTurnState, requestId: RequestId): void {
+    clearTimeout(state.stallTimer)
+    state.stallTimer = setTimeout(() => {
+      state.stalled = true
+      chatLogger.warn('turn stalled; watchdog aborting', {
+        scope: 'chat',
+        tags: { requestId, sessionId: state.sessionId },
+        metrics: { stallMs: TURN_STALL_TIMEOUT_MS }
+      })
+      state.controller.abort()
+    }, TURN_STALL_TIMEOUT_MS)
+  }
+
+  /** 释放轮次：清看门狗 + 摘 active 登记 + 释放会话所有权（终局/ACK 失败共用） */
+  function releaseTurn(requestId: RequestId, sessionId: SessionId): void {
+    const state = activeTurns.get(requestId)
+    if (state) clearTimeout(state.stallTimer)
+    activeTurns.delete(requestId)
+    releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
   }
 
   function createSession(): SessionId {
@@ -309,8 +344,10 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     const userMessageId = randomUUID()
     const assistantMessageId = randomUUID()
     const controller = new AbortController()
-    activeTurns.set(requestId, { sessionId, assistantMessageId, controller })
+    const turnState: ActiveTurnState = { sessionId, assistantMessageId, controller, stalled: false }
+    activeTurns.set(requestId, turnState)
     sessionActiveTurn.set(sessionId, requestId)
+    armStallWatchdog(turnState, requestId)
 
     // 用 microtask 启动准备阶段，确保 clientRequests 记录先同步写入，再执行任何 await 路径。
     const ackPromise = Promise.resolve().then(async (): Promise<TurnAck> => {
@@ -381,8 +418,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       if (clientRequests.get(clientRequestId) === record) {
         clientRequests.delete(clientRequestId)
       }
-      activeTurns.delete(requestId)
-      releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
+      releaseTurn(requestId, sessionId)
       throw err
     }
   }
@@ -485,8 +521,15 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     const requestId = randomUUID()
     const assistantMessageId = randomUUID()
     const controller = new AbortController()
-    activeTurns.set(requestId, { sessionId, assistantMessageId, controller })
+    const retryTurnState: ActiveTurnState = {
+      sessionId,
+      assistantMessageId,
+      controller,
+      stalled: false
+    }
+    activeTurns.set(requestId, retryTurnState)
     sessionActiveTurn.set(sessionId, requestId)
+    armStallWatchdog(retryTurnState, requestId)
 
     const ackPromise = Promise.resolve().then(async (): Promise<TurnAck> => {
       chatLogger.info('retry turn started', {
@@ -530,8 +573,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       if (clientRequests.get(clientRequestId) === record) {
         clientRequests.delete(clientRequestId)
       }
-      activeTurns.delete(requestId)
-      releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
+      releaseTurn(requestId, sessionId)
       throw err
     }
   }
@@ -687,6 +729,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     const { ack, turnId, sessionId, sanitizedText, wasStopped, sink, controller } = opts
     const { clientRequestId, text, supersedeTurnId } = opts
     const { requestId, assistantMessageId } = ack
+    // 看门狗状态（登记时已布防）；每个流事件重置计时。捕获引用即可——
+    // 终局时从 map 摘除不影响已捕获的对象。
+    const turnState = activeTurns.get(requestId)
 
     // 终局清理：删除同轮被取代的 assistant 行。持久化尽力而为（V-03a 同则：
     // 写盘失败不得影响事件送达）。必须在 turn.end hook 之前完成（finally 里发射），
@@ -889,6 +934,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         for await (const chunk of provider.stream(finalRequest, controller.signal)) {
           if (controller.signal.aborted) break
 
+          // 任何 chunk 都是"本轮还活着"的证据：重置看门狗
+          if (turnState) armStallWatchdog(turnState, requestId)
+
           if (chunk.type === 'delta') {
             accumulated += chunk.text
             sink({ type: 'chunk', requestId, sequence, delta: chunk.text })
@@ -910,8 +958,10 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         metrics.counter('llm.errors').inc()
         llmSpan.end(false, isAppError(err) ? err.code : undefined)
         // provider 错误：保留已接收文本，标 failed（S-004 #24）
+        // 看门狗停滞 abort 也走这里（abort 触发的 provider 抛错）：
+        // 统一收敛为 NET_TIMEOUT —— 用户视角 = 连接超时，可重试
         status = 'failed'
-        errorCode = isAppError(err) ? err.code : 'UNKNOWN'
+        errorCode = turnState?.stalled ? 'NET_TIMEOUT' : isAppError(err) ? err.code : 'UNKNOWN'
 
         // V-03a：failed 标记写盘失败（如窗口关闭竞态 DB 已 close）不得吞掉下面的 failed 事件——
         // 事件必须先到达 UI，持久化尽力而为
@@ -951,12 +1001,28 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           sequence,
           error: {
             code: errorCode,
-            message: isAppError(err) ? (err.userMessage ?? err.code) : '生成回复时出错',
-            retryable: isAppError(err) ? err.retryable : false,
+            message: turnState?.stalled
+              ? '连接超时，请检查网络后重试'
+              : isAppError(err)
+                ? (err.userMessage ?? err.code)
+                : '生成回复时出错',
+            retryable: turnState?.stalled ? true : isAppError(err) ? err.retryable : false,
             requestId
           }
         })
         return
+      }
+
+      // 看门狗停滞：provider 安静结束（abort 未抛错）也会走到这里。
+      // 抛给外层 catch 统一走 failed 终局（保留已收文本、可重试）——
+      // 必须在 cancelled 判定之前：停滞 abort 的 signal 同样是 aborted=true。
+      if (turnState?.stalled) {
+        throw new AppError({
+          code: 'NET_TIMEOUT',
+          userMessage: '连接超时，请检查网络后重试',
+          severity: 'error',
+          retryable: true
+        })
       }
 
       // 检查是否在流式期间被取消
@@ -1073,8 +1139,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     } finally {
       // 清理 active turn（在 turn.end hook 之前，确保 hasActiveTurn 在事件发射后立即返回 false）
       // turn.end 是独立扩展点，不应阻塞 active turn 的释放
-      activeTurns.delete(requestId)
-      releaseSessionTurnOwnership(sessionActiveTurn, sessionId, requestId)
+      // releaseTurn 一并清看门狗计时器（防终局后迟到触发）
+      releaseTurn(requestId, sessionId)
 
       // P2-43：轮次终局落幂等账本（跨重启重放的依据）。
       // cancelled 并入 failed：用户取消后点重试应当真跑（逃生门语义）。
