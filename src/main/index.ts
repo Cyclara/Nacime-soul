@@ -57,6 +57,7 @@ import type { PromptContextAssembler } from './prompts/context-assembler'
 
 // 窗口
 import { createChatWindow } from './windows/create-chat-window'
+import { trackWindowState, type WindowState } from './windows/window-state'
 
 // 迁移（F5-013：启动链第一个数据触碰者）
 import { createMigrationRunner } from './migrations/runner'
@@ -289,6 +290,25 @@ app.whenReady().then(async () => {
     )
   }
 
+  // S-005 §3.7 落地：窗口尺寸/位置持久化（schema/默认值早已就位，此前只建不存）。
+  // resize/move/maximize 走防抖写（configStore 内置 250ms 节流合并），close 立即写。
+  // 写失败（校验不过/磁盘满）只记日志——窗口状态是顺手度数据，不值得炸启动链。
+  function persistWindowState(state: WindowState, immediate: boolean): void {
+    configStore.update({ ui: { window: state } }, { immediate }).catch((e: unknown) => {
+      getLogger('window').warn('window state persist failed', {
+        scope: 'window',
+        detail: e instanceof Error ? e.message : String(e)
+      })
+    })
+  }
+
+  /** 创建主窗口并还原上次的尺寸/位置/最大化（崩溃重建与 activate 重开同样走这里） */
+  function createMainWindow(): BrowserWindow {
+    const win = createChatWindow({ windowState: configStore.get().ui.window })
+    trackWindowState(win, persistWindowState)
+    return win
+  }
+
   // M-07：向 renderer 推送 app-error 事件（companion:event:app-error）。
   // 此前该通道在 main 侧无任何发射点，主进程内部错误永远到不了 UI。
   function sendAppError(error: PublicAppError): void {
@@ -306,7 +326,7 @@ app.whenReady().then(async () => {
     createWindow: () => {
       // renderer 崩溃后重建窗口：更新 mainWindow 引用 + 重新配置 IPC guard
       // （新窗口的 webContents.id 与旧窗口不同，必须更新 trustedWebContentsIds）
-      mainWindow = createChatWindow()
+      mainWindow = createMainWindow()
       setupWindowIpcGuard(mainWindow)
       // 重建窗口后重新挂载 maximize/unmaximize 监听（修复前只挂初始窗口，重建后事件失效）
       attachWindowStateListeners(mainWindow)
@@ -496,7 +516,7 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  mainWindow = createChatWindow()
+  mainWindow = createMainWindow()
   setupWindowIpcGuard(mainWindow)
 
   // window handler 需要 getMainWindow（窗口可能被 CrashGuard 重建）
@@ -509,7 +529,7 @@ app.whenReady().then(async () => {
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createChatWindow()
+      mainWindow = createMainWindow()
       setupWindowIpcGuard(mainWindow)
       // macOS 关窗重开（activate）后同样需要重新挂载状态监听
       attachWindowStateListeners(mainWindow)
