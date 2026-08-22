@@ -187,6 +187,27 @@ describe('P1-07 update - 合法更新', () => {
     expect(store.get().ui.window.width).toBe(1200)
     expect(store.get().ui.window.height).toBe(720) // 默认值保留
   })
+
+  // 66143e6 缺陷回归（08-22 真机验收抓获）：deepMergeWithDefaults 只遍历默认对象的键，
+  // 默认值缺 x/y 占位 -> 窗口位置更新被静默剔除，重启后位置丢失（宽高幸存掩盖了它）
+  it('窗口位置 x/y 持久化到内存与磁盘', async () => {
+    const store = createConfigStore({ configPath })
+    store.setup()
+    await store.update({
+      ui: { window: { width: 1000, height: 700, x: 150, y: 120, maximized: false } }
+    })
+    expect(store.get().ui.window).toEqual({ width: 1000, height: 700, x: 150, y: 120, maximized: false })
+    const onDisk = readConfig().ui.window as { x?: number; y?: number }
+    expect(onDisk.x).toBe(150)
+    expect(onDisk.y).toBe(120)
+  })
+
+  it('config 无 x/y（首次启动）-> 读出 undefined，Electron 居中语义不变', () => {
+    const store = createConfigStore({ configPath })
+    store.setup()
+    expect(store.get().ui.window.x).toBeUndefined()
+    expect(store.get().ui.window.y).toBeUndefined()
+  })
 })
 
 describe('P1-07 update - 非法更新', () => {
