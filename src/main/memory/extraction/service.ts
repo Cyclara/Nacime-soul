@@ -1,6 +1,6 @@
 // src/main/memory/extraction/service.ts
 // ExtractionService：独立 LLM 调用 + 64KiB 上限 + 空失败。
-// 依据 S-010 §1.1 责任边界、§1.5 ExtractionProvider 窄适配。
+// 依据 S-020 §1.1 责任边界、§1.5 ExtractionProvider 窄适配。
 //
 // 责任边界：
 //   - ExtractionService 只负责"让模型提出候选"，没有写权限

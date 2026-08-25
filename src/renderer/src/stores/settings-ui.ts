@@ -6,7 +6,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
-export type SettingsSection = 'model' | 'memory' | 'appearance' | 'security' | 'advanced'
+export type SettingsSection = 'model' | 'memory' | 'appearance' | 'security' | 'about' | 'advanced'
 
 type VisibleSettingsSection = Exclude<SettingsSection, 'advanced'>
 

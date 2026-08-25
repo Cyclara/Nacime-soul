@@ -1,6 +1,6 @@
 // src/main/memory/extraction/hook.ts
 // turn.end 提取 hook：fail-open 入有界队列，只取 memoryEligible turn。
-// 依据 S-010 §1.1、§1.5。
+// 依据 S-020 §1.1、§1.5。
 //
 // 硬门：
 //   1. memory.enabled=false -> 不得读取 SessionStore、不得调用提取 provider/Judge/writer
@@ -10,7 +10,7 @@
 // 队列消费者（processQueue）在后台异步运行：
 //   P2-38（sync_turn 便宜提取）-> 候选入队积累 -> P2-39 批量终审（drain）
 //   drain = 每轮各自 judge（evidence 校验需要该轮 ctx）-> 跨轮去重 -> 按组 dispatch
-//   触发条件（S-010 §1.5）：
+//   触发条件（S-020 §1.5）：
 //     累计 6 个 eligible turn（SYNC_TURN_JUDGE_EVERY_TURNS）
 //     或队列候选数 ≥12（JUDGE_QUEUE_THRESHOLD）
 //     队列耗尽时 final drain（否则最后几轮候选永不写入，I-01「下轮 prompt 含名字」无法成立）
@@ -61,7 +61,7 @@ export interface ExtractionHookDeps {
 /**
  * 创建 turn.end 提取 hook。
  *
- * hook 行为（S-010 §1.1）：
+ * hook 行为（S-020 §1.1）：
  *   1. 检查 memory.enabled && memoryEligible
  *   2. 通过 SessionStore.getTurnMessages 取当前 turn 的 user message
  *   3. 入队，立即返回（不 await 网络）
@@ -89,7 +89,7 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
    * P2-39 批量终审：对一组 pending turn 统一执行 judge -> 跨轮去重 -> 按组 dispatch。
    *   - M-42：终审前对本批全部 L0 候选做一次批量语义归因判定（一次 API 调用），
    *     结论随每轮 ctx 预标注给 Judge step 6；门缺失/失败/超时 -> null -> 正则表
-   *   - 每轮候选各自 judge（evidence 校验必须用该轮 ctx，S-010 §1.6 step 2）
+   *   - 每轮候选各自 judge（evidence 校验必须用该轮 ctx，S-020 §1.6 step 2）
    *   - dedupeDecisionsForDrain 跨轮合并同事实候选（confidence 取高），输入输出 1:1 保序
    *   - 按组回填 dispatch（保持每轮 sessionId/turnId 正确）
    */
@@ -115,7 +115,7 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
           attribution = await attributionGate.judgeL0Batch(items)
         } catch (e) {
           // AttributionGate 契约是不 throw（内部已 fail-closed）；此处防御性兜底——
-          // 门异常等同于门失败，丢标注不丢整批（S-010 §1.1 败而不崩语义细化）
+          // 门异常等同于门失败，丢标注不丢整批（S-020 §1.1 败而不崩语义细化）
           logger.warn('attribution gate threw; falling back to regex', {
             scope: 'memory',
             metrics: { items: items.length },
@@ -194,7 +194,7 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
           })
         }
 
-        // 2. P2-39：累计 6 个 eligible turn 或队列候选 ≥12 时批量终审（S-010 §1.5）
+        // 2. P2-39：累计 6 个 eligible turn 或队列候选 ≥12 时批量终审（S-020 §1.5）
         turnsSinceDrain++
         if (
           turnsSinceDrain >= SYNC_TURN_JUDGE_EVERY_TURNS ||
@@ -220,7 +220,7 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
 
   /**
    * fail-open 兜底：drain 失败（judge/dispatch 抛错）只丢弃该批，
-   * 消费者继续处理剩余队列，不影响聊天主流程（S-010 §1.1 败而不崩）。
+   * 消费者继续处理剩余队列，不影响聊天主流程（S-020 §1.1 败而不崩）。
    * 不重试：extractionKey 幂等只保护「已写入」，重试同批有重复写入风险；
    * 丢弃等价于旧实现「单 turn 失败只影响该 turn 的记忆写入」。
    */
@@ -300,7 +300,7 @@ export function createExtractionHook(deps: ExtractionHookDeps): {
     hook: {
       name: 'extraction',
       event: 'turn.end',
-      priority: 250, // S-011 §1.6：growth bridge（220）之后；dmae（300）之前
+      priority: 250, // S-021 §1.6：growth bridge（220）之后；dmae（300）之前
       fn: hookFn,
       failOpen: true
     },

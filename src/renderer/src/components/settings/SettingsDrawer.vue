@@ -11,6 +11,7 @@ import AppearanceSection from './AppearanceSection.vue'
 import ModelSettingsSection from './ModelSettingsSection.vue'
 import MemorySettingsSection from './MemorySettingsSection.vue'
 import SecuritySettingsSection from './SecuritySettingsSection.vue'
+import AboutSection from './AboutSection.vue'
 
 const settingsUi = useSettingsUiStore()
 const configStore = useConfigStore()
@@ -30,7 +31,8 @@ const NAV_ITEMS: Array<{
   { id: 'model', label: '模型', marker: '01', description: '连接与回应方式' },
   { id: 'memory', label: '记忆', marker: '02', description: '记住与淡忘' },
   { id: 'appearance', label: '外观', marker: '03', description: '主题与视觉' },
-  { id: 'security', label: '安全', marker: '04', description: '隐私与诊断' }
+  { id: 'security', label: '安全', marker: '04', description: '隐私与诊断' },
+  { id: 'about', label: '关于', marker: '05', description: '版本与更新' }
 ]
 
 const resolvedSection = computed<Exclude<SettingsSection, 'advanced'>>(() =>
@@ -179,6 +181,7 @@ onBeforeUnmount(() => {
               <ModelSettingsSection v-if="resolvedSection === 'model'" />
               <MemorySettingsSection v-else-if="resolvedSection === 'memory'" />
               <AppearanceSection v-else-if="resolvedSection === 'appearance'" />
+              <AboutSection v-else-if="resolvedSection === 'about'" />
               <SecuritySettingsSection v-else />
             </div>
           </main>

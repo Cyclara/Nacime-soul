@@ -24,9 +24,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（40 + ⑦ delete-selected/clear-session = 42）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(42)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(42)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（43 + M-50 更新 3 通道 = 46）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(46)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(46)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -57,7 +57,11 @@ describe('P1-11 undefined 通道 validator', () => {
     'companion:memory:get-overview',
     'companion:memory:get-l0',
     'companion:memory:get-dmae-snapshot',
-    'companion:growth:get-profile'
+    'companion:growth:get-profile',
+    // M-50：自动更新（undefined 载荷）
+    'companion:app:check-for-updates',
+    'companion:app:get-update-status',
+    'companion:app:quit-and-install'
   ]
 
   for (const channel of undefinedChannels) {
@@ -357,6 +361,25 @@ describe('验收反馈⑦ ChatDeleteSelectedRequest / ChatClearSessionRequest va
         keepPinned: true
       })
     ).toBe(false)
+  })
+
+  it('P2-44 search：合法 payload 通过；空 query/超长/坏 limit/多余字段被拒绝', () => {
+    expect(validateIpcPayload('companion:chat:search', { query: '天气' })).toBe(true)
+    expect(validateIpcPayload('companion:chat:search', { query: 'code', limit: 20 })).toBe(true)
+    // query 边界
+    expect(validateIpcPayload('companion:chat:search', { query: '' })).toBe(false)
+    expect(validateIpcPayload('companion:chat:search', { query: 'x'.repeat(129) })).toBe(false)
+    expect(validateIpcPayload('companion:chat:search', { query: 'x'.repeat(128) })).toBe(true)
+    expect(validateIpcPayload('companion:chat:search', { query: 42 })).toBe(false)
+    // limit 边界
+    expect(validateIpcPayload('companion:chat:search', { query: 'a', limit: 0 })).toBe(false)
+    expect(validateIpcPayload('companion:chat:search', { query: 'a', limit: 101 })).toBe(false)
+    expect(validateIpcPayload('companion:chat:search', { query: 'a', limit: 1.5 })).toBe(false)
+    expect(validateIpcPayload('companion:chat:search', { query: 'a', limit: '50' })).toBe(false)
+    // 多余字段
+    expect(validateIpcPayload('companion:chat:search', { query: 'a', sessionId: 's-1' })).toBe(
+      false
+    )
   })
 })
 

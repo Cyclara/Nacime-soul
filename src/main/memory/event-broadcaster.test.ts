@@ -1,6 +1,6 @@
 // src/main/memory/event-broadcaster.test.ts
 // P2-29: MemoryEventBroadcaster 测试。250ms 节流 + hint 合并 + revision 读取。
-// 依据：S-012 §1.4（跨 hint 合为 bulk、同 hint 合并取最高 revision）、§3.4 测试矩阵。
+// 依据：S-022 §1.4（跨 hint 合为 bulk、同 hint 合并取最高 revision）、§3.4 测试矩阵。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createMemoryEventBroadcaster } from './event-broadcaster'
@@ -98,7 +98,7 @@ describe('P2-29 MemoryEventBroadcaster', () => {
     bc.dispose()
   })
 
-  it('不同 hint 合为 bulk（S-012 §1.4 红线）', () => {
+  it('不同 hint 合为 bulk（S-022 §1.4 红线）', () => {
     const clock = makeClock(3)
     const wc = makeWebContents()
     const bc = createMemoryEventBroadcaster({

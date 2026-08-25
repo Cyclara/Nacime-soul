@@ -141,7 +141,7 @@ describe('C-β memory:list-l2 handler', () => {
   })
 })
 
-describe('memory handler disabled 语义（S-012 §3.3）', () => {
+describe('memory handler disabled 语义（S-022 §3.3）', () => {
   beforeEach(() => {
     vi.mocked(ipcMain.handle).mockClear()
     vi.mocked(ipcMain.removeHandler).mockClear()

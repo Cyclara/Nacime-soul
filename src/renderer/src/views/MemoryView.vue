@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // P2-31: MemoryView -- 记忆面板主视图。
-// 依据：S-006 §1.2（组件树）、S-012 §3.3（bootstrap 注册 memory 订阅）。
+// 依据：S-006 §1.2（组件树）、S-022 §3.3（bootstrap 注册 memory 订阅）。
 // 功能版（视觉待前端模型美化，CLAUDE.md UI 切换点：P2-31 功能完成后切换前端模型）。
 
 import { onMounted, onUnmounted, computed } from 'vue'

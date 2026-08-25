@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // P2-31: MemoryDetailDrawer -- 右侧抽屉：全文 + evidence 溯源 + pin/删除/恢复。
 // 依据：S-006 §1.2/§1.3/§1.4（删除需确认、<700px 降级全屏、Esc 关闭）。
-// DmaeHistoryChart 延后到 P2-32/F5-002（S-012 §3.1）。功能版（视觉待前端模型美化）。
+// DmaeHistoryChart 延后到 P2-32/F5-002（S-022 §3.1）。功能版（视觉待前端模型美化）。
 // M-14：补齐焦点管理（打开移焦到关闭按钮、Tab 圈闭、Esc 关闭、关闭恢复焦点），
 //       修复旧实现 Esc 处理器挂在 overlay 上、而焦点停留在背景导致 Esc 失效的问题。
 // M-44：内联编辑（功能版）——编辑草稿取 rawContent（显示 content 已做人称转换，

@@ -51,7 +51,7 @@ const CONFIDENCE_MAX = 1
 const TAGS_MAX = 16
 /** 单个 tag 长度上限 */
 const TAG_MAX_LEN = 32
-/** body 长度上限（与 L2 content maxLength 一致，S-010 §1.2） */
+/** body 长度上限（与 L2 content maxLength 一致，S-020 §1.2） */
 const BODY_MAX_LEN = 500
 
 /**

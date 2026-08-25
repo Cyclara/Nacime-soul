@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // src/renderer/src/stores/growth.test.ts
 // P2-42: growth Pinia store 测试。
-// 依据：S-012 §3.4 测试矩阵（growth hint 矩阵、revision 比对、订阅清理、disabled）。
+// 依据：S-022 §3.4 测试矩阵（growth hint 矩阵、revision 比对、订阅清理、disabled）。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'

@@ -165,14 +165,14 @@ export interface TurnEndData {
   outputLen: number
   errorCode?: ErrorCode
   /**
-   * 是否符合记忆提取条件。依据 S-010 §1.1：只有 provider 正常完成、assistant 非空、
+   * 是否符合记忆提取条件。依据 S-020 §1.1：只有 provider 正常完成、assistant 非空、
    * 已持久化且未走 sanitize/params 短路路径时为 true。failed/cancelled/stopped 均 false。
    * 提取管线和引用追踪只认这个门。
    */
   memoryEligible: boolean
   /**
    * 最终预算保留且 provider 正常完成、非空并已持久化的 L2 memoryId 列表。
-   * 依据 S-011 §1.6：只有 memoryEligible=true 时才传非空数组；
+   * 依据 S-021 §1.6：只有 memoryEligible=true 时才传非空数组；
    * failed/cancelled/stopped/检索命中但被 budget 裁掉均传 []。
    */
   referencedMemoryIds: readonly string[]
@@ -767,10 +767,10 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     let accumulatedReasoning = ''
     let inputTokens = 0
     let outputTokens = 0
-    // memoryEligible：仅 provider 正常完成且 assistant 非空时为 true（S-010 §1.1）。
+    // memoryEligible：仅 provider 正常完成且 assistant 非空时为 true（S-020 §1.1）。
     // sanitize 短路、params 短路、failed、cancelled、空输出均保持 false。
     let memoryEligible = false
-    // 最终预算保留的 L2 memoryId 列表（S-011 §1.6）。
+    // 最终预算保留的 L2 memoryId 列表（S-021 §1.6）。
     // 只在 memoryEligible=true 时才传非空给 turn.end；提前 return 路径保持 []。
     let includedMemoryIds: readonly string[] = []
 
@@ -820,7 +820,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       // === 构建 prompt + budget ===
       // P2-27: prompt.build span（含 context assemble + buildPrompt + applyBudget）
       const promptSpan = tracer.startSpan('prompt.build', turnId)
-      // S-011 §1.6：memory.enabled=true 但 dynamicPrompt 缺失 -> CFG_INVALID
+      // S-021 §1.6：memory.enabled=true 但 dynamicPrompt 缺失 -> CFG_INVALID
       // memory.enabled=false（默认）-> Phase 1 五层静态路径
       const memoryConfig = getMemoryConfig ? getMemoryConfig() : undefined
       const memoryEnabled = memoryConfig?.enabled === true
@@ -1066,7 +1066,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
 
       removeSupersededRows()
 
-      // provider 正常完成且 assistant 非空 -> 符合记忆提取条件（S-010 §1.1）
+      // provider 正常完成且 assistant 非空 -> 符合记忆提取条件（S-020 §1.1）
       memoryEligible = accumulated.trim().length > 0
 
       // P2-26: LLM token 指标（累计输入/输出 token）
@@ -1169,7 +1169,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         inputLen: sanitizedText.length,
         outputLen: accumulated.length,
         memoryEligible,
-        // S-011 §1.6：只有 memoryEligible=true 才传非空 includedMemoryIds
+        // S-021 §1.6：只有 memoryEligible=true 才传非空 includedMemoryIds
         referencedMemoryIds: memoryEligible ? includedMemoryIds : [],
         ...(errorCode !== undefined ? { errorCode } : {})
       }
@@ -1212,7 +1212,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
 }
 
 /**
- * 从会话历史构建 BudgetHistoryTurn[]。依据 S-011 §1.5。
+ * 从会话历史构建 BudgetHistoryTurn[]。依据 S-021 §1.5。
  *
  * 规则：
  *   - 按 turnId 分组；只含 complete 消息；排除当前 assistant 占位

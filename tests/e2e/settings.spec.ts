@@ -112,7 +112,7 @@ test('P2-46: 模型设置经 UI 保存并跨重启持久化，API Key 不回填'
   }
 })
 
-test('P2-46: 空画像九格、放弃草稿关闭、记忆重启提示与安全保存', async () => {
+test('P2-46: 空画像九个 chips、放弃草稿关闭、记忆重启提示与安全保存', async () => {
   const tmpDir = createTmpUserData()
   writeMemoryConfig(tmpDir)
   writeFakeApiKey(tmpDir)
@@ -147,9 +147,10 @@ test('P2-46: 空画像九格、放弃草稿关闭、记忆重启提示与安全�
     await expect(page.locator('.settings-drawer')).toHaveCount(0)
     await page.click('.memory-entry')
     await page.waitForSelector('.l0-card', { timeout: 10_000 })
-    await expect(page.locator('.l0-field')).toHaveCount(9)
-    await expect(page.locator('.l0-field .value-placeholder')).toHaveCount(9)
-    await expect(page.getByText('她还不了解你', { exact: true })).toHaveCount(0)
+    await expect(page.locator('.l0-field')).toHaveCount(0)
+    await expect(page.locator('.unknown-chip')).toHaveCount(9)
+    await expect(page.getByText('她还不了解', { exact: true })).toBeVisible()
+    await expect(page.getByText('待发现', { exact: true })).toHaveCount(0)
 
     await page.getByRole('button', { name: '返回聊天' }).click()
     await openSettings(page)

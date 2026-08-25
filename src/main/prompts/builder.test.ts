@@ -1,6 +1,6 @@
 // src/main/prompts/builder.test.ts
 // P2-16 测试：九层 Prompt Builder
-// 依据：S-011 §1.2-§1.4、§3.2 测试矩阵
+// 依据：S-021 §1.2-§1.4、§3.2 测试矩阵
 //       S-004 §3.3 #18-#20（层序、非关键层跳过、关键层 fatal）
 //       S-004 §3.3.1 合同门禁 #1（用户输入只出现在 user message）
 
@@ -91,7 +91,7 @@ function makeL2(): PromptL2Item[] {
 // === 测试 ===
 
 describe('P2-16 Prompt Builder (9 layers)', () => {
-  it('S-011 §3.2: layers.map(name) 精确等于九层；priority 0..8', () => {
+  it('S-021 §3.2: layers.map(name) 精确等于九层；priority 0..8', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const result = buildPrompt({ loader, logger: noopLogger() })
 
@@ -211,7 +211,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(identity.status).toBe('skipped')
   })
 
-  it('S-011 §1.3: L0 空态不输出标题/占位句', () => {
+  it('S-021 §1.3: L0 空态不输出标题/占位句', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -227,7 +227,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(result.systemPrompt).not.toContain('未知')
   })
 
-  it('S-011 §1.3: L1 空态不输出标题/占位句', () => {
+  it('S-021 §1.3: L1 空态不输出标题/占位句', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -241,7 +241,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(result.systemPrompt).not.toContain('近期状态')
   })
 
-  it('S-011 §1.3: L2 空态不输出标题/占位句', () => {
+  it('S-021 §1.3: L2 空态不输出标题/占位句', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -255,7 +255,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(result.systemPrompt).not.toContain('共同记忆')
   })
 
-  it('S-011 §1.3: memory.enabled=false 时四动态层全 skipped', () => {
+  it('S-021 §1.3: memory.enabled=false 时四动态层全 skipped', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = { memoryEnabled: false }
     const result = buildPrompt({ loader, logger: noopLogger(), context })
@@ -269,7 +269,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(result.systemPrompt).not.toContain('已确认的用户事实')
   })
 
-  it('S-011 §1.3: L0 按固定 key 顺序渲染，每字段一条 item', () => {
+  it('S-021 §1.3: L0 按固定 key 顺序渲染，每字段一条 item', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -295,7 +295,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(l0.content).toContain('[希望被称呼的名字/昵称] 小明')
   })
 
-  it('S-011 §1.3: L1 含边界标记，每条独立 item', () => {
+  it('S-021 §1.3: L1 含边界标记，每条独立 item', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -314,7 +314,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(prefIdx).toBeLessThan(goalIdx)
   })
 
-  it('S-011 §1.3: L2 不泄露 activation/confidence/score 给模型', () => {
+  it('S-021 §1.3: L2 不泄露 activation/confidence/score 给模型', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -332,7 +332,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(l2.content).not.toContain('retrievalScore')
   })
 
-  it('S-011 §1.3: stranger + 无 fragments 注入保守 baseline', () => {
+  it('S-021 §1.3: stranger + 无 fragments 注入保守 baseline', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -346,7 +346,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(rel.content).toContain('不要声称拥有不存在的共同经历')
   })
 
-  it('S-011 §1.3: relationship 含 fragments 时拼接 baseline + fragments', () => {
+  it('S-021 §1.3: relationship 含 fragments 时拼接 baseline + fragments', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,
@@ -363,7 +363,7 @@ describe('P2-16 Prompt Builder (9 layers)', () => {
     expect(rel.content).toContain('里程碑2')
   })
 
-  it('S-011 §1.2: memory.enabled=true 但 dmae 数据缺失（undefined）-> L2/relationship skipped', () => {
+  it('S-021 §1.2: memory.enabled=true 但 dmae 数据缺失（undefined）-> L2/relationship skipped', () => {
     const loader = createMemoryPromptLoader(ALL_FILES)
     const context: PromptBuildContext = {
       memoryEnabled: true,

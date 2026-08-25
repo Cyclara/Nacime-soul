@@ -1,6 +1,6 @@
 // src/main/memory/extraction/sync-turn.test.ts
 // P2-38 sync_turn 轻量提取 + P2-39 跨轮去重纯函数。
-// 依据 S-Phase2 P2-38/P2-39 验收 + S-010 §1.5。
+// 依据 S-Phase2 P2-38/P2-39 验收 + S-020 §1.5。
 import { describe, it, expect } from 'vitest'
 import { createFauxExtractionProvider } from './provider'
 import { testNoopLogger } from '../../../../tests/helpers/test-db'
@@ -233,7 +233,7 @@ describe('P2-39 dedupeDecisionsForDrain', () => {
     expect(out).toHaveLength(input.length)
   })
 
-  it('常量：SYNC_TURN_JUDGE_EVERY_TURNS=6、JUDGE_QUEUE_THRESHOLD=12（S-010 §1.5 钉死）', () => {
+  it('常量：SYNC_TURN_JUDGE_EVERY_TURNS=6、JUDGE_QUEUE_THRESHOLD=12（S-020 §1.5 钉死）', () => {
     expect(SYNC_TURN_JUDGE_EVERY_TURNS).toBe(6)
     expect(JUDGE_QUEUE_THRESHOLD).toBe(12)
   })

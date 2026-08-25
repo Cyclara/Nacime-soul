@@ -1,12 +1,12 @@
 // src/main/memory/extraction/dispatch.ts
-// accepted/downgraded 分发，不直接藏 IO 在 Judge 内。依据 S-010 §1.6 分发映射。
+// accepted/downgraded 分发，不直接藏 IO 在 Judge 内。依据 S-020 §1.6 分发映射。
 //
 // 分发映射：
 //   L0 -> L0Store.set({field, value:content, certainty:'explicit', attribution:'user_explicit'})
 //   L1 -> L1Store.record(content)；P2-05 的现有正则负责 goal/preference 子路由
 //   L2 -> MemoryWriter.writeL2（extractionKey 幂等 + L2+vector 同事务）
 //
-// 跨轮/重启幂等（S-010 §1.6）：
+// 跨轮/重启幂等（S-020 §1.6）：
 //   - L2 由 extractionKey UNIQUE 承担（writer 层）
 //   - L0 由 L0Store.set() 的"same value" no-op 承担
 //   - L1 由 L1Store 的"same text"去重承担

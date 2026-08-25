@@ -1,18 +1,18 @@
 // src/main/prompts/budgeter.ts
 // P2-17: PromptBudgeter - 九层 item 级裁剪 + BudgetHistoryTurn 整轮裁剪
-// 依据：S-011 §1.5、S-001 P1-21A（预算纪律延续）、S-004 §3.3.1 合同门禁 #2/#3
+// 依据：S-021 §1.5、S-001 P1-21A（预算纪律延续）、S-004 §3.3.1 合同门禁 #2/#3
 //
 // 预算公式：
 //   budget = contextWindow - maxOutputTokens - safetyMargin
 //
-// 裁剪顺序（S-011 §1.5，固定）：
+// 裁剪顺序（S-021 §1.5，固定）：
 //   1. L2 items：trimRank 升序（越低越先删），同分 id 升序
 //   2. 旧历史：最旧 BudgetHistoryTurn 整体删除；当前 isCurrent turn 永不裁
 //   3. L1 items：trimRank=updatedAt 升序（旧先裁），同分 category+id
 //   4. relationship fragments：trimRank=index 升序（旧先裁）；baseline 保留
 //   5. style 整层最后删除
 //
-// 不可裁（S-011 §1.5）：
+// 不可裁（S-021 §1.5）：
 //   - seed/system/identity/soul（loaded 且非空）-> 超预算 fatal CFG_INVALID
 //   - L0 items（身份连续性资料）
 //   - relationship baseline

@@ -8,6 +8,7 @@ import type {
   ChatCancelRequest,
   ChatHistorySnapshot,
   ChatListRequest,
+  ChatSearchHit,
   ChatSendAck,
   ChatSendRequest,
   ChatStreamEvent
@@ -20,6 +21,7 @@ import type {
   PublicConfigSnapshot
 } from './config/types'
 import type { DebugSnapshot } from './observability/types'
+import type { UpdateStatus } from './update/types'
 import type {
   DmaeBenchmarkRequest,
   DmaeHistoryRequest,
@@ -59,7 +61,17 @@ export interface CompanionApi {
   app: {
     getInfo(): Promise<IpcResult<AppInfo>>
     openUserData(): Promise<IpcResult<void>>
+    // M-50：自动更新（checkForUpdates 手动触发；getUpdateStatus 启动补水；quitAndInstall 仅 downloaded 态有效）
+    checkForUpdates(): Promise<IpcResult<void>>
+    getUpdateStatus(): Promise<IpcResult<UpdateStatus>>
+    quitAndInstall(): Promise<IpcResult<void>>
+    onUpdateStatus(cb: (status: UpdateStatus) => void): Unsubscribe
     onError(cb: (e: PublicAppError) => void): Unsubscribe
+  }
+  // M-51：UI 缩放（webFrame 直连，窗口本地；持久化走 config.ui.fontScale）
+  ui: {
+    getZoomFactor(): number
+    setZoomFactor(factor: number): void
   }
   window: {
     minimize(): Promise<IpcResult<void>>
@@ -97,6 +109,7 @@ export interface CompanionApi {
       messageIds: string[]
     }): Promise<IpcResult<{ deletedIds: string[] }>>
     clearSession(input: { sessionId: string }): Promise<IpcResult<{ removed: number }>>
+    search(input: { query: string; limit?: number }): Promise<IpcResult<ChatSearchHit[]>>
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe
   }
   debug: {

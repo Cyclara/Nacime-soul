@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // P2-31: MemoryEnableGuide -- memory.enabled=false 时的引导态（替换整页）。
-// 依据：S-006 §1.2、S-012 §3.3（引导态消费 enabled:false）。
+// 依据：S-006 §1.2、S-022 §3.3（引导态消费 enabled:false）。
 // 引导用户去设置开启记忆功能。
 
 import { useRouter } from 'vue-router'

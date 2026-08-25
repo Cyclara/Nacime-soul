@@ -1,5 +1,5 @@
 // src/main/memory/extraction/parse.ts
-// 确定性解析与截断恢复。依据 S-010 §1.4。
+// 确定性解析与截断恢复。依据 S-020 §1.4。
 //
 // 恢复目标：保存已经完整结束的前缀候选，不猜测模型本来想说什么。
 // 算法固定为：
@@ -303,7 +303,7 @@ function findCandidatesArrayStart(text: string): number {
 /**
  * 解析模型输出为 MemoryCandidate[]。
  *
- * 算法依据 S-010 §1.4。整个函数不向调用方 throw。
+ * 算法依据 S-020 §1.4。整个函数不向调用方 throw。
  *
  * @param turnId 当前 turn ID（用于生成 candidateId）
  * @param raw 模型输出的原始字符串
@@ -352,7 +352,7 @@ export function parseCandidateEnvelope(turnId: string, raw: string): CandidatePa
     // V8 JSON 解析器在 EOF 时可能抛：
     //   "Unexpected end of JSON input" / "Unexpected end of input"
     //   "Unterminated string in JSON at position N"（字符串跑到 EOF）
-    // 其他语法错（非法转义、逗号错误、引号错）一律全丢（S-010 §1.4 step 4）
+    // 其他语法错（非法转义、逗号错误、引号错）一律全丢（S-020 §1.4 step 4）
     const isEof =
       errStr.includes('Unexpected end of JSON') ||
       errStr.includes('Unexpected end of input') ||

@@ -1,6 +1,6 @@
 // src/main/memory/setup.ts
 // Phase 2 记忆基础设施接线：创建全部 memory Store / Service / Hook 并注册到 hook 系统。
-// 依据 S-010 §1.1 责任边界 + F5-003 §5 + F5-013 迁移先行。
+// 依据 S-020 §1.1 责任边界 + F5-003 §5 + F5-013 迁移先行。
 //
 // 接线顺序（F5-013：迁移必须已跑完，DB 文件已存在）：
 //   1. openMemoryDb（WAL + foreign_keys + 损坏检测）
@@ -16,7 +16,7 @@
 //   - 大多数 OpenAI-compatible 提供商同时提供 chat 和 embedding API
 //   - 若用户用不同提供商做 embedding，需等 S-005 扩展 embeddingBaseUrl/embeddingApiKey 字段
 //
-// 旁路逻辑（S-010 §1.1 硬门）：
+// 旁路逻辑（S-020 §1.1 硬门）：
 //   - memory.enabled=false -> 不创建任何 Store/Service/Hook，聊天回 Phase 1 行为
 //   - memory.enabled=true 但无 API Key -> embedding=null（走 pending 路径），extraction 不注册
 
@@ -394,7 +394,7 @@ export async function setupMemoryInfrastructure(
       )
     }
     // P2-38: 提取 hook 用 sync_turn 便宜画像（低 maxOutputTokens），复用 P2-10 queue/schema。
-    //   S-010 §1.5：P2-10 与 P2-38 不注册两个重复 extractor——能力由 P2-10 交付，
+    //   S-020 §1.5：P2-10 与 P2-38 不注册两个重复 extractor——能力由 P2-10 交付，
     //   生产 wiring 由 P2-38 切到每轮便宜模型。conflict resolver 仍直接用 extractionProvider。
     const extractionService = createSyncTurnExtractor({
       provider: extractionProvider,
@@ -680,7 +680,7 @@ export async function setupMemoryInfrastructure(
     scope: 'growth'
   })
 
-  // P2-40: growth bridge hook（turn.end, priority 220, S-011 §1.6 位于 extraction 250 之前）。
+  // P2-40: growth bridge hook（turn.end, priority 220, S-021 §1.6 位于 extraction 250 之前）。
   //   memoryEligible=true 时 fan-out referencedMemoryIds 为 l2.referenced 事件，
   //   当天首次对话发射 session.daily_first（同日幂等），实际发射事件时广播 growth hint。
   //   failOpen=true：hook 抛错不阻塞 turn.end 后续 hook（extraction/dmae）。

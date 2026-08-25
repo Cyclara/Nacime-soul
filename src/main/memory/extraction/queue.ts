@@ -1,5 +1,5 @@
 // src/main/memory/extraction/queue.ts
-// 有界单消费者队列。依据 S-010 §1.5。
+// 有界单消费者队列。依据 S-020 §1.5。
 //
 // 设计要点：
 //   1. hook 只把任务放进队列后立即返回，不 await 网络调用
@@ -8,7 +8,7 @@
 //   4. app 退出时 abort in-flight，不开始新写入
 //   5. 单消费者 FIFO，排序 (enqueueSequence, candidateId)
 //
-// 阈值常量 JUDGE_QUEUE_THRESHOLD=12（S-010 §1.5），P2-39 才用。
+// 阈值常量 JUDGE_QUEUE_THRESHOLD=12（S-020 §1.5），P2-39 才用。
 // P2-10/11/12 中每个 eligible turn 提取后立即 judge + write。
 
 import type { Logger } from '@shared/observability/types'

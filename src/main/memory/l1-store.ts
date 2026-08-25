@@ -49,7 +49,7 @@ export interface L1StoreOptions {
   filePath: string
   logger?: Logger
   now?: () => number
-  /** P2-29: 可选，记忆事件广播（memory.enabled=true 时注入）。S-012 §1.4 */
+  /** P2-29: 可选，记忆事件广播（memory.enabled=true 时注入）。S-022 §1.4 */
   revisionClock?: MemoryRevisionClock
   broadcaster?: MemoryEventBroadcaster
 }
@@ -114,7 +114,7 @@ export function createL1Store(opts: L1StoreOptions): L1Store {
     atomicWriteJson(filePath, state)
   }
 
-  /** P2-29: JSON rename 成功 -> 短 DB 事务 next -> 广播（S-012 §1.4） */
+  /** P2-29: JSON rename 成功 -> 短 DB 事务 next -> 广播（S-022 §1.4） */
   function notifyChange(): void {
     if (revisionClock && broadcaster) {
       revisionClock.next()

@@ -118,6 +118,31 @@ export interface ChatClearSessionRequest {
   sessionId: SessionId
 }
 
+/**
+ * 聊天记录全文搜索请求（P2-44 搜索功能，FTS5 关键词检索）。
+ * 搜索范围：全部会话的消息正文（content）；不搜 reasoning、不搜系统字段。
+ * query 1..128 字符；limit 缺省 50，范围 1..100。
+ */
+export interface ChatSearchRequest {
+  query: string
+  limit?: number
+}
+
+/**
+ * 单条搜索命中。
+ * snippet：围绕首个命中词截取的正文片段（前后 … 省略），结果列表直接展示，
+ *          高亮由 renderer 按 query 词切分 <mark>（不走 v-html，防注入）。
+ * createdAt：ms epoch，结果行右侧时间戳用。
+ * messageId/sessionId：点击跳转定位用（消息行 DOM 带 data-message-id；
+ *          跨会话命中由 renderer 先 hydrate 目标会话再滚动）。
+ */
+export interface ChatSearchHit {
+  messageId: MessageId
+  sessionId: SessionId
+  snippet: string
+  createdAt: number
+}
+
 // === ChatStreamEvent。依据 S-003 §3.8 ===
 export type ChatStreamEvent =
   | {

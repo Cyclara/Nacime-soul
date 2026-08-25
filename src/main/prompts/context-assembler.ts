@@ -1,6 +1,6 @@
 // src/main/prompts/context-assembler.ts
 // P2-16B: PromptContextAssembler - 组装 PromptBuildContext 的运行时编排层。
-// 依据：S-011 §1.2-§1.6、F5-003（向量检索）、F5-006（relationship）
+// 依据：S-021 §1.2-§1.6、F5-003（向量检索）、F5-006（relationship）
 //
 // 设计要点：
 //   1. Builder 保持纯函数边界；Assembler 负责 L0/L1/L2-chain/growth 四源隔离的异步编排
@@ -189,7 +189,7 @@ export function createPromptContextAssembler(
     const hits = vectors.search(queryVec, k, memory.minRetrievalScore)
 
     // 3. hydrate（逐 ID 查 L2 元数据；丢弃不存在/非活跃态/sync failed）
-    //    S-011 §1.2：只允许 lifecycleState=active/dormant 进 prompt。
+    //    S-021 §1.2：只允许 lifecycleState=active/dormant 进 prompt。
     //    archived（被 supersede）/soft_deleted/purged 都不得出现，否则给模型矛盾信息。
     //    M-06：丢弃命中指令注入模式的记忆（记忆投毒/间接注入防护），并记录计数。
     const hydrated: HydratedHit[] = []
@@ -231,7 +231,7 @@ export function hydrateHits(
   for (const hit of hits) {
     const mem = lookup(hit.memoryId)
     if (!mem) continue
-    // S-011 §1.2：只允许 active/dormant 进 prompt
+    // S-021 §1.2：只允许 active/dormant 进 prompt
     if (mem.lifecycleState !== 'active' && mem.lifecycleState !== 'dormant') continue
     if (mem.syncStatus === 'failed') continue
     result.push({ memory: mem, retrievalScore: hit.score })

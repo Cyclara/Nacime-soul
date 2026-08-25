@@ -21,7 +21,7 @@ import type {
 } from '@shared/memory/types'
 import type { GrowthProfile, GrowthTimelineEntry } from '../growth/types'
 
-/** L0_FIELD_DESCRIPTIONS 的固定 key 顺序（S-011 §1.3：不按对象插入顺序） */
+/** L0_FIELD_DESCRIPTIONS 的固定 key 顺序（S-021 §1.3：不按对象插入顺序） */
 const L0_FIELD_ORDER: readonly L0FieldKey[] = [
   'preferredName',
   'name',

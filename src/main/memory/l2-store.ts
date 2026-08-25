@@ -38,7 +38,7 @@ export interface L2Memory {
   type: MemoryType
   importance: number
   archivedAt: number | null
-  /** 跨轮/重启幂等键（S-010 §1.6）。旧数据/未设置时为 null */
+  /** 跨轮/重启幂等键（S-020 §1.6）。旧数据/未设置时为 null */
   extractionKey: string | null
   /** P2-37: 记忆来源（006 迁移增加；旧数据默认 'user_explicit'） */
   source: MemorySource
@@ -83,13 +83,13 @@ export interface L2Store {
   /**
    * 生成 id、插入、emit l2.added，返回完整记忆。
    * @param emit 是否立即 emit（默认 true）。writer 的事务内写入传 false，
-   *   由 commit 后统一调用 emitAdded——避免事务回滚时订阅者收到幽灵事件（S-010 §1.6"commit 后才 emit"）。
+   *   由 commit 后统一调用 emitAdded——避免事务回滚时订阅者收到幽灵事件（S-020 §1.6"commit 后才 emit"）。
    */
   add(input: L2CreateInput, emit?: boolean): L2Memory
   /** 事务内插入指定记忆（不 emit；供 P2-12 组合写入用） */
   insert(mem: L2Memory): void
   get(id: string): L2Memory | null
-  /** 按 extraction_key 查询（幂等检查；S-010 §1.6）。无则返回 null */
+  /** 按 extraction_key 查询（幂等检查；S-020 §1.6）。无则返回 null */
   getByExtractionKey(key: string): L2Memory | null
   update(id: string, patch: Partial<Omit<L2Memory, 'id'>>): void
   remove(id: string): void

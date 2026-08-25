@@ -1,8 +1,8 @@
 // src/main/ipc/handlers/memory.ts
 // P2-29: memory IPC handler（9 invoke）。业务逻辑在 Store/Service 层，handler 只做
-// "取服务 -> 调方法 -> 投影脱敏"。依据 S-003-补充 §3.7、S-012 §1.4/§3.3。
+// "取服务 -> 调方法 -> 投影脱敏"。依据 S-003-补充 §3.7、S-022 §1.4/§3.3。
 //
-// 边界条件（S-012 §3.3）：
+// 边界条件（S-022 §3.3）：
 //   - memory.enabled=false：query 返回空/disabled 信封；get-detail 与三写操作返回 MEM_DISABLED。
 //   - get-detail：memoryId 不存在 -> MEM_NOT_FOUND。
 //   - soft-delete：允许删 active 记忆（用户意志高于状态机），set lifecycleState='soft_deleted'。
@@ -89,7 +89,7 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
   // === companion:memory:get-l0 ===
   registerValidatedHandler('companion:memory:get-l0', async (): Promise<L0ProfileView> => {
     if (disabled()) {
-      // disabled 时返回全"未知"空画像（不抛错，S-012 §3.3 query 返回空 data）
+      // disabled 时返回全"未知"空画像（不抛错，S-022 §3.3 query 返回空 data）
       return { fields: [], filledCount: 0, totalCount: 0 }
     }
     return projectL0(services!.l0Store)
@@ -173,7 +173,7 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
         importanceBeforePin: null
       })
     }
-    // S-012 §1.4：用户写操作 revision++ + hint='l2'
+    // S-022 §1.4：用户写操作 revision++ + hint='l2'
     revisionClock.next()
     broadcaster.notify('l2')
     logger.debug('memory pinned', {
@@ -281,7 +281,7 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
   // === companion:memory:get-dmae-history ===
   // P2-32: 真实实现--委托给 DmaeDiagnosticsService.getMemoryHistory（读 dmae_samples）。
   // dmaeDiagnostics=null（dmae 关闭）时返回空 points（诚实无历史）。
-  // memory.enabled=false 同样返回空 points（S-012 §3.3：query 返回空 data，不抛 MEM_DISABLED）。
+  // memory.enabled=false 同样返回空 points（S-022 §3.3：query 返回空 data，不抛 MEM_DISABLED）。
   registerValidatedHandler(
     'companion:memory:get-dmae-history',
     async (_ctx, input): Promise<DmaeHistoryResponse> => {

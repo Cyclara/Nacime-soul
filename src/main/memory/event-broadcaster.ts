@@ -1,11 +1,11 @@
 // src/main/memory/event-broadcaster.ts
 // P2-29: memory-updated 事件广播器。250ms 节流合并 hint，广播到 renderer。
-// 依据：S-003-补充 §3.2（event 通道）、S-012 §1.4（revision 真源 + 跨 hint 合并为 bulk）。
+// 依据：S-003-补充 §3.2（event 通道）、S-022 §1.4（revision 真源 + 跨 hint 合并为 bulk）。
 //
 // 设计要点：
 //   1. notify(hint) 非阻塞：写入路径调用后立即返回，不 await 网络/IPC。
 //   2. 250ms 节流窗口：同窗口内的多个 hint 合并。同 hint 合并取最高 revision；
-//      不同 hint 合为 'bulk'（S-012 §1.4 红线：只取最后 hint 会漏掉切片）。
+//      不同 hint 合为 'bulk'（S-022 §1.4 红线：只取最后 hint 会漏掉切片）。
 //   3. revision 在 flush 时读 revisionClock.current()（窗口内多次 next 取最终值）。
 //   4. webContents 可能被重建（CrashGuard）或销毁：通过 getWebContents 回调取最新引用。
 //   5. 败而不崩：广播失败（webContents 销毁）只 debug 日志，不抛错。
@@ -32,7 +32,7 @@ export interface EventBroadcasterDeps {
   getWebContents: () => WebContents | null
   logger: Logger
   now?: () => number
-  /** 节流窗口（默认 250ms，S-012 §1.4） */
+  /** 节流窗口（默认 250ms，S-022 §1.4） */
   throttleMs?: number
 }
 
@@ -77,7 +77,7 @@ export function createMemoryEventBroadcaster(deps: EventBroadcasterDeps): Memory
     if (pendingHints.size === 0) return
     const hints = pendingHints
     pendingHints = new Set()
-    // S-012 §1.4：同 hint 合并；不同 hint 合为 bulk
+    // S-022 §1.4：同 hint 合并；不同 hint 合为 bulk
     const hint: MemoryUpdateHint = hints.size === 1 ? ([...hints][0] as MemoryUpdateHint) : 'bulk'
     const revision = revisionClock.current()
     broadcast(hint, revision)

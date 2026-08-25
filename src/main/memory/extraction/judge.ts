@@ -1,5 +1,5 @@
 // src/main/memory/extraction/judge.ts
-// MemoryJudge 确定性判决状态机。依据 S-010 §1.6。
+// MemoryJudge 确定性判决状态机。依据 S-020 §1.6。
 //
 // Judge 保持同步纯函数：不做第二次 LLM 调用（模型已参与候选生成，同类模型自审会放大
 // 一致性错误）。M-42 的 L0 归属语义判定以"预标注"形式随 ctx 传入——drain 在终审前
@@ -92,7 +92,7 @@ export interface MemoryJudge {
   judgeBatch(candidates: readonly MemoryCandidate[], ctx: JudgeContext): JudgeDecision[]
 }
 
-// === normalizeForEvidence（S-010 §1.6 step 2）===
+// === normalizeForEvidence（S-020 §1.6 step 2）===
 // 只允许：Unicode NFC、CRLF->LF、trim、连续空白压成单空格。
 // 不做大小写、标点或同义替换。
 
@@ -108,7 +108,7 @@ export function normalizeForEvidence(text: string): string {
   return n
 }
 
-// === 绝对化词族（S-010 §1.6 step 5）===
+// === 绝对化词族（S-020 §1.6 step 5）===
 
 const ABSOLUTE_WORD_FAMILIES: ReadonlyArray<{ name: string; patterns: readonly RegExp[] }> = [
   { name: 'forever', patterns: [/永远/, /永不/, /从不/, /\bnever\b/i, /\balways\b/i] },
@@ -137,7 +137,7 @@ function evidenceHitsFamily(quote: string, familyName: string): boolean {
   return fam.patterns.some((p) => p.test(quote))
 }
 
-// === 持久指令检测（S-010 §1.6 step 3）===
+// === 持久指令检测（S-020 §1.6 step 3）===
 
 const PERSISTENT_INSTRUCTION_PATTERNS: readonly RegExp[] = [
   /忽略.*(指令|规则|系统|之前)/,
@@ -161,7 +161,7 @@ function isPersistentInstruction(content: string, evidenceQuotes: readonly strin
   return PERSISTENT_INSTRUCTION_PATTERNS.some((p) => p.test(combined))
 }
 
-// === L0 用户自指模式（S-010 §1.6 step 6）===
+// === L0 用户自指模式（S-020 §1.6 step 6）===
 
 const L0_USER_SELF_REFERENCE: Record<L0FieldKey, readonly RegExp[]> = {
   preferredName: [/我叫/, /叫我/, /喊我/, /my name is/i, /call me/i],
@@ -178,7 +178,7 @@ const L0_USER_SELF_REFERENCE: Record<L0FieldKey, readonly RegExp[]> = {
   permanentNote: [/我住在/, /我养了/, /我有一只/, /\bI live in\b/i, /\bI have a\b/i]
 }
 
-// === assistant 指向模式（S-010 §1.6 step 6）===
+// === assistant 指向模式（S-020 §1.6 step 6）===
 
 const ASSISTANT_DIRECTED_PATTERNS: readonly RegExp[] = [
   /你叫/,
@@ -204,7 +204,7 @@ function evidenceHitsUserSelfReference(field: L0FieldKey, quotes: readonly strin
  * L1/L2 通用用户自指判定。合并 L0 全部字段的自指模式（去重），
  * 任一命中即视为"引用含用户对自己身份的陈述"。
  *
- * 用途：L1/L2 的 assistant 指向检查（S-010 §1.6 step 6"对所有层"）——
+ * 用途：L1/L2 的 assistant 指向检查（S-020 §1.6 step 6"对所有层"）——
  *   引用同时含 assistant 指向词与用户自指时（如"你叫我小明"），是用户在表达
  *   自己的名字，不是给 assistant 设身份，应放行；仅含 assistant 指向（"你叫小明"）
  *   才是给 assistant 设身份，拒绝。与 L0 分支的 `evidenceHitsUserSelfReference`
@@ -223,7 +223,7 @@ const L0_GENERAL_SELF_REFERENCE: readonly RegExp[] = (() => {
   return [...all]
 })()
 
-// === confidence 夹取（S-010 §1.6 step 8）===
+// === confidence 夹取（S-020 §1.6 step 8）===
 
 function clampConfidence(candidate: MemoryCandidate): number {
   const cap =
@@ -231,7 +231,7 @@ function clampConfidence(candidate: MemoryCandidate): number {
   return Math.min(candidate.confidence, cap)
 }
 
-// === 长度校验（S-010 §1.2）===
+// === 长度校验（S-020 §1.2）===
 
 function checkContentLength(candidate: MemoryCandidate): JudgeRejectReason | null {
   const content = candidate.content.trim()
@@ -344,7 +344,7 @@ export function createMemoryJudge(): MemoryJudge {
       }
     } else {
       // L1/L2 也要拦截"给 assistant 设定身份"的候选（不能绕过 L0 门改存 L1/L2）。
-      // S-010 §1.6 step 6："先对所有层拒绝"——L1 近期状态写入"你叫X"同样污染角色自我认知。
+      // S-020 §1.6 step 6："先对所有层拒绝"——L1 近期状态写入"你叫X"同样污染角色自我认知。
       // 判定只看 evidence 原文：命中 assistant 指向词（你叫/你是/以后你…）且无用户自指时拒绝。
       // 引用同时含用户自指（"你叫我小明"命中"叫我"）= 用户在说自己的名字，放行（J-07 语义）。
       const assistantHit = evidenceHitsAssistantDirected(evidenceQuotes)
@@ -364,7 +364,7 @@ export function createMemoryJudge(): MemoryJudge {
   }
 
   /**
-   * 降级到 L2。S-010 §1.6 step 6：
+   * 降级到 L2。S-020 §1.6 step 6：
    * 移除 field，targetLayer='l2'，confidence 按来源夹取，memoryType 按原声明
    * （缺失时只允许 situational），importance 默认 medium，然后从第 1 步重新过全部 L2 不变量。
    * 原 candidate 不原地改写。

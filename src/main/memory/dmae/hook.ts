@@ -1,6 +1,6 @@
 // src/main/memory/dmae/hook.ts
 // P2-25: DMAE turn.end hook--更新全部 L2 activation。
-// 依据：S-Phase2 P2-25、S-011 §1.6（referencedMemoryIds）、S-010 §1.1（memoryEligible 门）。
+// 依据：S-Phase2 P2-25、S-021 §1.6（referencedMemoryIds）、S-020 §1.1（memoryEligible 门）。
 //
 // 时序：extraction hook（priority 250）之后。extraction 写入的新 L2 在 DMAE reconcile 时加入 states。
 //
@@ -11,7 +11,7 @@
 //      memoryEligible=false 时 referencedMemoryIds=[]，modelHitIds 空，只处理 userHit + 沉默衰减。
 //
 // C-γ-2 问题 B：updateTurn 后必须 revisionClock.next() + broadcaster.notify('dmae')，
-//   否则 activation 变化不触发 renderer 刷新（违反 S-012 doc:81 要求 hint='dmae'）。
+//   否则 activation 变化不触发 renderer 刷新（违反 S-022 doc:81 要求 hint='dmae'）。
 //   broadcaster 已有 250ms 节流合并，每轮 notify 安全。
 //
 // failOpen=true：DMAE 更新失败不阻塞 turn.end 其他订阅者（败而不崩）。

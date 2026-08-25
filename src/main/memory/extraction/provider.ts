@@ -1,10 +1,10 @@
 // src/main/memory/extraction/provider.ts
-// ExtractionProvider 窄适配。依据 S-010 §1.5。
+// ExtractionProvider 窄适配。依据 S-020 §1.5。
 //
 // 现有 LLMProvider.stream(LlmRequest) 不承载 temperature/maxTokens/schema/timeout，
 // 因此 P2-10 必须定义窄适配，而不是假装已有 API。
 //
-// 硬 composition 合同（S-010 §1.5）：
+// 硬 composition 合同（S-020 §1.5）：
 //   新增 ExtractionProviderFactory，其实例、配置选择和 Faux response queue 都不得与
 //   ChatService 的 providerFactory 共享；否则聊天/提取会串吃 FIFO 响应。
 //

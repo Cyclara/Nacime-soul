@@ -1,7 +1,7 @@
 // src/main/memory/extraction/integration.test.ts
 // P2-10/11/12 集成测试：I-01 "我叫小明" 完整链路。
 // user message -> extraction -> judge -> dispatch -> L0 写入 -> 事件。
-// 依据 S-010 §3.2 I-01, I-01b。
+// 依据 S-020 §3.2 I-01, I-01b。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

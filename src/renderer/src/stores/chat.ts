@@ -20,6 +20,7 @@ import { defineStore } from 'pinia'
 import type { ErrorCode, PublicAppError } from '@shared/errors'
 import type { Unsubscribe, IpcResult } from '@shared/ipc/contracts'
 import type { ChatMessageView, ChatStreamEvent, ChatHistorySnapshot } from '@shared/chat/types'
+import type { ChatSearchHit } from '@shared/chat/types'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 export type MessageStatus = 'complete' | 'streaming' | 'failed' | 'cancelled'
@@ -304,6 +305,17 @@ export const useChatStore = defineStore('chat', () => {
     exitSelection()
   }
 
+  // === P2-44：全文搜索 ===
+  // 纯查询网关（S-002 铁律 3：组件不直接碰 window.companion）。
+  // 结果不写入 state——搜索面板是自包含 UI，命中列表是组件本地状态。
+  // 失败返回 []（搜索是辅助功能，静默降级，不弹错误条打断聊天）。
+  async function searchMessages(query: string, limit?: number): Promise<ChatSearchHit[]> {
+    if (!window.companion) return []
+    const result = await window.companion.chat.search({ query, limit })
+    if (!result.ok) return []
+    return [...result.data]
+  }
+
   // 流式开始（send/retry）自动退出选择模式——删除项/选择模式都以非流式为前提
   watch(
     () => state.activeTurn,
@@ -311,7 +323,6 @@ export const useChatStore = defineStore('chat', () => {
       if (turn) exitSelection()
     }
   )
-
 
   // 验收反馈④c：重试终局（completed/failed/cancelled）时摘除被取代的旧气泡。
   let retryTargetId: string | null = null
@@ -473,6 +484,7 @@ export const useChatStore = defineStore('chat', () => {
     deleteMessage,
     deleteSelected,
     clearSession,
+    searchMessages,
     selectionMode,
     selectedIds,
     selectedCount,

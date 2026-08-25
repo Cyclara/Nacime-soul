@@ -1,6 +1,6 @@
 // src/main/prompts/budgeter.test.ts
 // P2-17 测试：PromptBudgeter（九层 item 级裁剪 + BudgetHistoryTurn 整轮裁剪）
-// 依据：S-011 §1.5、§3.2 测试矩阵
+// 依据：S-021 §1.5、§3.2 测试矩阵
 //       S-001 P1-21A 验收（按 L2->旧历史->L1 次序裁剪；不可裁层 fail-closed；无半 token 截断）
 //       S-004 §3.3.1 合同门禁 #2（小 context 裁剪）#3（静态层 fail-closed）
 
@@ -660,7 +660,7 @@ describe('P2-17 PromptBudgeter (item-level + BudgetHistoryTurn)', () => {
   })
 
   it('合法单 user failed turn 可整轮删除', () => {
-    // S-011 §1.5：合法单 user failed turn 可删（不拆 turn）
+    // S-021 §1.5：合法单 user failed turn 可删（不拆 turn）
     const layers = buildLayers({ seed: '种', system: '系' })
     const turns = makeHistoryTurns([
       { turnId: 't1', messages: [['user', '失败轮次的较长内容']], isCurrent: false }, // ~10 tokens

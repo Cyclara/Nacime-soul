@@ -5,12 +5,12 @@
 // 用法：npm run build:win 后，运行 node scripts/smoke-packaged.mjs
 //
 // 检查项：
-//   1. electron-builder.yml 配置完整（NSIS/asarUnpack/安装范围/占位符）
+//   1. electron-builder.yml 配置完整（NSIS/asarUnpack/安装范围/GitHub 发布源）
 //   2. 图标存在
-//   3. package.json 脚本齐全
+//   3. package.json 脚本与生产依赖齐全
 //   4. prompt 文件齐全且已纳入打包文件列表（生产环境不崩）
 //   5. 构建产物 out/ 存在
-//   6. 若已打包（dist-electron/ 存在）：native addon 已从 asar 解包
+//   6. 若已打包（dist-electron/ 存在）：native addon / updater 依赖 / app-update.yml 齐全
 //
 // 原则：检查必须基于真实证据。条件不满足时报告 SKIP（而非 || true 假通过）。
 
@@ -132,9 +132,19 @@ check('postinstall 含 electron-rebuild better-sqlite3', () =>
     ? { ok: true }
     : false
 )
+check(
+  'electron-updater 为 production dependency（M-50）',
+  () => pkg.dependencies['electron-updater'] !== undefined
+)
 
-// --- 5. 发布占位符（S-005: 占位值不可用于发布） ---
-check('发布配置使用占位值（未发布）', () => builderYml.includes('REPLACE_BEFORE_RELEASE'))
+// --- 5. GitHub 发布源（M-50：自动更新必须有真实 feed，不再允许占位值） ---
+check('GitHub 更新发布源已配置为 Cyclara/Nacime-soul', () =>
+  !builderYml.includes('REPLACE_BEFORE_RELEASE') &&
+  /owner:\s*Cyclara(?:\r?\n|$)/.test(builderYml) &&
+  /repo:\s*Nacime-soul(?:\r?\n|$)/.test(builderYml)
+    ? { ok: true }
+    : false
+)
 
 // --- 6. 构建产物 ---
 const outDir = join(root, 'out')
@@ -208,7 +218,41 @@ check('asar 内含 resources/prompts/seeds/growth（M-09）', () => {
   return { ok: true, detail: 'prompts/seeds/growth 均在 app.asar 内' }
 })
 
-// --- 7d. asar 内 index.html 含 CSP meta（V-01：file:// 下 onHeadersReceived 不触发， ---
+// --- 7d. 自动更新打包闭环（M-50） ---
+check('asar 内含 electron-updater 生产依赖（M-50）', () => {
+  if (!existsSync(distDir)) return { skip: 'dist-electron/ 不存在' }
+  const asarPath = join(distDir, 'win-unpacked', 'resources', 'app.asar')
+  if (!existsSync(asarPath)) return { skip: 'app.asar 不存在（先 npm run build:win）' }
+  let asar
+  try {
+    asar = require('@electron/asar')
+  } catch {
+    return { skip: '@electron/asar 不可用（未安装）' }
+  }
+  const normalized = asar.listPackage(asarPath).map((f) => f.replace(/\\/g, '/'))
+  const hasUpdater = normalized.some((f) => f.endsWith('node_modules/electron-updater/out/main.js'))
+  const hasRuntime = normalized.some((f) =>
+    f.endsWith('node_modules/builder-util-runtime/out/index.js')
+  )
+  return hasUpdater && hasRuntime
+    ? { ok: true, detail: 'electron-updater + builder-util-runtime 均在 app.asar 内' }
+    : 'app.asar 缺少 updater 运行时依赖（请确认 electron-updater 在 dependencies 而非 devDependencies）'
+})
+
+check('打包产物含 GitHub app-update.yml（M-50）', () => {
+  if (!existsSync(distDir)) return { skip: 'dist-electron/ 不存在' }
+  const updateConfigPath = join(distDir, 'win-unpacked', 'resources', 'app-update.yml')
+  if (!existsSync(updateConfigPath)) {
+    return 'app-update.yml 不存在（必须 npm run build:win；build:unpack 不生成发布 feed 配置）'
+  }
+  const updateConfig = readFileSync(updateConfigPath, 'utf8')
+  if (!/owner:\s*Cyclara(?:\r?\n|$)/.test(updateConfig)) return 'app-update.yml owner 不正确'
+  if (!/repo:\s*Nacime-soul(?:\r?\n|$)/.test(updateConfig)) return 'app-update.yml repo 不正确'
+  if (!/provider:\s*github(?:\r?\n|$)/.test(updateConfig)) return 'app-update.yml provider 不正确'
+  return { ok: true, detail: 'github:Cyclara/Nacime-soul' }
+})
+
+// --- 7e. asar 内 index.html 含 CSP meta（V-01：file:// 下 onHeadersReceived 不触发， ---
 // meta 是生产环境唯一的 CSP 来源；缺失意味着打包版无内容安全策略）
 check('asar 内 index.html 含 CSP meta（V-01）', () => {
   if (!existsSync(distDir)) return { skip: 'dist-electron/ 不存在' }

@@ -1,7 +1,7 @@
 // src/main/memory/extraction/hook.test.ts
 // P2-39 sync_turn 与 MemoryJudge 融合：批量终审策略（每 6 轮或队列候选 ≥12 触发、
 // 跨轮去重合并 confidence 取高、单轮 final drain 保证 I-01 成立）+ 门禁。
-// 依据 S-010 §1.1/§1.5、S-Phase2 P2-39、S-004-补充 I-01/J-13。
+// 依据 S-020 §1.1/§1.5、S-Phase2 P2-39、S-004-补充 I-01/J-13。
 import { describe, it, expect, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -273,7 +273,7 @@ describe('P2-39 extraction hook 批量终审策略', () => {
     expect(kept.accepted.confidence).toBe(0.95)
   })
 
-  it('memoryEligible=false -> 不入队，不调 extract（S-010 §1.1 硬门 2）', async () => {
+  it('memoryEligible=false -> 不入队，不调 extract（S-020 §1.1 硬门 2）', async () => {
     const { hook, extract } = makeHook()
     hook.hook.fn({ event: 'turn.end' }, { ...turnEnd('t1'), memoryEligible: false })
     await hook.flush()
@@ -281,7 +281,7 @@ describe('P2-39 extraction hook 批量终审策略', () => {
     expect(hook.queue.pending()).toBe(0)
   })
 
-  it('memory.enabled=false -> 全旁路，不调 extract（S-010 §1.1 硬门 1）', async () => {
+  it('memory.enabled=false -> 全旁路，不调 extract（S-020 §1.1 硬门 1）', async () => {
     const disabled = { ...DEFAULT_CONFIG_V1.memory, enabled: false } as Readonly<MemoryConfig>
     const { hook, extract } = makeHook({ config: disabled })
     hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
@@ -290,7 +290,7 @@ describe('P2-39 extraction hook 批量终审策略', () => {
     expect(hook.queue.pending()).toBe(0)
   })
 
-  it('drain 失败 -> fail-open 丢弃该批，消费者继续处理后续轮次（S-010 §1.1 败而不崩）', async () => {
+  it('drain 失败 -> fail-open 丢弃该批，消费者继续处理后续轮次（S-020 §1.1 败而不崩）', async () => {
     const responses: Record<string, MemoryCandidate[]> = {}
     for (let i = 1; i <= 7; i++) {
       responses[`t${i}`] = [mkCandidate(`t${i}:0`, `事实${i}`)]
@@ -319,7 +319,7 @@ describe('P2-39 extraction hook 批量终审策略', () => {
     expect(t7Dispatch).toHaveLength(1)
   })
 
-  it('getTurnMessages 返回 null -> 不入队、不调 extract（S-010 §1.1 J-12）', async () => {
+  it('getTurnMessages 返回 null -> 不入队、不调 extract（S-020 §1.1 J-12）', async () => {
     const { hook, extract } = makeHook({ missingTurns: ['t1'] })
     hook.hook.fn({ event: 'turn.end' }, turnEnd('t1'))
     await hook.flush()

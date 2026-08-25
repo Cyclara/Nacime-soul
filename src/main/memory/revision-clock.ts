@@ -1,7 +1,7 @@
 // src/main/memory/revision-clock.ts
-// 持久化全局 MemoryRevisionClock。依据 S-012 §1.4。
+// 持久化全局 MemoryRevisionClock。依据 S-022 §1.4。
 //
-// S-012 修订：Revision 必须先有持久化的全局真源，不能复用 VectorStore.revision()。
+// S-022 修订：Revision 必须先有持久化的全局真源，不能复用 VectorStore.revision()。
 // 现有 SQLiteVectorStore 的 revision 只是进程内索引版本：重启归零、init() 也会递增，
 // 而且 L0/L1/growth 写入不会触发它。S-003 中"与 VectorStore.revision() 同源"在实现上不可成立。
 //

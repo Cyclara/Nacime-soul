@@ -48,6 +48,7 @@ import { createFilePromptLoader } from './prompts/loader'
 // Chat
 import { createChatService, type ProviderFactoryResult } from './chat/service'
 import { createSQLiteSessionStore } from './chat/sqlite-session-store'
+import { searchMessages as searchChatMessages } from './chat/search'
 import { createIdempotencyLedger } from './chat/idempotency-ledger'
 import { openMemoryDb } from './memory/db'
 
@@ -73,6 +74,9 @@ import { registerDebugHandlers } from './ipc/handlers/debug'
 import { registerMemoryHandlers } from './ipc/handlers/memory'
 import { registerGrowthHandlers } from './ipc/handlers/growth'
 import { registerDmaeHandlers } from './ipc/handlers/dmae'
+
+// M-50：自动更新（updater 状态机；enabled 门控打包环境，dev/E2E 不加载 electron-updater）
+import { createUpdater } from './updater'
 
 // 应用启动时间（CrashGuard 的 uptime 计算需要，在一切初始化前捕获）
 const appStartTime = Date.now()
@@ -358,6 +362,8 @@ app.whenReady().then(async () => {
     db: sessionDb,
     logger: getLogger('chat')
   })
+  // P2-44：全文搜索直接绑 sessionDb（handler 依赖注入用；const 捕获保持非空类型收窄）
+  const chatSearchDb = sessionDb
   // P2-43：clientRequestId 跨重启幂等账本（缓存定性：损坏/缺失不拦启动）
   const idempotencyLedger = createIdempotencyLedger({
     filePath: join(dataDir, 'chat-idempotency.json'),
@@ -446,9 +452,9 @@ app.whenReady().then(async () => {
   })
 
   // === 6.6 ChatService（providerFactory 注入 createSecureFetch - P1-09B Layer 2）===
-  // P2-18: 动态 Prompt 接线（S-011 §1.6）
+  // P2-18: 动态 Prompt 接线（S-021 §1.6）
   // getMemoryConfig 返回当前 memory 配置；memory.enabled=true 但 dynamicPrompt 缺失时
-  // ChatService 会抛 CFG_INVALID（S-011 §1.2 合同）
+  // ChatService 会抛 CFG_INVALID（S-021 §1.2 合同）
   const chatService = createChatService({
     logger: getLogger('chat'),
     promptLoader,
@@ -462,7 +468,15 @@ app.whenReady().then(async () => {
   })
 
   // === 7. IPC handler 注册 ===
-  registerAppHandlers({ logger: getLogger('app') })
+  // M-50：updater 先于 handler 创建（getWebContents 闭包读最新 mainWindow，CrashGuard 重建安全）；
+  // start() 推迟到窗口创建之后（步骤 8 末尾），dev/E2E 下 enabled=false 不调度不加载。
+  const updater = createUpdater({
+    logger: getLogger('updater'),
+    getWebContents: () => mainWindow?.webContents ?? null,
+    enabled: app.isPackaged && !is.dev
+  })
+  updaterRef = updater
+  registerAppHandlers({ logger: getLogger('app'), updater })
   registerConfigHandlers({
     configStore,
     secretStore,
@@ -480,7 +494,8 @@ app.whenReady().then(async () => {
   })
   registerChatHandlers({
     chatService,
-    logger: getLogger('chat')
+    logger: getLogger('chat'),
+    searchMessages: (query, limit) => searchChatMessages(chatSearchDb, query, limit)
   })
   registerDebugHandlers({
     logger: getLogger('debug'),
@@ -525,6 +540,9 @@ app.whenReady().then(async () => {
     logger: getLogger('window')
   })
 
+  // M-50：窗口就绪后启动更新检查调度（首次延迟 10s，之后每 4h；仅打包环境）
+  updater.start()
+
   logger.info('application ready', { scope: 'main' })
 
   app.on('activate', function () {
@@ -543,8 +561,12 @@ app.on('window-all-closed', () => {
   }
 })
 
+// M-50：updater 引用提升到模块作用域，before-quit 清理定时器
+let updaterRef: { dispose(): void } | null = null
+
 // app 退出前清理记忆基础设施（关闭 DB、停止队列消费者、terminate worker）
 app.on('before-quit', () => {
+  updaterRef?.dispose()
   memoryInfra.cleanup()
   idempotencyLedgerRef?.flushNow() // M-28：防抖写盘的最后一批落盘
   if (sessionDb?.open) sessionDb.close()

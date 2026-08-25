@@ -1,6 +1,6 @@
 // src/main/growth/bridge.test.ts
 // P2-40 growth bridge hook 测试。
-// 验收（S-011 §1.6）：memoryEligible=true 时 fan-out l2.referenced；session.daily_first 同日幂等；
+// 验收（S-021 §1.6）：memoryEligible=true 时 fan-out l2.referenced；session.daily_first 同日幂等；
 //   memoryEligible=false 不发事件；实际发射事件时 revisionClock.next + broadcaster.notify('growth')。
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createGrowthEventBus } from './event-bus'
@@ -220,7 +220,7 @@ describe('P2-40 growth bridge hook', () => {
     const hook = makeHook()
     expect(hook.name).toBe('growth-bridge')
     expect(hook.event).toBe('turn.end')
-    expect(hook.priority).toBe(220) // S-011 §1.6：位于 extraction(250) 之前
+    expect(hook.priority).toBe(220) // S-021 §1.6：位于 extraction(250) 之前
     expect(hook.failOpen).toBe(true)
   })
 

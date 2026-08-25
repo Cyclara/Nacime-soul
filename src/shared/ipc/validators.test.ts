@@ -491,6 +491,89 @@ describe('P2-45 shared event validator（接受/拒绝/边界）', () => {
     })
   })
 
+  describe('M-50 update-status', () => {
+    it('全部 7 个状态的合法载荷通过', () => {
+      expect(validateEventPayload('companion:event:update-status', { state: 'idle' })).toBe(true)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'checking',
+          userInitiated: true
+        })
+      ).toBe(true)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'available',
+          version: '1.1.0'
+        })
+      ).toBe(true)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'not-available',
+          userInitiated: false
+        })
+      ).toBe(true)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'downloading',
+          version: '1.1.0',
+          percent: 55
+        })
+      ).toBe(true)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'downloaded',
+          version: '1.1.0'
+        })
+      ).toBe(true)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'error',
+          message: '后台更新检查失败',
+          userInitiated: false
+        })
+      ).toBe(true)
+    })
+    it('未知状态/多余字段/缺字段拒绝', () => {
+      expect(validateEventPayload('companion:event:update-status', { state: 'evil' })).toBe(false)
+      expect(validateEventPayload('companion:event:update-status', null)).toBe(false)
+      expect(
+        validateEventPayload('companion:event:update-status', { state: 'idle', extra: 1 })
+      ).toBe(false)
+      expect(validateEventPayload('companion:event:update-status', { state: 'available' })).toBe(
+        false
+      )
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'checking',
+          userInitiated: 'yes'
+        })
+      ).toBe(false)
+    })
+    it('downloading percent 越界 / error message 超长拒绝', () => {
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'downloading',
+          version: '1.1.0',
+          percent: 101
+        })
+      ).toBe(false)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'downloading',
+          version: '1.1.0',
+          percent: -1
+        })
+      ).toBe(false)
+      expect(
+        validateEventPayload('companion:event:update-status', {
+          state: 'error',
+          message: 'x'.repeat(501),
+          userInitiated: true
+        })
+      ).toBe(false)
+    })
+  })
+
   describe('validateEventPayload 未知通道兜底', () => {
     it('未知通道拒绝', () => {
       expect(validateEventPayload('companion:event:unknown' as never, {})).toBe(false)

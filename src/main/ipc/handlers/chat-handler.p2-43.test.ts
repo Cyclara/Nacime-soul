@@ -69,7 +69,11 @@ describe('P2-43 chat:get-last-session handler', () => {
       .mockReturnValueOnce('s-last')
       .mockReturnValueOnce(null)
     const chatService = { getLastSessionId } as unknown as ChatService
-    registerChatHandlers({ chatService, logger: noopLogger() })
+    registerChatHandlers({
+      chatService,
+      logger: noopLogger(),
+      searchMessages: () => []
+    })
 
     const handler = getHandler('companion:chat:get-last-session')
     await expect(handler(trustedEvent(), undefined)).resolves.toEqual({

@@ -13,6 +13,7 @@
 //   companion:chat:delete-message -> service.deleteMessage（验收反馈⑥c 单条删除）
 //   companion:chat:delete-selected -> service.deleteSelected（验收反馈⑦ 批量按轮删除）
 //   companion:chat:clear-session -> service.clearSession（验收反馈⑦ 清空会话）
+//   companion:chat:search        -> deps.searchMessages（P2-44 FTS5 全文搜索）
 //
 // 安全红线：
 //   - 聊天正文不写 IPC 日志（只记通道、长度、requestId、耗时）
@@ -21,7 +22,7 @@
 
 import type { WebContents } from 'electron'
 import type { Logger } from '@shared/observability/types'
-import type { ChatStreamEvent } from '@shared/chat/types'
+import type { ChatSearchHit, ChatStreamEvent } from '@shared/chat/types'
 import type { ChatService } from '../../chat/service'
 import { registerValidatedHandler, sendEvent } from '../register'
 
@@ -29,6 +30,11 @@ import { registerValidatedHandler, sendEvent } from '../register'
 export interface ChatHandlerDeps {
   chatService: ChatService
   logger: Logger
+  /**
+   * P2-44：全文搜索（FTS5）。生产绑定 sessionDb 的 searchMessages；
+   * 测试可注入桩。query/limit 已过 validator（query 1..128，limit 1..100）。
+   */
+  searchMessages: (query: string, limit?: number) => ChatSearchHit[]
 }
 
 /**
@@ -164,6 +170,18 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
   // 验收反馈⑦：清空会话全部消息（「删除所有对话」）。会话保留；记忆条目不受影响。
   registerValidatedHandler('companion:chat:clear-session', async (_ctx, payload) => {
     return chatService.clearSession(payload.sessionId)
+  })
+
+  // === companion:chat:search ===
+  // P2-44：全文搜索（FTS5）。只读查询、无轮次/流式状态，不走 chatService，
+  // 直接调注入的 searchMessages（绑定 sessionDb）。日志不记查询正文（与聊天正文同规）。
+  registerValidatedHandler('companion:chat:search', async (_ctx, payload) => {
+    const hits = deps.searchMessages(payload.query, payload.limit)
+    chatLogger.debug('chat search', {
+      scope: 'chat',
+      metrics: { queryLen: payload.query.length, hits: hits.length }
+    })
+    return hits
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

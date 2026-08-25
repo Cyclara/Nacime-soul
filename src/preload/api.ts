@@ -8,7 +8,7 @@
 //   - 每个 API 方法固定通道，renderer 不可任意 invoke
 //   - 事件退订后不再触发
 
-import { ipcRenderer, type IpcRendererEvent } from 'electron'
+import { ipcRenderer, webFrame, type IpcRendererEvent } from 'electron'
 import type { CompanionApi } from '../shared/global'
 import type {
   IpcInvokeMap,
@@ -18,12 +18,14 @@ import type {
   AppInfo
 } from '../shared/ipc/contracts'
 import type { IpcInvokeChannel, IpcEventChannel } from '../shared/ipc/channels'
+import type { UpdateStatus } from '../shared/update/types'
 import type {
   ChatSendRequest,
   ChatCancelRequest,
   ChatListRequest,
   ChatStreamEvent,
   ChatHistorySnapshot,
+  ChatSearchHit,
   ChatSendAck
 } from '../shared/chat/types'
 import type {
@@ -115,8 +117,32 @@ export const companionApi: CompanionApi = Object.freeze({
     openUserData(): Promise<IpcResult<void>> {
       return typedInvoke('companion:app:open-user-data', undefined)
     },
+    // ── M-50：自动更新 ──
+    checkForUpdates(): Promise<IpcResult<void>> {
+      return typedInvoke('companion:app:check-for-updates', undefined)
+    },
+    getUpdateStatus(): Promise<IpcResult<UpdateStatus>> {
+      return typedInvoke('companion:app:get-update-status', undefined)
+    },
+    quitAndInstall(): Promise<IpcResult<void>> {
+      return typedInvoke('companion:app:quit-and-install', undefined)
+    },
+    onUpdateStatus(cb: (status: UpdateStatus) => void): Unsubscribe {
+      return typedSubscribe('companion:event:update-status', cb)
+    },
     onError(cb: (e: PublicAppError) => void): Unsubscribe {
       return typedSubscribe('companion:event:app-error', cb)
+    }
+  },
+
+  // ── M-51：UI 缩放。zoom 是窗口本地行为，webFrame 直连不走 IPC 往返；
+  // webFrame 在沙箱化 preload 中可用（Electron 官方支持），持久化走 config.ui.fontScale ──
+  ui: {
+    getZoomFactor(): number {
+      return webFrame.getZoomFactor()
+    },
+    setZoomFactor(factor: number): void {
+      webFrame.setZoomFactor(factor)
     }
   },
 
@@ -213,6 +239,13 @@ export const companionApi: CompanionApi = Object.freeze({
       return typedInvoke(
         'companion:chat:clear-session',
         input as unknown as IpcInvokeMap['companion:chat:clear-session']['req']
+      )
+    },
+    // P2-44：聊天记录全文搜索（FTS5；scope=全部会话的消息正文，按时间倒序）
+    search(input: { query: string; limit?: number }): Promise<IpcResult<ChatSearchHit[]>> {
+      return typedInvoke(
+        'companion:chat:search',
+        input as unknown as IpcInvokeMap['companion:chat:search']['req']
       )
     },
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe {

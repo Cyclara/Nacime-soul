@@ -140,7 +140,7 @@ export function registerDmaeHandlers(deps: DmaeHandlerDeps): void {
   )
 
   // === companion:dmae:record-qualitative（P2-34：Q1~Q3 定性评分）===
-  // 写操作：disabled 时返回 MEM_DISABLED，避免用户提交的评分被静默吞掉却 UI 以为成功（S-012 §3.3）。
+  // 写操作：disabled 时返回 MEM_DISABLED，避免用户提交的评分被静默吞掉却 UI 以为成功（S-022 §3.3）。
   registerValidatedHandler(
     'companion:dmae:record-qualitative',
     async (_ctx, input): Promise<void> => {

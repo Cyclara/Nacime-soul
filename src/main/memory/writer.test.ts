@@ -1,6 +1,6 @@
 // src/main/memory/writer.test.ts
 // P2-12 MemoryWriter：L2+vector 同事务、extractionKey 幂等、pending 路径、revision++。
-// 依据 S-010 §3.2 I-03a/b, J-14。
+// 依据 S-020 §3.2 I-03a/b, J-14。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { makeMemoryDb, testNoopLogger, type TestDb } from '../../../tests/helpers/test-db'
 import { createL2Store } from './l2-store'

@@ -19,7 +19,7 @@
 // 安全红线（F5-011 LogFields 白名单）：
 //   - 日志只记 turnId、pair count、band 计数、resolution 计数
 //   - 不得记记忆 content、resolver 原始输出、rationale 正文
-//   - resolver prompt 把记忆内容当数据（注入防御，同 S-010 §1.5）
+//   - resolver prompt 把记忆内容当数据（注入防御，同 S-020 §1.5）
 //
 // 失败策略（fail-open）：
 //   - embedding 不可用 -> 跳过冲突检测（不阻塞写入）
@@ -209,7 +209,7 @@ const RESOLVER_SYSTEM_PROMPT = `你是记忆冲突裁决器。判断新记忆是
 不要输出 markdown 或解释。`
 
 function buildResolverUserMessage(pair: ConflictPair): string {
-  // 把记忆内容作为 JSON 数据块（同 S-010 §1.5 推荐，避免 XML 边界问题）
+  // 把记忆内容作为 JSON 数据块（同 S-020 §1.5 推荐，避免 XML 边界问题）
   const data = {
     newMemory: {
       content: pair.newMemory.content,
@@ -291,12 +291,12 @@ export function createConflictResolver(deps: ConflictResolverDeps): ConflictReso
 //      若未来需要优化，优先给 VectorStore 加 getVector(memoryId)。
 //   2. reject 后 revision 多增：新记忆写入时 revision++（writer），reject
 //      软删时再 revision++（applyResolution）。这是两次独立的用户可见变更，
-//      符合 S-012 §1.4。短暂中间状态（新记忆先写入再软删）可接受--
+//      符合 S-022 §1.4。短暂中间状态（新记忆先写入再软删）可接受--
 //      冲突检测是后置 best-effort。
 //   3. resolver 用同一 chat 模型：通过 ExtractionProvider 调用 config.model.model，
 //      不是专门的裁决模型。"独立调用"指独立于聊天流（独立 provider 实例、
 //      temperature=0），不是用不同模型。OpenAIExtractionProvider 无状态，
-//      不会与 extraction 串吃 FIFO（S-010 §1.5 的隔离要求针对 Faux 队列）。
+//      不会与 extraction 串吃 FIFO（S-020 §1.5 的隔离要求针对 Faux 队列）。
 //   4. 并发风险：dispatcher 中 checkAndResolve 是 fire-and-forget，多个检测可能
 //      并行运行。l2Store.update 同步（SQLite 单写者）无数据竞态；最多重复调
 //      resolver LLM（high band 冲突少，可接受）。

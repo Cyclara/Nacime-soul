@@ -1,6 +1,6 @@
 // src/main/memory/extraction/parse.test.ts
 // P2-10 parseCandidateEnvelope：截断恢复、代码块剥离、schema 校验、非法输入安全丢弃。
-// 依据 S-010 §3.2 J-02a/b/c, J-03, J-09。
+// 依据 S-020 §3.2 J-02a/b/c, J-03, J-09。
 import { describe, it, expect } from 'vitest'
 import { parseCandidateEnvelope } from './parse'
 

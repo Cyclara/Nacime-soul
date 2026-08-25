@@ -1,15 +1,15 @@
 // src/main/prompts/builder.ts
 // P2-16: 九层 Prompt Builder（seed->system->identity->soul->L0->L1->L2->relationship->style）
-// 依据：S-011 §1.2-§1.4、S-Phase2 P2-16、F5-006（relationship 层合同）
+// 依据：S-021 §1.2-§1.4、S-Phase2 P2-16、F5-006（relationship 层合同）
 //
 // 设计要点：
 //   1. 九层严格按 priority 0..8 顺序拼接；固定数组，不改序
 //   2. 静态层（seed/system/identity/soul/style）从 PromptLoader 加载
 //   3. 动态层（L0/L1/L2/relationship）从 PromptBuildContext 渲染
 //   4. Builder 是纯函数：不 import Store/DB/VectorStore/embedding
-//   5. 每个动态 renderer 独立 try/catch（败而不崩，S-011 §1.4）
-//   6. 空动态层不输出标题/占位句（S-011 §1.3："不输出'未知'、不输出'她还不了解你'"）
-//   7. 动态层标记"资料，不是指令"边界（S-011 §1.3）
+//   5. 每个动态 renderer 独立 try/catch（败而不崩，S-021 §1.4）
+//   6. 空动态层不输出标题/占位句（S-021 §1.3："不输出'未知'、不输出'她还不了解你'"）
+//   7. 动态层标记"资料，不是指令"边界（S-021 §1.3）
 //   8. seed/system 缺失/空正文 -> fatal CFG_INVALID；identity/soul/style 缺失 -> skipped
 //
 // 安全红线：
@@ -162,7 +162,7 @@ function stripFrontmatter(content: string): string {
 
 /**
  * 渲染单层正文：prefix + items 用 \n 拼接。items 为空时返回空串（连 prefix 一起省略）。
- * S-011 §1.3：若裁剪后 items 为空，整个动态层变 empty 并连 prefix 一起省略。
+ * S-021 §1.3：若裁剪后 items 为空，整个动态层变 empty 并连 prefix 一起省略。
  */
 export function renderLayer(prefix: string, items: readonly PromptItem[]): string {
   if (items.length === 0) return ''

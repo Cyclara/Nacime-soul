@@ -1,6 +1,6 @@
 // src/shared/memory/types.ts
 // Phase 2 memory + growth IPC DTO。main 与 renderer 共用的唯一类型真源。
-// 依据：S-003-补充 §3.3/§3.4、S-002-补充 §3.1/§3.2、S-012 §1.4（MemoryUpdatedEvent）。
+// 依据：S-003-补充 §3.3/§3.4、S-002-补充 §3.1/§3.2、S-022 §1.4（MemoryUpdatedEvent）。
 //
 // 设计要点：
 //   - 列表投影（L2MemoryView）不含 embedding / evidence 正文，只含轻量元数据。
@@ -152,7 +152,7 @@ export interface MemoryOverview {
 
 /**
  * 任何记忆/成长数据落库后广播。节流 250ms 合并连发。
- * 依据 S-012 §1.4：revision 为持久化全局 MemoryRevisionClock（不复用 VectorStore 进程内版本）。
+ * 依据 S-022 §1.4：revision 为持久化全局 MemoryRevisionClock（不复用 VectorStore 进程内版本）。
  */
 export interface MemoryUpdatedEvent {
   revision: number

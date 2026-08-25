@@ -1,6 +1,6 @@
 // src/main/memory/writer.ts
 // 记忆写入事务：L2 元数据 + 向量同 db.transaction() 提交、revision++、emit l2.added + IPC memory-updated。
-// 依据 S-010 §1.6（两条合法原子写路径）、S-012 §1.4（MemoryRevisionClock）。
+// 依据 S-020 §1.6（两条合法原子写路径）、S-022 §1.4（MemoryRevisionClock）。
 //
 // P2-12 有两条合法原子写路径，不能混为一条：
 //   1. embedding 已成功取得：L2 metadata + vector 在同一个 db.transaction() 内写入，
@@ -11,7 +11,7 @@
 //   不可把 pending 路径断言为"memory/vector 都必须 0 行"。
 //   401、维度不匹配、模型混算等不可补偿错误按 P2-09 错误策略拒绝，不擅自降为 pending。
 //
-// 跨轮/重启幂等（S-010 §1.6）：
+// 跨轮/重启幂等（S-020 §1.6）：
 //   extractionKey = sha256(schemaVersion + targetLayer + sourceMessageId + fieldOrType + NFC(trim(content)))
 //   L2 表建立 UNIQUE（002 迁移）。重复 key 返回 no-op，不增加 revision、不 emit。
 
@@ -78,7 +78,7 @@ export interface MemoryWriter {
 /**
  * 计算 extractionKey。
  * sha256(schemaVersion + targetLayer + sourceMessageId + fieldOrType + NFC(trim(content)))
- * 依据 S-010 §1.6。
+ * 依据 S-020 §1.6。
  */
 export function computeExtractionKey(
   schemaVersion: number,
@@ -169,7 +169,7 @@ export function createMemoryWriter(deps: MemoryWriterDeps): MemoryWriter {
           source: input.source ?? 'user_explicit',
           extractionKey
         },
-        // emit=false：add() 不在事务内 emit（S-010 §1.6"commit 后才 emit"）；
+        // emit=false：add() 不在事务内 emit（S-020 §1.6"commit 后才 emit"）；
         // 若事务回滚，订阅者不应收到指向不存在行的幽灵事件。commit 后由下方 emitAdded 统一发射。
         false
       )

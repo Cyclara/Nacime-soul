@@ -1,5 +1,5 @@
 // src/main/memory/extraction/judge.test.ts
-// P2-11 MemoryJudge 确定性判决状态机。依据 S-010 §3.2 J-01~J-14。
+// P2-11 MemoryJudge 确定性判决状态机。依据 S-020 §3.2 J-01~J-14。
 import { describe, it, expect } from 'vitest'
 import { createMemoryJudge, normalizeForEvidence } from './judge'
 import type { MemoryCandidate, RawMemoryCandidate } from './candidate'

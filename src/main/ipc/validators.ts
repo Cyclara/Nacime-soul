@@ -25,6 +25,7 @@ import type {
   ChatClearSessionRequest,
   ChatListRequest,
   ChatRetryRequest,
+  ChatSearchRequest,
   ChatSendRequest
 } from '@shared/chat/types'
 import type {
@@ -143,6 +144,18 @@ function isChatClearSessionRequest(value: unknown): value is ChatClearSessionReq
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['sessionId'])) return false
   if (!isId(value.sessionId)) return false
+  return true
+}
+
+// --- ChatSearchRequest（P2-44：全文搜索） ---
+// query 1..128 字符（空白查询合法——buildFtsQuery 归约为空结果）；limit 可选 1..100 整数
+function isChatSearchRequest(value: unknown): value is ChatSearchRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['query', 'limit'])) return false
+  if (!isString(value.query, { minLen: 1, maxLen: 128 })) return false
+  if ('limit' in value && value.limit !== undefined) {
+    if (!isNumber(value.limit, { min: 1, max: 100, integer: true })) return false
+  }
   return true
 }
 
@@ -581,7 +594,7 @@ function isMemoryUpdateContentRequest(value: unknown): value is MemoryUpdateCont
   return isMemoryId(value.memoryId) && isString(value.content, { minLen: 1, maxLen: 500 })
 }
 
-/** L0 白名单字段 key 真源：main 侧 L0_FIELD_DESCRIPTIONS（S-011 §1.3） */
+/** L0 白名单字段 key 真源：main 侧 L0_FIELD_DESCRIPTIONS（S-021 §1.3） */
 const L0_FIELD_KEY_SET: ReadonlySet<string> = new Set(Object.keys(L0_FIELD_DESCRIPTIONS))
 
 /** M-44：设定/清空 L0 字段——field 白名单 + value 0..120（上限与提取管线 judge.ts L0 一致；空串=清空） */
@@ -667,6 +680,10 @@ function isDmaeMuteRequest(value: unknown): value is DmaeMuteRequest {
 export const IPC_VALIDATORS = {
   'companion:app:get-info': (v: unknown): v is undefined => v === undefined,
   'companion:app:open-user-data': (v: unknown): v is undefined => v === undefined,
+  // ── M-50：自动更新 ──
+  'companion:app:check-for-updates': (v: unknown): v is undefined => v === undefined,
+  'companion:app:get-update-status': (v: unknown): v is undefined => v === undefined,
+  'companion:app:quit-and-install': (v: unknown): v is undefined => v === undefined,
   'companion:window:minimize': (v: unknown): v is undefined => v === undefined,
   'companion:window:toggle-maximize': (v: unknown): v is undefined => v === undefined,
   'companion:window:close': (v: unknown): v is undefined => v === undefined,
@@ -685,6 +702,7 @@ export const IPC_VALIDATORS = {
   'companion:chat:delete-message': isChatDeleteMessageRequest,
   'companion:chat:delete-selected': isChatDeleteSelectedRequest,
   'companion:chat:clear-session': isChatClearSessionRequest,
+  'companion:chat:search': isChatSearchRequest,
   'companion:debug:get-snapshot': (v: unknown): v is undefined => v === undefined,
   'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined,
   // ── Phase 2：memory（9 invoke）──

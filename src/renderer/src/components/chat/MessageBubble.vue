@@ -71,7 +71,11 @@ const isSelected = computed(() => chatStore.selectedIds.has(props.message.id))
 
 <template>
   <!-- data-message-id：右键菜单（AppContextMenu）靠 closest('[data-message-id]') 定位气泡所在轮 -->
-  <div class="message-row" :class="{ user: isUser, assistant: !isUser }" :data-message-id="message.id">
+  <div
+    class="message-row"
+    :class="{ user: isUser, assistant: !isUser }"
+    :data-message-id="message.id"
+  >
     <!-- 验收反馈⑦：选择模式勾选框——外缘（她的在左、你的在右），点一下整轮联动 -->
     <button
       v-if="chatStore.selectionMode && !isUser"
@@ -121,6 +125,24 @@ const isSelected = computed(() => chatStore.selectedIds.has(props.message.id))
 .message-row {
   display: flex;
   margin: 12px clamp(16px, 4vw, 52px);
+}
+
+/* P2-44：搜索跳转定位的闪烁高亮——ChatSearch 点结果后给本行加 .highlight-flash，
+   3s 渐隐后由 JS 摘除（用户要求：高亮 3 秒内自动消失）。淡蓝底，不盖字迹。 */
+.message-row.highlight-flash {
+  border-radius: 12px;
+  animation: search-flash 3s ease-out forwards;
+}
+
+@keyframes search-flash {
+  0%,
+  45% {
+    background-color: color-mix(in srgb, var(--color-info) 16%, transparent);
+  }
+
+  100% {
+    background-color: transparent;
+  }
 }
 
 .message-row.user {

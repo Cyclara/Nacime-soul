@@ -34,7 +34,12 @@ vi.mock('electron', () => {
         }
       }
     },
-    IpcRendererEvent: class {}
+    IpcRendererEvent: class {},
+    // M-51：ui.setZoomFactor 直连 webFrame（沙箱 preload 可用）
+    webFrame: {
+      getZoomFactor: vi.fn(() => 1),
+      setZoomFactor: vi.fn()
+    }
   }
 })
 
@@ -229,7 +234,7 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(typeof companionApi.window.onState).toBe('function')
   })
 
-  it('chat namespace 恰好 10 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession）', () => {
+  it('chat namespace 恰好 11 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession，P2-44 增 search）', () => {
     expect(Object.keys(companionApi.chat).sort()).toEqual(
       [
         'cancel',
@@ -242,6 +247,7 @@ describe('S-004 #35: API 只暴露固定通道', () => {
         'list',
         'onStream',
         'retry',
+        'search',
         'send'
       ].sort()
     )
@@ -324,5 +330,46 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     for (const k of growthKeys) {
       expect(typeof (companionApi.growth as Record<string, unknown>)[k]).toBe('function')
     }
+  })
+
+  // ── M-50：自动更新 API 面 ──
+  it('app.checkForUpdates / getUpdateStatus / quitAndInstall 固定通道 + undefined 载荷', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: undefined })
+    await companionApi.app.checkForUpdates()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:app:check-for-updates', undefined)
+
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { state: 'idle' } })
+    const status = await companionApi.app.getUpdateStatus()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:app:get-update-status', undefined)
+    expect(status).toEqual({ ok: true, data: { state: 'idle' } })
+
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: undefined })
+    await companionApi.app.quitAndInstall()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:app:quit-and-install', undefined)
+  })
+
+  it('app.onUpdateStatus 订阅 update-status 事件，非法载荷被 validator 拦截', () => {
+    const received: unknown[] = []
+    const unsubscribe = companionApi.app.onUpdateStatus((s) => received.push(s))
+
+    mockEmit('companion:event:update-status', {}, { state: 'downloaded', version: '1.1.0' })
+    mockEmit('companion:event:update-status', {}, { state: 'evil' })
+    expect(received).toEqual([{ state: 'downloaded', version: '1.1.0' }])
+
+    unsubscribe()
+    mockEmit('companion:event:update-status', {}, { state: 'idle' })
+    expect(received).toHaveLength(1)
+  })
+
+  // ── M-51：UI 缩放直连 webFrame ──
+  it('ui.setZoomFactor / getZoomFactor 透传 webFrame，不走 IPC', async () => {
+    // 本 describe 无 mockClear 的 beforeEach，先清掉前面用例累积的 invoke 记录
+    mockIpc.invoke.mockClear()
+    const { webFrame } = await import('electron')
+    companionApi.ui.setZoomFactor(1.2)
+    expect(vi.mocked(webFrame.setZoomFactor)).toHaveBeenCalledWith(1.2)
+    vi.mocked(webFrame.getZoomFactor).mockReturnValue(1.2)
+    expect(companionApi.ui.getZoomFactor()).toBe(1.2)
+    expect(mockIpc.invoke).not.toHaveBeenCalled()
   })
 })

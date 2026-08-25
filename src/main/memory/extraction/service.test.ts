@@ -1,6 +1,6 @@
 // src/main/memory/extraction/service.test.ts
 // P2-10 ExtractionService：独立 provider 调用、64KiB 上限、空失败。
-// 依据 S-010 §3.2 J-10, J-12。
+// 依据 S-020 §3.2 J-10, J-12。
 import { describe, it, expect } from 'vitest'
 import { createExtractionService } from './service'
 import { createFauxExtractionProvider } from './provider'

@@ -20,11 +20,14 @@ import type {
   ChatHistorySnapshot,
   ChatListRequest,
   ChatRetryRequest,
+  ChatSearchHit,
+  ChatSearchRequest,
   ChatSendAck,
   ChatSendRequest,
   ChatStreamEvent
 } from '../chat/types'
 import type { DebugSnapshot } from '../observability/types'
+import type { UpdateStatus } from '../update/types'
 import type {
   DmaeBenchmarkReport,
   DmaeDailyAggregate,
@@ -102,6 +105,8 @@ export interface IpcInvokeMap {
     res: { deletedIds: string[] }
   }
   'companion:chat:clear-session': { req: ChatClearSessionRequest; res: { removed: number } }
+  // P2-44：聊天记录全文搜索（FTS5；scope=全部会话的消息正文）
+  'companion:chat:search': { req: ChatSearchRequest; res: ChatSearchHit[] }
   'companion:debug:get-snapshot': { req: undefined; res: DebugSnapshot }
   'companion:debug:open-log-folder': { req: undefined; res: void }
   // ── Phase 2：memory（9 invoke，S-003-补充 §3.1）──
@@ -130,6 +135,10 @@ export interface IpcInvokeMap {
   'companion:dmae:record-qualitative': { req: DmaeQualitativeRequest; res: void }
   // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道）──
   'companion:dmae:mute-anomaly': { req: DmaeMuteRequest; res: void }
+  // ── M-50：自动更新（2026-08-24 用户需求）──
+  'companion:app:check-for-updates': { req: undefined; res: void }
+  'companion:app:get-update-status': { req: undefined; res: UpdateStatus }
+  'companion:app:quit-and-install': { req: undefined; res: void }
 }
 
 export interface IpcEventMap {
@@ -138,6 +147,8 @@ export interface IpcEventMap {
   'companion:event:window-state': { maximized: boolean }
   // ── Phase 2：记忆/成长跨进程同步（S-003-补充 §3.2）──
   'companion:event:memory-updated': MemoryUpdatedEvent
+  // ── M-50：更新状态推送 ──
+  'companion:event:update-status': UpdateStatus
 }
 
 // re-export 通道类型，供外部使用

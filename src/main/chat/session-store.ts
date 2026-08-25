@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ChatMessage, ChatMessageView, SessionId, MessageId } from '@shared/chat/types'
 
-/** turn 内的 user + assistant 消息对。依据 S-010 §1.1 getTurnMessages */
+/** turn 内的 user + assistant 消息对。依据 S-020 §1.1 getTurnMessages */
 export interface TurnMessagePair {
   user: ChatMessage
   assistant: ChatMessage
@@ -50,7 +50,7 @@ export interface SessionStore {
   getMessages(sessionId: SessionId, limit: number): ChatMessage[]
   /**
    * 按 turnId 查询该 turn 的 user + assistant 消息对。
-   * 依据 S-010 §1.1：提取管线只用当前 turn 的 user 消息做 evidence，
+   * 依据 S-020 §1.1：提取管线只用当前 turn 的 user 消息做 evidence，
    * 不做 getMessages(10_000) 全会话扫描。缺失/无配对/assistant 非完整返回 null。
    */
   getTurnMessages(sessionId: SessionId, turnId: string): TurnMessagePair | null

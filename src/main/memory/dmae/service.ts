@@ -1,6 +1,6 @@
 // src/main/memory/dmae/service.ts
 // P2-25: DMAE 引擎服务--编排 engine + stateFile + L2Store，提供 selectL2 + updateTurn。
-// 依据：S-Phase2 P2-25、S-011 §1.2/§1.6（selectL2 + referencedMemoryIds）、F5-006（l2.referenced）、F5-011（日志白名单）。
+// 依据：S-Phase2 P2-25、S-021 §1.2/§1.6（selectL2 + referencedMemoryIds）、F5-006（l2.referenced）、F5-011（日志白名单）。
 //
 // 设计要点：
 //   1. selectL2(hits, memory, sessionId)：从 dmaeState 读 activation，过滤 Active 态（≥threshold），
@@ -19,7 +19,7 @@
 //      DMAE activation 排序是第二道门。transitions 仅记日志（诊断）。
 //   4. 每轮 updateTurn 前 reconcile（以 L2 DB 为准，清理孤儿 + 新增初始化）。
 //
-// 时序（S-011 §1.6）：
+// 时序（S-021 §1.6）：
 //   streamTurn 开始 -> contextAssembler.assemble -> selectL2（记录 userHitIds）
 //   -> prompt build -> provider stream -> turn.end
 //   -> DMAE hook（priority 300，extraction 250 之后）-> updateTurn(referencedMemoryIds)

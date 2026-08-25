@@ -1,5 +1,5 @@
 // src/main/memory/extraction/sync-turn.ts
-// P2-38 sync_turn 轻量提取 + P2-39 批量终审策略。依据 S-010 §1.5、S-Phase2 P2-38/P2-39。
+// P2-38 sync_turn 轻量提取 + P2-39 批量终审策略。依据 S-020 §1.5、S-Phase2 P2-38/P2-39。
 //
 // P2-38：每轮 turn.end 便宜模型调用（低 maxTokens、temperature 低），产出候选事实，
 //        与 P2-10 管线共用同一 schema/parser/queue。复用 ExtractionService（fail-silent、
@@ -9,7 +9,7 @@
 //
 // P2-39：sync_turn 产候选入队 -> MemoryJudge 终审（每 6 轮或队列阈值触发）、
 //        去重（同事实候选合并 confidence 取高）。单消费者 FIFO，排序 (enqueueSequence,
-//        candidateId)。阈值常量 JUDGE_QUEUE_THRESHOLD=12（S-010 §1.5 钉死，不得留给实现者猜）。
+//        candidateId)。阈值常量 JUDGE_QUEUE_THRESHOLD=12（S-020 §1.5 钉死，不得留给实现者猜）。
 
 import type { LlmMessage } from '../../llm/types'
 import type { Logger } from '@shared/observability/types'
@@ -27,9 +27,9 @@ export const SYNC_TURN_MAX_OUTPUT_TOKENS = 400
 /** P2-38：sync_turn 超时（便宜模型更快，无需 P2-10 的 30s）。 */
 export const SYNC_TURN_TIMEOUT_MS = 20_000
 
-/** P2-39：累计 N 个 eligible turn 触发一次 MemoryJudge 终审（S-010 §1.5「每 6 轮」）。 */
+/** P2-39：累计 N 个 eligible turn 触发一次 MemoryJudge 终审（S-020 §1.5「每 6 轮」）。 */
 export const SYNC_TURN_JUDGE_EVERY_TURNS = 6
-/** P2-39：队列候选数达到该阈值即触发终审（S-010 §1.5 钉死）。 */
+/** P2-39：队列候选数达到该阈值即触发终审（S-020 §1.5 钉死）。 */
 export const JUDGE_QUEUE_THRESHOLD = 12
 
 /** 构建 sync_turn 便宜请求。temperature=0（确定性），低 maxOutputTokens，短超时。 */

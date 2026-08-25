@@ -7,12 +7,54 @@ import { storeToRefs } from 'pinia'
 import { THEME_IDS, THEME_LABELS } from '@shared/config/themes'
 import type { ThemeId, ThemeSetting } from '@shared/config/themes'
 import { useConfigStore } from '../../stores/config'
+import {
+  stepZoom,
+  zoomPercent,
+  UI_ZOOM_MIN,
+  UI_ZOOM_MAX,
+  UI_ZOOM_DEFAULT
+} from '../../utils/ui-zoom'
 
 const configStore = useConfigStore()
 const { state } = storeToRefs(configStore)
 
 const savingTheme = ref<ThemeSetting | null>(null)
 const feedback = ref('')
+
+// ── M-51：界面缩放（fontScale 的消费端；webFrame zoomFactor 由 ZoomOverlay 的 watch 应用）──
+const savingZoom = ref(false)
+const currentZoom = computed(() => state.value.draft?.ui.fontScale ?? UI_ZOOM_DEFAULT)
+const zoomPercentText = computed(() => `${zoomPercent(currentZoom.value)}%`)
+const canZoomOut = computed(() => currentZoom.value > UI_ZOOM_MIN)
+const canZoomIn = computed(() => currentZoom.value < UI_ZOOM_MAX)
+const isDefaultZoom = computed(() => currentZoom.value === UI_ZOOM_DEFAULT)
+
+async function applyZoom(scale: number): Promise<void> {
+  if (!state.value.draft || savingZoom.value) return
+  feedback.value = ''
+  savingZoom.value = true
+  configStore.patch('ui', { fontScale: scale })
+  const saved = await configStore.save()
+  if (!saved) {
+    feedback.value = state.value.validationErrors.save ?? '缩放设置保存失败，请稍后重试。'
+    configStore.discard()
+  } else {
+    feedback.value = `界面缩放已调整为 ${zoomPercent(scale)}%`
+  }
+  savingZoom.value = false
+}
+
+function zoomIn(): void {
+  void applyZoom(stepZoom(currentZoom.value, 1))
+}
+
+function zoomOut(): void {
+  void applyZoom(stepZoom(currentZoom.value, -1))
+}
+
+function resetZoom(): void {
+  void applyZoom(UI_ZOOM_DEFAULT)
+}
 
 const selectedTheme = computed<ThemeSetting>(() => state.value.draft?.ui.theme ?? 'light')
 const themes = computed(() =>
@@ -132,6 +174,40 @@ function themeNumber(id: ThemeId): string {
         </p>
       </div>
     </aside>
+
+    <!-- M-51：界面缩放（字体与布局整体缩放） -->
+    <div class="zoom-block">
+      <div class="zoom-heading">
+        <strong>界面缩放</strong>
+        <small>字体与布局一起缩放，立即生效并自动保存</small>
+      </div>
+      <div class="zoom-control" role="group" aria-label="界面缩放">
+        <button
+          class="zoom-btn"
+          :disabled="!canZoomOut || savingZoom"
+          aria-label="缩小界面"
+          @click="zoomOut"
+        >
+          −
+        </button>
+        <span class="zoom-value" aria-live="polite">{{ zoomPercentText }}</span>
+        <button
+          class="zoom-btn"
+          :disabled="!canZoomIn || savingZoom"
+          aria-label="放大界面"
+          @click="zoomIn"
+        >
+          +
+        </button>
+        <button class="zoom-reset" :disabled="isDefaultZoom || savingZoom" @click="resetZoom">
+          重置
+        </button>
+      </div>
+      <p class="zoom-hint">
+        也可以在主界面按住 <kbd>Ctrl</kbd> 滚动鼠标滚轮，或用 <kbd>Ctrl</kbd> +
+        <kbd>+</kbd>/<kbd>−</kbd>/<kbd>0</kbd> 调整（设置窗口打开时快捷键暂不生效）。
+      </p>
+    </div>
   </section>
 </template>
 
@@ -502,6 +578,107 @@ function themeNumber(id: ThemeId): string {
 .extension-note code {
   color: var(--color-accent);
   font-family: 'Cascadia Mono', 'SFMono-Regular', monospace;
+  font-size: 10px;
+}
+
+/* ── M-51：界面缩放步进器 ── */
+.zoom-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-sm);
+}
+
+.zoom-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.zoom-heading strong {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 680;
+}
+
+.zoom-heading small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zoom-btn {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface-elevated);
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.zoom-btn:disabled,
+.zoom-reset:disabled {
+  opacity: 0.45;
+}
+
+.zoom-value {
+  min-width: 56px;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.zoom-reset {
+  margin-left: 6px;
+  padding: 7px 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+}
+
+.zoom-reset:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.zoom-hint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.zoom-hint kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-family: inherit;
   font-size: 10px;
 }
 

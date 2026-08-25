@@ -1,5 +1,5 @@
 // src/main/prompts/dynamic-renderers.ts
-// P2-16C: 动态层原子 item 构造器。依据 S-011 §1.2-§1.4。
+// P2-16C: 动态层原子 item 构造器。依据 S-021 §1.2-§1.4。
 //
 // 设计要点：
 //   1. 每个 renderer 返回 { items, status }；空数据 -> status='empty'，不输出标题/占位句
@@ -110,7 +110,7 @@ export function renderL2Items(l2Items: readonly PromptL2Item[]): RenderResult {
 // === relationship ===
 
 /**
- * 各 stage 的保守 baseline（非裁）。stranger 文案来自 S-011 §1.3；
+ * 各 stage 的保守 baseline（非裁）。stranger 文案来自 S-021 §1.3；
  * 其余 stage 为合理的阶段感知扩展（P2-41 前 relationship 始终 skipped，不会实际使用）。
  */
 export const RELATIONSHIP_BASELINE: Record<PromptRelationshipInput['stage'], string> = {

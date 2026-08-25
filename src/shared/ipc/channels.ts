@@ -28,6 +28,8 @@ export const IPC_INVOKE_CHANNELS = [
   // ── 验收反馈⑦：选择模式批量按轮删除 + 清空会话（additive 新增）──
   'companion:chat:delete-selected',
   'companion:chat:clear-session',
+  // ── P2-44：聊天记录全文搜索（FTS5，additive 新增）──
+  'companion:chat:search',
   'companion:debug:get-snapshot',
   'companion:debug:open-log-folder',
   // ── Phase 2：memory + growth（S-003-补充 §3.1：12 invoke）──
@@ -54,7 +56,11 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:dmae:run-benchmark',
   'companion:dmae:record-qualitative',
   // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道，S-005-补充 §1.7）──
-  'companion:dmae:mute-anomaly'
+  'companion:dmae:mute-anomaly',
+  // ── M-50：自动更新检测（2026-08-24 用户需求，additive 新增）──
+  'companion:app:check-for-updates',
+  'companion:app:get-update-status',
+  'companion:app:quit-and-install'
 ] as const
 
 /** Phase 1 + Phase 2 的 main->renderer event 通道 */
@@ -63,7 +69,9 @@ export const IPC_EVENT_CHANNELS = [
   'companion:event:app-error',
   'companion:event:window-state',
   // ── Phase 2：记忆/成长跨进程同步唯一通知源（S-003-补充 §3.2）──
-  'companion:event:memory-updated'
+  'companion:event:memory-updated',
+  // ── M-50：更新状态推送（main 侧 Updater 状态机 → renderer toast）──
+  'companion:event:update-status'
 ] as const
 
 export type IpcInvokeChannel = (typeof IPC_INVOKE_CHANNELS)[number]

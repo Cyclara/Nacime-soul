@@ -37,7 +37,9 @@ nsis:
   createStartMenuShortcut: true
   deleteAppDataOnUninstall: false
 npmRebuild: false
+# M-50：electron-updater 发布源。与 git remote origin 的公开仓库一致；
+# electron-builder 会把该信息写入打包产物 resources/app-update.yml，并为 release 生成 latest.yml。
 publish:
   provider: github
-  owner: REPLACE_BEFORE_RELEASE
-  repo: REPLACE_BEFORE_RELEASE
+  owner: Cyclara
+  repo: Nacime-soul

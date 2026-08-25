@@ -1,6 +1,6 @@
 // src/main/prompts/context-assembler.test.ts
 // P2-16B 测试：PromptContextAssembler
-// 依据：S-011 §1.2-§1.4、§3.2 测试矩阵（旁路/单层失败/空态/L2 链）
+// 依据：S-021 §1.2-§1.4、§3.2 测试矩阵（旁路/单层失败/空态/L2 链）
 
 import { describe, it, expect, vi } from 'vitest'
 import { createPromptContextAssembler } from './context-assembler'
@@ -360,7 +360,7 @@ describe('P2-16B PromptContextAssembler', () => {
     })
 
     // m1 (soft_deleted) / m2 (sync failed) / m3 (archived) / m4 (purged) 都被丢弃
-    // S-011 §1.2：只允许 active/dormant 进 prompt
+    // S-021 §1.2：只允许 active/dormant 进 prompt
     expect(result.l2).toBeDefined()
     expect(result.l2!.length).toBe(0)
   })

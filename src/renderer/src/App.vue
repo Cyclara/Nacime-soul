@@ -14,6 +14,8 @@ import DebugPanel from './components/debug/DebugPanel.vue'
 import SettingsDrawer from './components/settings/SettingsDrawer.vue'
 import AppErrorBanner from './components/common/AppErrorBanner.vue'
 import AppContextMenu from './components/common/AppContextMenu.vue'
+import UpdateToast from './components/common/UpdateToast.vue'
+import ZoomOverlay from './components/common/ZoomOverlay.vue'
 
 const appStore = useAppStore()
 const configStore = useConfigStore()
@@ -117,6 +119,10 @@ onUnmounted(() => {
   <DebugPanel />
   <!-- 验收反馈⑤：主题化右键菜单（替代 M-38 原生菜单） -->
   <AppContextMenu />
+  <!-- M-50：更新提示（右下角；store init/dispose 由组件自持） -->
+  <UpdateToast />
+  <!-- M-51：UI 缩放 pill + Ctrl+滚轮/±0 快捷键（监听器由组件自持） -->
+  <ZoomOverlay />
 </template>
 
 <style scoped>

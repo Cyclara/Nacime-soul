@@ -10,6 +10,9 @@
 //      让 UI 出"重试"而不是永远"正在输入"（§2.3）；M-39 补充第二类——
 //      "用户消息已落库、assistant 未落库"的孤儿轮次补 failed 占位（CHAT_INTERRUPTED）。
 //   4. 全部参数化绑定；单写者（main 进程），事务包住"建会话+算 seq+插消息+刷热度"。
+//   5. P2-44 全文搜索：messages_fts（FTS5，迁移 008 建表）在本文件所有写路径同步——
+//      append/orphan 修复插、updateMessage 正文回写时重建、四条删除路径随删。
+//      分词在 TS 侧（search.ts segmentForFts），SQL 触发器够不到，只能在这里同步。
 
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
@@ -18,6 +21,7 @@ import type { ChatMessage, ChatMessageView, SessionId, MessageId } from '@shared
 import type { MessageStatus } from '@shared/chat/types'
 import type { ErrorCode } from '@shared/errors'
 import { chatMessageToView, type SessionStore, type TurnMessagePair } from './session-store'
+import { segmentForFts } from './search'
 
 export interface SQLiteSessionStoreDeps {
   db: Database
@@ -115,13 +119,19 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     deleteSupersededAssistant: db.prepare(
       `DELETE FROM messages
        WHERE session_id = ? AND turn_id = ? AND role = 'assistant'
-         AND id != ? AND status != 'complete'`
+         AND id != ? AND status != 'complete'
+       RETURNING rowid`
     ),
     deleteTurn: db.prepare(
-      `DELETE FROM messages WHERE session_id = ? AND turn_id = ? RETURNING id`
+      `DELETE FROM messages WHERE session_id = ? AND turn_id = ? RETURNING id, rowid`
     ),
-    deleteById: db.prepare(`DELETE FROM messages WHERE session_id = ? AND id = ?`),
-    clearBySession: db.prepare(`DELETE FROM messages WHERE session_id = ?`),
+    deleteById: db.prepare(`DELETE FROM messages WHERE session_id = ? AND id = ? RETURNING rowid`),
+    clearBySession: db.prepare(`DELETE FROM messages WHERE session_id = ? RETURNING rowid`),
+    // ── P2-44 全文搜索：messages_fts（FTS5，rowid 与 messages 1:1）同步 ──
+    // 分词在 TS 侧（segmentForFts），SQL 触发器够不到，只能在这里逐写路径同步。
+    ftsInsert: db.prepare(`INSERT INTO messages_fts (rowid, seg) VALUES (?, ?)`),
+    ftsDelete: db.prepare(`DELETE FROM messages_fts WHERE rowid = ?`),
+    rowidById: db.prepare(`SELECT rowid FROM messages WHERE session_id = ? AND id = ?`),
     orphanUserTurns: db.prepare(
       `SELECT m.session_id AS session_id, m.turn_id AS turn_id FROM messages m
        WHERE m.role = 'user' AND m.turn_id IS NOT NULL
@@ -146,7 +156,7 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     const repairOrphans = db.transaction((rows: typeof orphanRows): void => {
       for (const row of rows) {
         const seq = (stmts.nextSeq.get(row.session_id) as { seq: number }).seq
-        stmts.insertMessage.run(
+        const info = stmts.insertMessage.run(
           randomUUID(),
           row.session_id,
           seq,
@@ -158,6 +168,8 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
           row.turn_id,
           now()
         )
+        // P2-44：空内容也入 FTS（seg 空串无 token），保住行数 1:1 不变量
+        stmts.ftsInsert.run(info.lastInsertRowid, '')
       }
     })
     repairOrphans(orphanRows)
@@ -172,7 +184,7 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     const touchedAt = nextTouchedAt()
     stmts.insertSession.run(sessionId, touchedAt, touchedAt)
     const seq = (stmts.nextSeq.get(sessionId) as { seq: number }).seq
-    stmts.insertMessage.run(
+    const info = stmts.insertMessage.run(
       message.id,
       sessionId,
       seq,
@@ -185,6 +197,8 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
       message.createdAt
     )
     stmts.touchSession.run(touchedAt, sessionId)
+    // P2-44：FTS 同步（同事务）——分词在 TS 侧，正文入索引、reasoning 不入
+    stmts.ftsInsert.run(info.lastInsertRowid, segmentForFts(message.content))
   })
 
   return {
@@ -231,20 +245,46 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
       turnId: string,
       keepMessageId: MessageId
     ): number {
-      return stmts.deleteSupersededAssistant.run(sessionId, turnId, keepMessageId).changes
+      const tx = db.transaction((): number => {
+        const rows = stmts.deleteSupersededAssistant.all(
+          sessionId,
+          turnId,
+          keepMessageId
+        ) as Array<{ rowid: number }>
+        for (const row of rows) stmts.ftsDelete.run(row.rowid)
+        return rows.length
+      })
+      return tx()
     },
 
     deleteTurnMessages(sessionId: SessionId, turnId: string): string[] {
-      const rows = stmts.deleteTurn.all(sessionId, turnId) as Array<{ id: string }>
-      return rows.map((r) => r.id)
+      const tx = db.transaction((): string[] => {
+        const rows = stmts.deleteTurn.all(sessionId, turnId) as Array<{
+          id: string
+          rowid: number
+        }>
+        for (const row of rows) stmts.ftsDelete.run(row.rowid)
+        return rows.map((r) => r.id)
+      })
+      return tx()
     },
 
     deleteMessage(sessionId: SessionId, messageId: MessageId): boolean {
-      return stmts.deleteById.run(sessionId, messageId).changes > 0
+      const tx = db.transaction((): boolean => {
+        const rows = stmts.deleteById.all(sessionId, messageId) as Array<{ rowid: number }>
+        for (const row of rows) stmts.ftsDelete.run(row.rowid)
+        return rows.length > 0
+      })
+      return tx()
     },
 
     clearMessages(sessionId: SessionId): number {
-      return stmts.clearBySession.run(sessionId).changes
+      const tx = db.transaction((): number => {
+        const rows = stmts.clearBySession.all(sessionId) as Array<{ rowid: number }>
+        for (const row of rows) stmts.ftsDelete.run(row.rowid)
+        return rows.length
+      })
+      return tx()
     },
 
     updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void {
@@ -258,9 +298,20 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
       }
       if (sets.length === 0) return
       values.push(sessionId, messageId)
-      db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE session_id = ? AND id = ?`).run(
-        ...values
-      )
+      const sql = `UPDATE messages SET ${sets.join(', ')} WHERE session_id = ? AND id = ?`
+      const contentPatched = Object.prototype.hasOwnProperty.call(patch, 'content')
+      const tx = db.transaction((): void => {
+        db.prepare(sql).run(...values)
+        // P2-44：正文被回写时重建该行的 FTS 索引（先删后插 = upsert）
+        if (contentPatched) {
+          const row = stmts.rowidById.get(sessionId, messageId) as { rowid: number } | undefined
+          if (row) {
+            stmts.ftsDelete.run(row.rowid)
+            stmts.ftsInsert.run(row.rowid, segmentForFts(patch.content ?? ''))
+          }
+        }
+      })
+      tx()
     },
 
     getLastSessionId(): SessionId | null {

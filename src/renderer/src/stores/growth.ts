@@ -1,12 +1,12 @@
 // src/renderer/src/stores/growth.ts
 // P2-42: growth Pinia store -- U 值 + 阶段徽章 + 里程碑时间线 + 趋势的只读投影。
-// 依据：S-002-补充 §3.2、S-012 §1.4（growth hint 矩阵 + revision 规则）、F5-006 决策 2。
+// 依据：S-002-补充 §3.2、S-022 §1.4（growth hint 矩阵 + revision 规则）、F5-006 决策 2。
 //
 // 设计要点：
 //   1. main 真源的只读投影：自身不计算任何指标（U 值/填充率/activation），数字全部来自 main。
 //   2. 复用 memory.onUpdated 事件源（growth 不注册独立订阅，S-002-补充 §3.2）：
 //      hint==='growth' -> 拉 profile + timeline；bulk -> 同 hydrate。
-//   3. trend 是用户选择的昂贵查询，不自动刷新（S-012 §1.4：标 stale，用户进入/切换时拉）。
+//   3. trend 是用户选择的昂贵查询，不自动刷新（S-022 §1.4：标 stale，用户进入/切换时拉）。
 //   4. revision 比对防乱序覆盖（拉取成功才推进）。
 //   5. memory.enabled=false 时 hydrate 返回空投影不报错（S-002-补充 §4 边界条件）。
 //
@@ -25,7 +25,7 @@ import type {
   MemoryUpdatedEvent
 } from '@shared/memory/types'
 
-/** 时间线默认条数（S-012 §3.3：growth store 固定 timeline limit） */
+/** 时间线默认条数（S-022 §3.3：growth store 固定 timeline limit） */
 const TIMELINE_LIMIT = 50
 
 /** IpcError -> PublicAppError（补 severity；IPC 错误默认 error 级）。 */
@@ -89,7 +89,7 @@ export const useGrowthStore = defineStore('growth', () => {
     state.lastError = e
   }
 
-  /** 进入成长页时调用：拉 profile + timeline（S-012 §3.3 growth store hydrate） */
+  /** 进入成长页时调用：拉 profile + timeline（S-022 §3.3 growth store hydrate） */
   async function hydrate(): Promise<void> {
     state.loading = true
     setLastError(null)
@@ -152,7 +152,7 @@ export const useGrowthStore = defineStore('growth', () => {
   }
 
   /**
-   * memory-updated 事件入口。S-012 §1.4 growth store hint 矩阵：
+   * memory-updated 事件入口。S-022 §1.4 growth store hint 矩阵：
    *   growth -> get-profile + 当前 limit 的 get-timeline
    *   bulk   -> 同 hydrate：profile + timeline；已有 trend 标 stale（不自动拉）
    *   其他 hint -> 忽略
@@ -180,7 +180,7 @@ export const useGrowthStore = defineStore('growth', () => {
         if (epoch !== profileRequestEpoch) return
         if (profileRes.ok) state.profile = profileRes.data
         if (timelineRes.ok) state.timeline = timelineRes.data
-        // 拉取成功才推进 revision（S-012 §1.4）
+        // 拉取成功才推进 revision（S-022 §1.4）
         state.revision = Math.max(state.revision, eventRevision)
       } else {
         // bulk：同 hydrate（profile + timeline），不自动拉 trend
@@ -194,7 +194,7 @@ export const useGrowthStore = defineStore('growth', () => {
         state.revision = Math.max(state.revision, eventRevision)
       }
     } catch {
-      /* 拉取失败不推进 revision，下次 event/focus 可重试（S-012 §1.4） */
+      /* 拉取失败不推进 revision，下次 event/focus 可重试（S-022 §1.4） */
     }
   }
 

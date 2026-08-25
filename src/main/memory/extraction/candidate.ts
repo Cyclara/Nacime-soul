@@ -1,5 +1,5 @@
 // src/main/memory/extraction/candidate.ts
-// MemoryCandidate 唯一 ABI + 给模型的 JSON Schema。依据 S-010 §1.2-§1.3。
+// MemoryCandidate 唯一 ABI + 给模型的 JSON Schema。依据 S-020 §1.2-§1.3。
 //
 // 设计要点：
 //   1. parser 先产出不可变 RawMemoryCandidate，再附加 candidateId 成为 MemoryCandidate
@@ -58,7 +58,7 @@ export interface MemoryCandidateEnvelope {
   candidates: readonly RawMemoryCandidate[] // 0..8
 }
 
-// === 给模型的 JSON Schema（S-010 §1.3）===
+// === 给模型的 JSON Schema（S-020 §1.3）===
 // 模型返回顶层对象而非裸数组，便于版本化和严格 schema 模式。
 // 即使 provider 不支持 response_format/json_schema，同一份 schema 仍放进 system prompt
 // 并在本地重新校验。candidateId 不在 schema 中（本地衍生字段）。
@@ -143,7 +143,7 @@ export const CANDIDATE_ITEM_SCHEMA = {
 } as const
 
 /**
- * 完整 envelope 的 JSON Schema。S-010 §1.3。
+ * 完整 envelope 的 JSON Schema。S-020 §1.3。
  * 完整 envelope 中任一 candidate schema 非法时整 envelope 丢弃（不逐项救）。
  */
 export const CANDIDATE_ENVELOPE_SCHEMA = {
@@ -162,7 +162,7 @@ export const CANDIDATE_ENVELOPE_SCHEMA = {
   }
 } as const
 
-// === 字段长度约束（S-010 §1.2 字段约束表）===
+// === 字段长度约束（S-020 §1.2 字段约束表）===
 
 export const CANDIDATE_LIMITS = {
   contentMin: 1,
@@ -181,7 +181,7 @@ export const CANDIDATE_LIMITS = {
   envelopeMaxBytes: 64 * 1024 // 64 KiB 输入上限
 } as const
 
-/** importance -> L2 importance 数值映射（S-010 §1.2） */
+/** importance -> L2 importance 数值映射（S-020 §1.2） */
 export function importanceToValue(imp: CandidateImportance | undefined): number {
   if (imp === 'low') return 3
   if (imp === 'high') return 8

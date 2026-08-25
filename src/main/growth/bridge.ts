@@ -1,6 +1,6 @@
 // src/main/growth/bridge.ts
 // growth bridge hook：turn.end 时 fan-out l2.referenced 事件 + session.daily_first。
-// 依据：S-011 §1.6（growth bridge 位于 extraction 之前，memoryEligible=true 时 fan-out
+// 依据：S-021 §1.6（growth bridge 位于 extraction 之前，memoryEligible=true 时 fan-out
 //       referencedMemoryIds）、F5-006 §3（l2.referenced / session.daily_first 事件定义）。
 //
 // 职责（P2-40/41）：
@@ -10,7 +10,7 @@
 //      快照内含里程碑检查，新达成里程碑 emit milestone.reached + promptFragments 进 relationship 层）
 //   4. 若实际发射了事件，推进 revision 并广播 growth hint（让 renderer growth store 刷新）
 //
-// 时序（S-011 §1.6 红线）：
+// 时序（S-021 §1.6 红线）：
 //   priority 220（位于 extraction 250 之前）。growth bridge 不依赖 extraction 结果--
 //   referencedMemoryIds 来自 ChatService prompt build 阶段，turn.end 触发时已就绪。
 //   放在 extraction 之前确保 l2.referenced 事件即使 extraction fail-open 抛错也能记录。
@@ -56,7 +56,7 @@ export function toLocalDate(ts: number): string {
 
 /**
  * 创建 growth bridge hook（注册到 turn.end，priority 220）。
- * S-011 §1.6：GrowthService 尚未实现（P2-40 前）时 bridge 不注册；
+ * S-021 §1.6：GrowthService 尚未实现（P2-40 前）时 bridge 不注册；
  *   P2-40 实现后由 setup.ts 注册本 hook。
  */
 export function createGrowthBridgeHook(deps: GrowthBridgeDeps): HookRegistration {
@@ -66,7 +66,7 @@ export function createGrowthBridgeHook(deps: GrowthBridgeDeps): HookRegistration
 
   const fn: HookRegistration['fn'] = (_ctx, data) => {
     const turnEnd = data as TurnEndData
-    // 只处理 memoryEligible=true 的 turn（S-011 §1.6 红线：failed/cancelled/stopped 不发事件）
+    // 只处理 memoryEligible=true 的 turn（S-021 §1.6 红线：failed/cancelled/stopped 不发事件）
     if (!turnEnd || !turnEnd.memoryEligible) {
       return { data }
     }
@@ -77,7 +77,7 @@ export function createGrowthBridgeHook(deps: GrowthBridgeDeps): HookRegistration
 
     // 1. l2.referenced：fan-out referencedMemoryIds（去重，保持顺序）
     //    F5-006 §3：l2.referenced = 一条 L2 记忆进入了 prompt 且回复完成
-    //    S-011 §1.6：referencedMemoryIds 语义=最终预算保留且 provider 正常完成的 L2 ID
+    //    S-021 §1.6：referencedMemoryIds 语义=最终预算保留且 provider 正常完成的 L2 ID
     const seen = new Set<string>()
     for (const memoryId of turnEnd.referencedMemoryIds) {
       if (seen.has(memoryId)) continue
@@ -125,7 +125,7 @@ export function createGrowthBridgeHook(deps: GrowthBridgeDeps): HookRegistration
 
     // 3. 若实际发射了事件，推进 revision 并广播 growth hint
     //    F5-006 §5：growth 数据变更需通知 UI（renderer growth store 刷新 profile + timeline）
-    //    S-012 §1.4：growth hint -> growth store 拉 profile + timeline
+    //    S-022 §1.4：growth hint -> growth store 拉 profile + timeline
     if (emitted) {
       revisionClock.next()
       broadcaster.notify('growth')
@@ -137,7 +137,7 @@ export function createGrowthBridgeHook(deps: GrowthBridgeDeps): HookRegistration
   return {
     name: 'growth-bridge',
     event: 'turn.end',
-    priority: 220, // S-011 §1.6：位于 extraction(250) 之前
+    priority: 220, // S-021 §1.6：位于 extraction(250) 之前
     fn,
     failOpen: true
   }

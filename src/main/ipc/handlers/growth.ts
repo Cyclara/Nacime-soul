@@ -1,8 +1,8 @@
 // src/main/ipc/handlers/growth.ts
 // P2-29/41: growth IPC handler（3 invoke）。
-// 依据：S-003-补充 §3.1、S-012 §3.1（growth handler 依赖 P2-41 GrowthService）、F5-006 §3/§5。
+// 依据：S-003-补充 §3.1、S-022 §3.1（growth handler 依赖 P2-41 GrowthService）、F5-006 §3/§5。
 //
-// 任务边界（S-012 §3.1）：
+// 任务边界（S-022 §3.1）：
 //   growth 3 invoke + growth store 拆为 P2-29b/P2-30b，依赖 P2-41 的
 //   GrowthService/Profile/Timeline/Trend 后交付。P2-41 已实现 GrowthService，
 //   handler 接真实 service；services=null（memory.enabled=false）时返回初始态。

@@ -1,6 +1,6 @@
 // src/main/growth/event-bus.ts
 // 成长事件总线：EventEmitter 'growth:event'。
-// 依据：F5-006 §1/§3（事件溯源投影）、S-011 §1.6（growth bridge 发射 l2.referenced）。
+// 依据：F5-006 §1/§3（事件溯源投影）、S-021 §1.6（growth bridge 发射 l2.referenced）。
 //
 // 设计（F5-006 §5 数据流）：
 //   memory 写路径 -> emit 事件 -> ingest（同步、非事务性，失败只 warn）-> 每日快照 -> Prompt/UI 消费

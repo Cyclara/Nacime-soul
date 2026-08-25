@@ -1,6 +1,6 @@
 // src/main/prompts/integration.test.ts
 // P2-18 集成测试：九层全链路（Builder + ContextAssembler + Budgeter + ChatService 接入）
-// 依据：S-011 §3.2 测试矩阵（Chat 集成、引用透明、完成门）
+// 依据：S-021 §3.2 测试矩阵（Chat 集成、引用透明、完成门）
 
 import { describe, it, expect } from 'vitest'
 import { buildPrompt } from './builder'

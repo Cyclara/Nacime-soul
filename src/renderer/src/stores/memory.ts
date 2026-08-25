@@ -1,11 +1,11 @@
 // src/renderer/src/stores/memory.ts
 // P2-30: memory Pinia store -- L0 画像 + L2 记忆列表 + DMAE 快照的只读投影 + 用户操作编排。
-// 依据：S-002-补充 §3.1、S-012 §1.4（hint 矩阵 + revision 规则）、S-006 §1.2（组件↔store）。
+// 依据：S-002-补充 §3.1、S-022 §1.4（hint 矩阵 + revision 规则）、S-006 §1.2（组件↔store）。
 //
 // 设计要点：
 //   1. main 真源的只读投影：自身不计算指标、不做记忆判决，数字全部来自 main。
 //   2. revision 比对：event.revision <= state.revision -> 丢弃；> -> 按 hint 拉取。
-//   3. 写操作不乐观更新：main 落库 -> event 回流 -> 刷新（S-012 §1.4）。
+//   3. 写操作不乐观更新：main 落库 -> event 回流 -> 刷新（S-022 §1.4）。
 //   4. l1 hint：忽略数据拉取但推进 seen revision（MemoryState 无 L1 投影）。
 //   5. focus 兜底：窗口 focus 走 bulk 行为（overview + 当前列表），防 event 丢失。
 //   6. single-flight：revalidate/hydrate 合并，防旧响应覆盖新投影。
@@ -72,7 +72,7 @@ export const useMemoryStore = defineStore('memory', () => {
     state.l0 ? `${state.l0.filledCount}/${state.l0.totalCount}` : '-'
   )
 
-  /** 异步请求 epoch：防旧响应覆盖新投影（S-012 §1.4） */
+  /** 异步请求 epoch：防旧响应覆盖新投影（S-022 §1.4） */
   let requestEpoch = 0
 
   function setLastError(e: PublicAppError | null): void {
@@ -167,7 +167,7 @@ export const useMemoryStore = defineStore('memory', () => {
     state.selectedDetail = null
   }
 
-  /** 用户操作：pin 切换。不乐观更新，等 event 回流刷新（S-012 §1.4） */
+  /** 用户操作：pin 切换。不乐观更新，等 event 回流刷新（S-022 §1.4） */
   async function setPinned(memoryId: string, pinned: boolean): Promise<boolean> {
     if (!window.companion) return false
     const res = await window.companion.memory.setPinned({ memoryId, pinned })
@@ -191,7 +191,7 @@ export const useMemoryStore = defineStore('memory', () => {
     return res.ok
   }
 
-  /** M-44 用户操作：编辑 L2 记忆内容。不乐观更新，等 event 回流刷新（S-012 §1.4） */
+  /** M-44 用户操作：编辑 L2 记忆内容。不乐观更新，等 event 回流刷新（S-022 §1.4） */
   async function updateContent(memoryId: string, content: string): Promise<boolean> {
     if (!window.companion) return false
     const res = await window.companion.memory.updateContent({ memoryId, content })
@@ -208,7 +208,7 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   /**
-   * memory-updated 事件入口。S-012 §1.4 hint 矩阵：
+   * memory-updated 事件入口。S-022 §1.4 hint 矩阵：
    *   l0 -> get-l0；l1 -> 忽略拉取但推进 revision；l2 -> list-l2 + get-dmae-snapshot；
    *   dmae -> get-dmae-snapshot；growth -> 忽略（growth store 处理）；bulk -> overview + list-l2。
    * revision <= state.revision -> 丢弃（幂等/乱序保护）。
@@ -216,13 +216,13 @@ export const useMemoryStore = defineStore('memory', () => {
   function applyUpdate(e: MemoryUpdatedEvent): void {
     // revision 比对：旧事件丢弃
     if (e.revision <= state.revision) return
-    // growth hint 不属于 memory 域（S-012 §1.4：交给 growth store），但也不推进 memory revision
+    // growth hint 不属于 memory 域（S-022 §1.4：交给 growth store），但也不推进 memory revision
     if (e.hint === 'growth') return
     // 按命中拉取（异步，失败不推进 revision）
     void pullForHint(e.hint, e.revision)
   }
 
-  /** 按 hint 拉取对应切片。拉取成功才推进 revision（S-012 §1.4） */
+  /** 按 hint 拉取对应切片。拉取成功才推进 revision（S-022 §1.4） */
   async function pullForHint(
     hint: MemoryUpdatedEvent['hint'],
     eventRevision: number
@@ -243,7 +243,7 @@ export const useMemoryStore = defineStore('memory', () => {
           break
         }
         case 'l1': {
-          // L1 无 renderer 投影：忽略数据拉取，但推进 seen revision（S-012 §1.4）
+          // L1 无 renderer 投影：忽略数据拉取，但推进 seen revision（S-022 §1.4）
           if (epoch === requestEpoch) state.revision = Math.max(state.revision, eventRevision)
           break
         }
@@ -253,7 +253,7 @@ export const useMemoryStore = defineStore('memory', () => {
             window.companion.memory.getDmaeSnapshot()
           ])
           if (epoch !== requestEpoch) return
-          // S-012 §1.4：拉取返回 revision 的接口以响应 revision 为准。
+          // S-022 §1.4：拉取返回 revision 的接口以响应 revision 为准。
           // applyListResponse 用 Math.max 防回退（响应 revision < state.revision 时不减）。
           if (listRes.ok) applyListResponse(listRes.data, requestQuery.offset)
           if (dmaeRes.ok) state.dmae = dmaeRes.data
@@ -281,11 +281,11 @@ export const useMemoryStore = defineStore('memory', () => {
           break
         }
         default:
-          // 未知 hint：防御性回退同 bulk（S-012 §1.4）
+          // 未知 hint：防御性回退同 bulk（S-022 §1.4）
           break
       }
     } catch {
-      /* 拉取失败不推进 revision，下次 event/focus 可重试（S-012 §1.4） */
+      /* 拉取失败不推进 revision，下次 event/focus 可重试（S-022 §1.4） */
     }
   }
 
