@@ -13,14 +13,54 @@ import type {
 } from '../config/types'
 import type {
   ChatCancelRequest,
+  ChatDeleteTurnRequest,
+  ChatDeleteMessageRequest,
+  ChatDeleteSelectedRequest,
+  ChatClearSessionRequest,
   ChatHistorySnapshot,
   ChatListRequest,
   ChatRetryRequest,
+  ChatSearchHit,
+  ChatSearchRequest,
   ChatSendAck,
   ChatSendRequest,
   ChatStreamEvent
 } from '../chat/types'
 import type { DebugSnapshot } from '../observability/types'
+import type { UpdateStatus } from '../update/types'
+import type {
+  DmaeBenchmarkReport,
+  DmaeDailyAggregate,
+  DmaePanelSnapshot,
+  DmaeTurnExplanation
+} from '../memory/dmae-types'
+import type {
+  DmaeBenchmarkRequest,
+  DmaeHistoryRequest,
+  DmaeHistoryResponse,
+  DmaeMuteRequest,
+  DmaeQualitativeRequest,
+  DmaeSnapshotView,
+  DmaeTrendRequest,
+  DmaeExplainRequest,
+  GrowthProfileView,
+  GrowthTimelineEntryView,
+  GrowthTimelineRequest,
+  GrowthTrendPoint,
+  GrowthTrendRequest,
+  L0ProfileView,
+  L2MemoryDetail,
+  MemoryDeleteRequest,
+  MemoryDetailRequest,
+  MemoryListRequest,
+  MemoryListResponse,
+  MemoryOverview,
+  MemoryPinRequest,
+  MemoryRestoreRequest,
+  MemorySetL0FieldRequest,
+  MemoryUpdateContentRequest,
+  MemoryUpdatedEvent
+} from '../memory/types'
 
 // === 统一结果信封 ===
 
@@ -51,17 +91,64 @@ export interface IpcInvokeMap {
   'companion:config:reset-domain': { req: ConfigResetRequest; res: PublicConfigSnapshot }
   'companion:chat:list': { req: ChatListRequest; res: ChatHistorySnapshot }
   'companion:chat:create-session': { req: undefined; res: { sessionId: string } }
+  'companion:chat:get-last-session': { req: undefined; res: { sessionId: string | null } }
   'companion:chat:send': { req: ChatSendRequest; res: ChatSendAck }
   'companion:chat:cancel': { req: ChatCancelRequest; res: void }
   'companion:chat:retry': { req: ChatRetryRequest; res: { requestId: string } }
+  'companion:chat:delete-turn': { req: ChatDeleteTurnRequest; res: { deletedIds: string[] } }
+  'companion:chat:delete-message': {
+    req: ChatDeleteMessageRequest
+    res: { deletedIds: string[] }
+  }
+  'companion:chat:delete-selected': {
+    req: ChatDeleteSelectedRequest
+    res: { deletedIds: string[] }
+  }
+  'companion:chat:clear-session': { req: ChatClearSessionRequest; res: { removed: number } }
+  // P2-44：聊天记录全文搜索（FTS5；scope=全部会话的消息正文）
+  'companion:chat:search': { req: ChatSearchRequest; res: ChatSearchHit[] }
   'companion:debug:get-snapshot': { req: undefined; res: DebugSnapshot }
   'companion:debug:open-log-folder': { req: undefined; res: void }
+  // ── Phase 2：memory（9 invoke，S-003-补充 §3.1）──
+  'companion:memory:get-overview': { req: undefined; res: MemoryOverview }
+  'companion:memory:get-l0': { req: undefined; res: L0ProfileView }
+  'companion:memory:list-l2': { req: MemoryListRequest; res: MemoryListResponse }
+  'companion:memory:get-detail': { req: MemoryDetailRequest; res: L2MemoryDetail }
+  'companion:memory:set-pinned': { req: MemoryPinRequest; res: void }
+  'companion:memory:soft-delete': { req: MemoryDeleteRequest; res: void }
+  'companion:memory:restore': { req: MemoryRestoreRequest; res: void }
+  // ── M-44：记忆编辑（L2 内容 + L0 字段）──
+  'companion:memory:update-content': { req: MemoryUpdateContentRequest; res: void }
+  'companion:memory:set-l0-field': { req: MemorySetL0FieldRequest; res: void }
+  'companion:memory:get-dmae-snapshot': { req: undefined; res: DmaeSnapshotView }
+  'companion:memory:get-dmae-history': { req: DmaeHistoryRequest; res: DmaeHistoryResponse }
+  // ── Phase 2：growth（3 invoke，S-003-补充 §3.1）──
+  'companion:growth:get-profile': { req: undefined; res: GrowthProfileView }
+  'companion:growth:get-timeline': { req: GrowthTimelineRequest; res: GrowthTimelineEntryView[] }
+  'companion:growth:get-trend': { req: GrowthTrendRequest; res: GrowthTrendPoint[] }
+  // ── Phase 2 P2-32：DMAE 面板（F5-002 §3.7）──
+  'companion:dmae:get-panel': { req: undefined; res: DmaePanelSnapshot }
+  'companion:dmae:get-trend': { req: DmaeTrendRequest; res: readonly DmaeDailyAggregate[] }
+  'companion:dmae:explain': { req: DmaeExplainRequest; res: DmaeTurnExplanation | null }
+  // ── Phase 2 P2-34：DMAE 基准体检（F5-002 §3.6）──
+  'companion:dmae:run-benchmark': { req: DmaeBenchmarkRequest; res: DmaeBenchmarkReport }
+  'companion:dmae:record-qualitative': { req: DmaeQualitativeRequest; res: void }
+  // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道）──
+  'companion:dmae:mute-anomaly': { req: DmaeMuteRequest; res: void }
+  // ── M-50：自动更新（2026-08-24 用户需求）──
+  'companion:app:check-for-updates': { req: undefined; res: void }
+  'companion:app:get-update-status': { req: undefined; res: UpdateStatus }
+  'companion:app:quit-and-install': { req: undefined; res: void }
 }
 
 export interface IpcEventMap {
   'companion:event:chat-stream': ChatStreamEvent
   'companion:event:app-error': PublicAppError
   'companion:event:window-state': { maximized: boolean }
+  // ── Phase 2：记忆/成长跨进程同步（S-003-补充 §3.2）──
+  'companion:event:memory-updated': MemoryUpdatedEvent
+  // ── M-50：更新状态推送 ──
+  'companion:event:update-status': UpdateStatus
 }
 
 // re-export 通道类型，供外部使用

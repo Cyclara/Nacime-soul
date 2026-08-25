@@ -9,15 +9,32 @@ out
 coverage/
 dist-electron/
 test-results/
+# Golden Eval 语义 rubric 报告（每次运行再生，含时间戳；人工评分基线另行快照）
+tests/evals/reports/
 
 # 编译缓存
 *.tsbuildinfo
 
 # 敏感信息（预防性）
-.env
+.env*
+!.env.example
+
+# Windows 代码签名证书 / 私钥（只从仓库外路径或 CI Secret 读取）
+*.pfx
+*.p12
+*.pem
+*.key
 
 # Claude Code 个人本地配置（.claude/ 目录其余部分仍可推）
 .claude/settings.local.json
+
+# Playwright / coverage 的可再生报告
+playwright-report/
+blob-report/
+.nyc_output/
+
+# 根目录真机验证临时截图；正式视觉证据放 docs/ui-previews/
+/verify-*.png
 
 # Windows 系统缓存
 Thumbs.db

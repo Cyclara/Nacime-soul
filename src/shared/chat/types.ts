@@ -79,6 +79,70 @@ export interface ChatRetryRequest {
   messageId: MessageId
 }
 
+/**
+ * 按轮删除（验收反馈⑥）：messageId 定位一轮（取其 turnId），
+ * 删除该轮全部行（user + assistant，含 failed/cancelled/CHAT_INTERRUPTED 占位）。
+ * 返回被删行的 id 列表（renderer 据此同步摘除气泡）。
+ */
+export interface ChatDeleteTurnRequest {
+  sessionId: SessionId
+  messageId: MessageId
+}
+
+/**
+ * 单条删除（验收反馈⑥c 粒度控制）：只删被点的那一条，不动同轮兄弟行。
+ * 连带语义：删 assistant 会留孤儿 user（下次启动 M-39 补 CHAT_INTERRUPTED 占位=重答入口）；
+ * 删 user 会留孤立 assistant（prompt 装配跳过孤立 assistant 轮=她忘了这句回答）。
+ */
+export interface ChatDeleteMessageRequest {
+  sessionId: SessionId
+  messageId: MessageId
+}
+
+/**
+ * 批量按轮删除（验收反馈⑦ 选择模式）：messageIds 为勾选的消息 id（可有同轮多个），
+ * main 把每个 id 解析到所在轮（turnId）去重后整轮删除——删除单位永远是轮，
+ * 不会产生孤儿/孤立半轮。无 turnId 的遗产行按单条删。
+ * 返回被删行的 id 全集（renderer 据此同步摘除气泡）。
+ */
+export interface ChatDeleteSelectedRequest {
+  sessionId: SessionId
+  messageIds: MessageId[] // 1..500
+}
+
+/**
+ * 清空会话全部消息（验收反馈⑦ 选择模式「删除所有对话」）。
+ * 会话本身保留；记忆条目不受影响。返回删除条数。
+ */
+export interface ChatClearSessionRequest {
+  sessionId: SessionId
+}
+
+/**
+ * 聊天记录全文搜索请求（P2-44 搜索功能，FTS5 关键词检索）。
+ * 搜索范围：全部会话的消息正文（content）；不搜 reasoning、不搜系统字段。
+ * query 1..128 字符；limit 缺省 50，范围 1..100。
+ */
+export interface ChatSearchRequest {
+  query: string
+  limit?: number
+}
+
+/**
+ * 单条搜索命中。
+ * snippet：围绕首个命中词截取的正文片段（前后 … 省略），结果列表直接展示，
+ *          高亮由 renderer 按 query 词切分 <mark>（不走 v-html，防注入）。
+ * createdAt：ms epoch，结果行右侧时间戳用。
+ * messageId/sessionId：点击跳转定位用（消息行 DOM 带 data-message-id；
+ *          跨会话命中由 renderer 先 hydrate 目标会话再滚动）。
+ */
+export interface ChatSearchHit {
+  messageId: MessageId
+  sessionId: SessionId
+  snippet: string
+  createdAt: number
+}
+
 // === ChatStreamEvent。依据 S-003 §3.8 ===
 export type ChatStreamEvent =
   | {

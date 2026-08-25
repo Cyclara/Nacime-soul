@@ -67,6 +67,32 @@ function makeManualProvider(opts: {
   }
 }
 
+/**
+ * 模拟真实 provider（openai-compatible）的 abort 语义：
+ * 外部 abort 时生成器静默 return（不抛错），模拟"超时后循环自然结束"的路径。
+ * 旧实现会因此把超时误判为"流自然结束=连接成功"（S-03 回归用例）。
+ */
+
+function makeSilentAbortProvider(delayMs = 10_000): LLMProvider {
+  return {
+    // eslint-disable-next-line require-yield -- 有意不 yield 任何 chunk（静默返回，模拟真实 provider）
+    async *stream(_request, signal) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, delayMs)
+        signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer)
+            resolve() // 静默返回，不 reject
+          },
+          { once: true }
+        )
+      })
+      return // 生成器自然结束，不 yield 任何 chunk
+    }
+  }
+}
+
 // === 测试 ===
 
 describe('P1-20 Connection Test', () => {
@@ -144,6 +170,20 @@ describe('P1-20 Connection Test', () => {
 
   it('超时 -> NET_TIMEOUT', async () => {
     const provider = makeManualProvider({ delayMs: 1000 })
+
+    const result = await testConnection(provider, {
+      timeoutMs: 100,
+      logger: noopLogger()
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NET_TIMEOUT')
+  })
+
+  it('S-03 回归：provider 在超时 abort 时静默返回 -> 必须报 NET_TIMEOUT 而非误报成功', async () => {
+    // 真实 openai-compatible provider 把外部 abort 当"用户取消"静默 return，
+    // 旧实现在循环自然结束后误判为"连接成功"。
+    const provider = makeSilentAbortProvider(10_000)
 
     const result = await testConnection(provider, {
       timeoutMs: 100,

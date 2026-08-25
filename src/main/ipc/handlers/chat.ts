@@ -5,9 +5,15 @@
 // 通道：
 //   companion:chat:list          -> service.list
 //   companion:chat:create-session -> service.createSession
+//   companion:chat:get-last-session -> service.getLastSessionId
 //   companion:chat:send          -> service.send（事件通过 webContents.send 推送）
 //   companion:chat:cancel        -> service.cancel
-//   companion:chat:retry         -> 查找原用户消息 -> service.send
+//   companion:chat:retry         -> service.retryTurn（按 turnId 精确重试，不增消息）
+//   companion:chat:delete-turn   -> service.deleteTurn（验收反馈⑥ 按轮删除）
+//   companion:chat:delete-message -> service.deleteMessage（验收反馈⑥c 单条删除）
+//   companion:chat:delete-selected -> service.deleteSelected（验收反馈⑦ 批量按轮删除）
+//   companion:chat:clear-session -> service.clearSession（验收反馈⑦ 清空会话）
+//   companion:chat:search        -> deps.searchMessages（P2-44 FTS5 全文搜索）
 //
 // 安全红线：
 //   - 聊天正文不写 IPC 日志（只记通道、长度、requestId、耗时）
@@ -16,7 +22,7 @@
 
 import type { WebContents } from 'electron'
 import type { Logger } from '@shared/observability/types'
-import type { ChatStreamEvent, ChatMessageView } from '@shared/chat/types'
+import type { ChatSearchHit, ChatStreamEvent } from '@shared/chat/types'
 import type { ChatService } from '../../chat/service'
 import { registerValidatedHandler, sendEvent } from '../register'
 
@@ -24,6 +30,11 @@ import { registerValidatedHandler, sendEvent } from '../register'
 export interface ChatHandlerDeps {
   chatService: ChatService
   logger: Logger
+  /**
+   * P2-44：全文搜索（FTS5）。生产绑定 sessionDb 的 searchMessages；
+   * 测试可注入桩。query/limit 已过 validator（query 1..128，limit 1..100）。
+   */
+  searchMessages: (query: string, limit?: number) => ChatSearchHit[]
 }
 
 /**
@@ -68,6 +79,12 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
     return { sessionId }
   })
 
+  // === companion:chat:get-last-session ===
+  // P2-43：启动恢复。返回最近活跃会话；空库（全新用户）返回 null，renderer 落到 createSession。
+  registerValidatedHandler('companion:chat:get-last-session', async () => {
+    return { sessionId: chatService.getLastSessionId() }
+  })
+
   // === companion:chat:send ===
   // ACK 在 started 事件之前返回（S-003 §4）
   registerValidatedHandler('companion:chat:send', async (ctx, payload) => {
@@ -101,50 +118,25 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
   })
 
   // === companion:chat:retry ===
-  // Phase 1：查找原用户消息，重新发送
+  // 验收反馈④c：重试不增消息。定位与轮次复用全在 service.retryTurn——
+  // 按被点气泡的 turnId 精确重试原轮，不写新 user 行，终局删除同轮旧失败行。
   registerValidatedHandler('companion:chat:retry', async (ctx, payload) => {
     const { sessionId, messageId } = payload
-
-    // 获取会话消息，查找要重试的消息
-    const history = chatService.list(sessionId, 500)
-    const messages = history.messages
-    const msgIdx = messages.findIndex((m) => m.id === messageId)
-
-    if (msgIdx < 0) {
-      chatLogger.warn('retry: message not found', {
-        scope: 'chat',
-        tags: { sessionId, messageId }
-      })
-      // 找不到消息：返回新的 requestId 但不发送（容错）
-      return { requestId: '' }
-    }
-
-    // 找到用户消息：如果指定的是 assistant 消息，往前找最近的 user 消息
-    let userMessage: ChatMessageView | null = null
-    for (let i = msgIdx; i >= 0; i--) {
-      if (messages[i].role === 'user') {
-        userMessage = messages[i]
-        break
-      }
-    }
-
-    if (!userMessage) {
-      chatLogger.warn('retry: no preceding user message', {
-        scope: 'chat',
-        tags: { sessionId, messageId }
-      })
-      return { requestId: '' }
-    }
-
     const sink = createSink(ctx.sender, chatLogger)
-    const ack = await chatService.send(
-      {
-        sessionId,
-        text: userMessage.content,
-        clientRequestId: `retry-${messageId}`
-      },
+
+    const ack = await chatService.retryTurn(
+      { sessionId, messageId, clientRequestId: `retry-${messageId}` },
       sink
     )
+
+    if (!ack) {
+      // 目标已不存在（旧投影/已清理）：容错静默，renderer 不做事
+      chatLogger.warn('retry: target message gone', {
+        scope: 'chat',
+        tags: { sessionId, messageId }
+      })
+      return { requestId: '' }
+    }
 
     chatLogger.info('chat retry ack', {
       scope: 'chat',
@@ -152,6 +144,44 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
     })
 
     return { requestId: ack.requestId }
+  })
+
+  // === companion:chat:delete-turn ===
+  // 验收反馈⑥：按轮删除（用户自助清理残留/发错的对话）。删除即退出 prompt 历史。
+  // 日志只由 service.deleteTurn 记一条（turnId + 删除数）——electron-log 是同步写盘，
+  // handler 再记一条等于链路上双倍磁盘延迟（验收反馈⑥b"删除延迟大"优化）。
+  registerValidatedHandler('companion:chat:delete-turn', async (_ctx, payload) => {
+    return chatService.deleteTurn(payload.sessionId, payload.messageId)
+  })
+
+  // === companion:chat:delete-message ===
+  // 验收反馈⑥c：单条删除（粒度控制）。日志同样只由 service 记一条。
+  registerValidatedHandler('companion:chat:delete-message', async (_ctx, payload) => {
+    return chatService.deleteMessage(payload.sessionId, payload.messageId)
+  })
+
+  // === companion:chat:delete-selected ===
+  // 验收反馈⑦：选择模式批量按轮删除（main 侧 id->turnId 解析去重）。
+  registerValidatedHandler('companion:chat:delete-selected', async (_ctx, payload) => {
+    return chatService.deleteSelected(payload.sessionId, payload.messageIds)
+  })
+
+  // === companion:chat:clear-session ===
+  // 验收反馈⑦：清空会话全部消息（「删除所有对话」）。会话保留；记忆条目不受影响。
+  registerValidatedHandler('companion:chat:clear-session', async (_ctx, payload) => {
+    return chatService.clearSession(payload.sessionId)
+  })
+
+  // === companion:chat:search ===
+  // P2-44：全文搜索（FTS5）。只读查询、无轮次/流式状态，不走 chatService，
+  // 直接调注入的 searchMessages（绑定 sessionDb）。日志不记查询正文（与聊天正文同规）。
+  registerValidatedHandler('companion:chat:search', async (_ctx, payload) => {
+    const hits = deps.searchMessages(payload.query, payload.limit)
+    chatLogger.debug('chat search', {
+      scope: 'chat',
+      metrics: { queryLen: payload.query.length, hits: hits.length }
+    })
+    return hits
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

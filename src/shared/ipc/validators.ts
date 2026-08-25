@@ -10,6 +10,8 @@
 
 import type { IpcEventChannel } from './channels'
 import type { IpcEventMap } from './contracts'
+import type { MemoryUpdatedEvent } from '../memory/types'
+import type { UpdateStatus } from '../update/types'
 
 // === 工具函数（main 的 invoke validator 也复用）===
 
@@ -181,6 +183,48 @@ function isWindowStatePayload(
   return true
 }
 
+const MEMORY_HINTS = new Set(['l0', 'l1', 'l2', 'dmae', 'growth', 'bulk'])
+
+/** MemoryUpdatedEvent 验证。依据 S-003-补充 §3.2、S-022 §1.4 */
+function isMemoryUpdatedEvent(value: unknown): value is MemoryUpdatedEvent {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['revision', 'hint', 'ts'])) return false
+  if (!isNumber(value.revision, { min: 0, integer: true })) return false
+  if (typeof value.hint !== 'string' || !MEMORY_HINTS.has(value.hint)) return false
+  if (!isNumber(value.ts, { min: 0, integer: true })) return false
+  return true
+}
+
+/** M-50：UpdateStatus 联合验证（companion:event:update-status 载荷） */
+function isUpdateStatus(value: unknown): value is UpdateStatus {
+  if (!isPlainObject(value)) return false
+  if (typeof value.state !== 'string') return false
+  switch (value.state) {
+    case 'idle':
+      return hasOnlyKeys(value, ['state'])
+    case 'checking':
+    case 'not-available':
+      return hasOnlyKeys(value, ['state', 'userInitiated']) && isBoolean(value.userInitiated)
+    case 'available':
+    case 'downloaded':
+      return hasOnlyKeys(value, ['state', 'version']) && isString(value.version, { minLen: 1 })
+    case 'downloading':
+      return (
+        hasOnlyKeys(value, ['state', 'version', 'percent']) &&
+        isString(value.version, { minLen: 1 }) &&
+        isNumber(value.percent, { min: 0, max: 100 })
+      )
+    case 'error':
+      return (
+        hasOnlyKeys(value, ['state', 'message', 'userInitiated']) &&
+        isString(value.message, { minLen: 1, maxLen: 500 }) &&
+        isBoolean(value.userInitiated)
+      )
+    default:
+      return false
+  }
+}
+
 /**
  * 校验 event 通道 payload。
  * 依据 S-003 §3.7：subscribe 中的 validateEventPayload。
@@ -197,6 +241,10 @@ export function validateEventPayload<K extends IpcEventChannel>(
       return isPublicAppError(payload)
     case 'companion:event:window-state':
       return isWindowStatePayload(payload)
+    case 'companion:event:memory-updated':
+      return isMemoryUpdatedEvent(payload)
+    case 'companion:event:update-status':
+      return isUpdateStatus(payload)
     default:
       return false
   }

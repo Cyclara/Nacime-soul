@@ -120,7 +120,12 @@ describe('config:update handler（回归：payload 结构必须传 domains）', 
     configStore.setup()
     const secretStore = createMemorySecretStore()
 
-    registerConfigHandlers({ configStore, secretStore, logger: noopLogger() })
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
 
     const handler = getHandler('companion:config:update')
     const request: ConfigUpdateRequest = {
@@ -152,7 +157,12 @@ describe('config:update handler（回归：payload 结构必须传 domains）', 
     configStore.setup()
     const secretStore = createMemorySecretStore()
 
-    registerConfigHandlers({ configStore, secretStore, logger: noopLogger() })
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
 
     const handler = getHandler('companion:config:update')
     const request: ConfigUpdateRequest = {
@@ -178,7 +188,12 @@ describe('config:update handler（回归：payload 结构必须传 domains）', 
     configStore.setup()
     const secretStore = createMemorySecretStore()
 
-    registerConfigHandlers({ configStore, secretStore, logger: noopLogger() })
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
 
     const handler = getHandler('companion:config:update')
     const request: ConfigUpdateRequest = {
@@ -205,7 +220,12 @@ describe('config:update handler（回归：payload 结构必须传 domains）', 
     const secretStore = createMemorySecretStore()
     secretStore.set('modelApiKey', 'sk-existing-key')
 
-    registerConfigHandlers({ configStore, secretStore, logger: noopLogger() })
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
 
     const handler = getHandler('companion:config:update')
     const request: ConfigUpdateRequest = {
@@ -223,5 +243,118 @@ describe('config:update handler（回归：payload 结构必须传 domains）', 
     expect(secretStore.get('modelApiKey')).toBe('sk-existing-key')
     // 但其他字段正常更新
     expect(configStore.get().model.reasoningEffort).toBe('low')
+  })
+
+  // === 审计 B-1 回归：test-model 必须走注入的 secureFetch ===
+  // 修复前 handler 不传 fetchFn，provider.ts 回退到裸 globalThis.fetch，
+  // 导致"测试连接"可携 API Key 访问任意地址（私网防护被绕过）。
+  it('test-model 使用注入的 fetch（不回退到裸 globalThis.fetch）', async () => {
+    const configStore = createConfigStore({ configPath, logger: noopLogger() })
+    configStore.setup()
+    const secretStore = createMemorySecretStore()
+
+    // 哨兵 fetch：被调用即证明注入生效；同时拦下请求不真的出网
+    let injectedFetchCalled = 0
+    let seenUrl = ''
+    const sentinelFetch = (async (input: RequestInfo | URL) => {
+      injectedFetchCalled++
+      seenUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      throw new Error('blocked by sentinel')
+    }) as typeof globalThis.fetch
+
+    // 裸 fetch 哨兵：若被调用说明修复失效
+    const bareFetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => sentinelFetch
+    })
+
+    const handler = getHandler('companion:config:test-model')
+    await handler(trustedEvent(), {
+      provider: 'openai',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      model: 'test-model',
+      apiKey: 'sk-should-not-leak'
+    })
+
+    // 核心断言：注入的 fetch 被使用
+    expect(injectedFetchCalled).toBeGreaterThan(0)
+    expect(seenUrl).toContain('127.0.0.1:11434')
+    // 核心断言：没有绕过注入直接用裸 fetch
+    expect(bareFetchSpy).not.toHaveBeenCalled()
+
+    bareFetchSpy.mockRestore()
+  })
+})
+
+describe('M-34：config:get 的 hasApiKey 只认"存在且可读"', () => {
+  let tmpDir: string
+  let configPath: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nacime-cfg-test-'))
+    configPath = path.join(tmpDir, 'config.json')
+    vi.mocked(ipcMain.handle).mockClear()
+    vi.mocked(ipcMain.removeHandler).mockClear()
+    configureIpcGuard(
+      { trustedOrigins: new Set(['http://localhost:5173']), trustedWebContentsIds: new Set([1]) },
+      noopLogger()
+    )
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('has=true 但 get=null（旧格式残留）→ hasApiKey=false，引导用户重输', async () => {
+    const configStore = createConfigStore({ configPath, logger: noopLogger() })
+    configStore.setup()
+    // 模拟 M-34 真实场景：secrets.json 里有字符串（has=true）但读不出（get=null）
+    const secretStore: SecretStore = {
+      ...createMemorySecretStore(),
+      has: () => true,
+      get: () => null
+    }
+
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
+
+    const handler = getHandler('companion:config:get')
+    const result = (await handler(trustedEvent(), undefined)) as {
+      ok: boolean
+      data?: { model: { hasApiKey: boolean }; tts: { hasApiKey: boolean } }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.data?.model.hasApiKey).toBe(false)
+    expect(result.data?.tts.hasApiKey).toBe(false)
+  })
+
+  it('存在且可读 → hasApiKey=true（正常路径不回归）', async () => {
+    const configStore = createConfigStore({ configPath, logger: noopLogger() })
+    configStore.setup()
+    const secretStore = createMemorySecretStore()
+    secretStore.set('modelApiKey', 'sk-readable-key')
+
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
+
+    const handler = getHandler('companion:config:get')
+    const result = (await handler(trustedEvent(), undefined)) as {
+      ok: boolean
+      data?: { model: { hasApiKey: boolean } }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.data?.model.hasApiKey).toBe(true)
   })
 })

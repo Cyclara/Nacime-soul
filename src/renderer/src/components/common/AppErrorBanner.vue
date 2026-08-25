@@ -11,48 +11,87 @@ const { state } = storeToRefs(appStore)
 </script>
 
 <template>
-  <div v-if="state.fatalError" class="banner fatal">
-    <span class="icon">⚠</span>
-    <span class="msg">{{ state.fatalError.message }}</span>
-  </div>
-  <div v-for="(err, idx) in state.transientErrors" :key="idx" class="banner transient">
-    <span class="icon">⚠</span>
-    <span class="msg">{{ err.message }}</span>
-    <button class="close" @click="appStore.dismissError(err.code)">×</button>
+  <!-- M-32：全局 transient 错误横幅（挂根组件，所有路由可见）。fatal 错误由 ChatView 的
+       fatal-error 面板处理（含重试），这里只展示可关闭的 transient 提示。 -->
+  <div
+    v-for="entry in state.transientErrors"
+    :key="entry.id"
+    class="banner transient"
+    role="status"
+  >
+    <span class="icon" aria-hidden="true">!</span>
+    <span class="msg">{{ entry.error.message }}</span>
+    <button class="close" aria-label="关闭这条提示" @click="appStore.dismissError(entry.id)">
+      ×
+    </button>
   </div>
 </template>
 
 <style scoped>
 .banner {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
+  gap: 10px;
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   font-size: var(--font-size-sm);
+  line-height: 1.45;
 }
+
 .banner.fatal {
-  background: var(--color-error);
-  color: var(--color-bg);
+  border-color: var(--color-error-border);
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
+
 .banner.transient {
-  background: var(--color-bg-tertiary);
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
   color: var(--color-warning);
-  border-bottom: 1px solid var(--color-border);
 }
+
 .icon {
+  display: grid;
   flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
 }
+
 .msg {
   flex: 1;
+  color: inherit;
+  user-select: text;
 }
+
 .close {
-  background: none;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 50%;
   color: inherit;
   font-size: 18px;
   line-height: 1;
-  padding: 0 var(--spacing-xs);
 }
+
 .close:hover {
-  opacity: 0.7;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+@media (max-width: 520px) {
+  .banner {
+    margin-inline: 10px;
+  }
 }
 </style>

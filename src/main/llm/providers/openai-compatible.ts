@@ -21,6 +21,7 @@ import { AppError } from '@shared/errors'
 import type { CompatFlags, LLMProvider, LlmMessage, LlmRequest, LlmStreamChunk } from '../types'
 import { mapHttpError, mapFetchError } from '../errors'
 import { parseSseStream } from '../stream'
+import { buildThinkingWireParams } from '../compat/thinking-wire'
 
 /** OpenAI Chat Completions 流式 chunk 的 wire 格式（vendor 类型，仅本文件内部使用） */
 interface OpenAIStreamChunk {
@@ -34,12 +35,20 @@ interface OpenAIStreamChunk {
     }
     finish_reason?: string | null
   }>
+  /** M-02：部分端点（OpenAI/OpenRouter/网关）在流中通过该字段回传错误 */
+  error?: { message?: string; type?: string; code?: string } | string
   usage?: {
     prompt_tokens?: number
     completion_tokens?: number
     total_tokens?: number
   }
 }
+
+// V-03c：思考模式首字节预算下限。思考档（尤其 max）在首个 token 前可能有较长的
+// 推理静默期；单一 timeoutMs 兼任"连接+首字节"与"流中空闲"两种语义，会把这种正常
+// 静默误判为 NET_TIMEOUT。此处仅在首个 SSE chunk 到达前把预算抬到至少 120s；
+// 首字节到达后即恢复 timeoutMs 的流中空闲语义（见 stream() 内 firstChunkSeen）。
+const THINKING_FIRST_BYTE_FLOOR_MS = 120_000
 
 /** adapter 构造参数（从 ModelConfig 提取的运行时配置） */
 export interface OpenAICompatibleConfig {
@@ -117,14 +126,22 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
     }
 
-    // idle timeout：timeoutMs 内无数据则 abort
+    // idle timeout：预算内无数据则 abort。
+    // V-03c：首个 SSE chunk 到达前，思考模式（reasoningEffort !== 'off'）预算抬到
+    // max(timeoutMs, THINKING_FIRST_BYTE_FLOOR_MS)，覆盖长推理静默期；
+    // 首字节到达后 firstChunkSeen=true，恢复 timeoutMs 的流中空闲语义。
+    let firstChunkSeen = false
     let idleTimer: ReturnType<typeof setTimeout> | undefined
     const resetIdleTimer = (): void => {
       if (idleTimer) clearTimeout(idleTimer)
+      const budgetMs =
+        !firstChunkSeen && this.config.reasoningEffort !== 'off'
+          ? Math.max(this.config.timeoutMs, THINKING_FIRST_BYTE_FLOOR_MS)
+          : this.config.timeoutMs
       idleTimer = setTimeout(() => {
         timedOut = true
         controller.abort()
-      }, this.config.timeoutMs)
+      }, budgetMs)
     }
 
     resetIdleTimer()
@@ -177,6 +194,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       for await (const data of parseSseStream(response, {
         signal: controller.signal
       })) {
+        firstChunkSeen = true // V-03c：首字节已到，后续 resetIdleTimer 恢复常规 idle 语义
         resetIdleTimer()
 
         // [DONE] 标记流结束
@@ -197,9 +215,35 @@ export class OpenAICompatibleProvider implements LLMProvider {
           continue
         }
 
+        // M-02 修复：厂商在流中发 {"error":{...}}——不再静默吞掉、把半截回复当 complete 落库，
+        // 而是抛 AppError 让 ChatService 走 failed 路径（用户能看到错误并可重试）。
+        if (chunk.error) {
+          const message =
+            typeof chunk.error === 'string'
+              ? chunk.error
+              : chunk.error.message || '模型在回复中途报错'
+          throw new AppError({
+            code: 'LLM_SERVER',
+            userMessage: message,
+            severity: 'error',
+            retryable: true
+          })
+        }
+
         // 映射到 LlmStreamChunk
         const choice = chunk.choices?.[0]
         const delta = choice?.delta
+
+        // finish_reason='error'：回复被厂商异常终止（半截）——抛错而非静默完成。
+        // 'length'（达到 maxTokens 截断）是正常产出，保持 completed 不抛错。
+        if (choice?.finish_reason === 'error') {
+          throw new AppError({
+            code: 'LLM_SERVER',
+            userMessage: '模型回复异常终止',
+            severity: 'error',
+            retryable: true
+          })
+        }
 
         if (delta?.content) {
           yield { type: 'delta', text: delta.content }
@@ -258,32 +302,20 @@ export class OpenAICompatibleProvider implements LLMProvider {
       stream_options: { include_usage: true }
     }
 
-    // 思考模式参数（依据 thinkingFormat）：
+    // 思考模式参数（与记忆提取共用 buildThinkingWireParams，映射唯一出处）：
     //   reasoningEffort='off' → 显式关闭（DeepSeek V4 默认 enabled，不发参数≠关闭）
-    //   reasoningEffort!='off' → 显式开启
-    // 来源：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode（2026-07-15 实测）
+    //   reasoningEffort!='off' → 显式开启 + V-02② 档位映射（low→low、medium→high、high→max）
+    // 来源：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode（2026-07-15 实测 / 2026-08-20 查证）
     // thinkingFormat='none' 时厂商不支持思考模式，两种情况都不发参数。
     const wantThinking = this.config.reasoningEffort !== 'off'
-    switch (this.compat.thinkingFormat) {
-      case 'thinking_type':
-        // DeepSeek V4 风格：{"thinking":{"type":"enabled/disabled"}}
-        body['thinking'] = { type: wantThinking ? 'enabled' : 'disabled' }
-        break
-      case 'enable_thinking':
-        // DashScope 风格：{"enable_thinking": true/false}
-        body['enable_thinking'] = wantThinking
-        break
-      case 'reasoning_split':
-        // MiniMax 风格：只有开启时发参数（无显式关闭格式）
-        if (wantThinking) {
-          body['reasoning_split'] = true
-        }
-        break
-      case 'none':
-      default:
-        // 厂商不支持思考模式（Moonshot 等），不发参数
-        break
-    }
+    Object.assign(
+      body,
+      buildThinkingWireParams(
+        this.compat.thinkingFormat,
+        wantThinking,
+        wantThinking ? (this.config.reasoningEffort as Exclude<ReasoningEffort, 'off'>) : undefined
+      )
+    )
 
     return body
   }

@@ -7,19 +7,50 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import type { ChatMessageView } from '@shared/chat/types'
 import { useConfigStore } from '../../stores/config'
+import { useChatStore } from '../../stores/chat'
 import ReasoningBlock from './ReasoningBlock.vue'
+
+// M-18：把错误码映射为用户可读的安全文案（不再只显示"发送失败"四个字）
+const ERROR_TEXT: Record<string, string> = {
+  LLM_AUTH: 'API Key 无效或未配置，请到设置里检查',
+  LLM_RATE_LIMIT: '请求过于频繁，请稍后再试',
+  LLM_SERVER: '模型服务暂时不可用，请重试',
+  LLM_MALFORMED: '模型返回了异常内容',
+  NET_TIMEOUT: '连接超时，请检查网络后重试',
+  NET_OFFLINE: '网络连接失败，请检查网络',
+  CHAT_CONTEXT_TOO_LARGE: '内容过长，已超出模型上下文窗口',
+  CHAT_INTERRUPTED: '回复被中断（应用可能意外关闭）',
+  CFG_INVALID: '配置无效，请检查设置',
+  UNKNOWN: '发生未知错误，请重试'
+}
 
 const props = defineProps<{
   message: ChatMessageView
 }>()
 
 const configStore = useConfigStore()
+const chatStore = useChatStore()
 const { state: configState } = storeToRefs(configStore)
 
 const isUser = computed(() => props.message.role === 'user')
 const isError = computed(() => props.message.status === 'failed')
 const isStreaming = computed(() => props.message.status === 'streaming')
 const isCancelled = computed(() => props.message.status === 'cancelled')
+
+// 失败时的用户可读原因（errorCode -> 文案；无码时用通用文案）
+const errorText = computed(() => {
+  const code = props.message.errorCode
+  if (code && ERROR_TEXT[code]) return ERROR_TEXT[code]
+  return '发送失败'
+})
+
+// 重试：把当前消息 id 交给 store.retry —— main 侧从该 id 向前找最近 user 消息重新发送。
+// 失败/取消的是 assistant 气泡（user 消息恒 complete），retry 会重新生成 assistant 回复。
+function onRetry(): void {
+  if (props.message.status === 'failed' || props.message.status === 'cancelled') {
+    void chatStore.retry(props.message.id)
+  }
+}
 
 // 是否显示思考过程：配置 showReasoning 为 true 且消息含 reasoning
 // draft 优先（编辑中的配置），fallback 到 saved（已保存的配置）
@@ -32,13 +63,40 @@ const hasReasoning = computed(
   () => (props.message.reasoning ?? '').trim().length > 0 || isStreaming.value
 )
 const visibleReasoning = computed(() => showReasoning.value && hasReasoning.value && !isUser.value)
+
+// 验收反馈⑦：选择模式下本气泡是否被勾中（整轮联动由 store.toggleSelect 保证，
+// 这里只读 selectedIds —— 勾选框只反映状态，配对逻辑不进组件）
+const isSelected = computed(() => chatStore.selectedIds.has(props.message.id))
 </script>
 
 <template>
-  <div class="message-row" :class="{ user: isUser, assistant: !isUser }">
+  <!-- data-message-id：右键菜单（AppContextMenu）靠 closest('[data-message-id]') 定位气泡所在轮 -->
+  <div
+    class="message-row"
+    :class="{ user: isUser, assistant: !isUser }"
+    :data-message-id="message.id"
+  >
+    <!-- 验收反馈⑦：选择模式勾选框——外缘（她的在左、你的在右），点一下整轮联动 -->
+    <button
+      v-if="chatStore.selectionMode && !isUser"
+      class="select-box"
+      :class="{ checked: isSelected }"
+      type="button"
+      role="checkbox"
+      :aria-checked="isSelected"
+      aria-label="选择这轮对话"
+      @click.stop="chatStore.toggleSelect(message.id)"
+    ></button>
     <div class="bubble" :class="{ user: isUser, assistant: !isUser }">
-      <div v-if="isError" class="status-tag error">发送失败</div>
-      <div v-else-if="isCancelled" class="status-tag cancelled">已取消</div>
+      <span class="sender-label">{{ isUser ? '你' : 'Nacime' }}</span>
+      <div v-if="isError" class="status-tag error">
+        <span class="error-text">{{ errorText }}</span>
+        <button class="retry-btn" @click="onRetry">重试</button>
+      </div>
+      <div v-else-if="isCancelled" class="status-tag cancelled">
+        <span>已取消</span>
+        <button class="retry-btn" @click="onRetry">重试</button>
+      </div>
       <div v-else-if="isStreaming && !message.content" class="typing-indicator">
         <span></span><span></span><span></span>
       </div>
@@ -50,77 +108,242 @@ const visibleReasoning = computed(() => showReasoning.value && hasReasoning.valu
         :is-streaming="isStreaming"
       />
     </div>
+    <button
+      v-if="chatStore.selectionMode && isUser"
+      class="select-box"
+      :class="{ checked: isSelected }"
+      type="button"
+      role="checkbox"
+      :aria-checked="isSelected"
+      aria-label="选择这轮对话"
+      @click.stop="chatStore.toggleSelect(message.id)"
+    ></button>
   </div>
 </template>
 
 <style scoped>
 .message-row {
   display: flex;
-  margin: var(--spacing-sm) var(--spacing-md);
+  margin: 12px clamp(16px, 4vw, 52px);
 }
+
+/* P2-44：搜索跳转定位的闪烁高亮——ChatSearch 点结果后给本行加 .highlight-flash，
+   3s 渐隐后由 JS 摘除（用户要求：高亮 3 秒内自动消失）。淡蓝底，不盖字迹。 */
+.message-row.highlight-flash {
+  border-radius: 12px;
+  animation: search-flash 3s ease-out forwards;
+}
+
+@keyframes search-flash {
+  0%,
+  45% {
+    background-color: color-mix(in srgb, var(--color-info) 16%, transparent);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
 .message-row.user {
   justify-content: flex-end;
 }
+
 .message-row.assistant {
   justify-content: flex-start;
 }
+
+/* 验收反馈⑦：选择模式勾选框——外缘小方框，勾中染主题色。
+   assistant 行它是第一个孩子（气泡左边），user 行是最后一个（气泡右边） */
+.select-box {
+  flex: none;
+  align-self: center;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  cursor: pointer;
+  place-items: center;
+}
+
+.select-box:first-child {
+  margin-right: 10px;
+}
+
+.select-box:last-child {
+  margin-left: 10px;
+}
+
+.select-box:hover {
+  border-color: var(--color-accent);
+}
+
+.select-box.checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.select-box.checked::after {
+  content: '✓';
+  color: var(--color-text-on-accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.select-box:focus-visible {
+  outline: 1px solid var(--color-border-focus, var(--color-accent));
+  outline-offset: 1px;
+}
+
 .bubble {
-  max-width: 75%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius);
-  font-size: var(--font-size-base);
-  line-height: 1.6;
+  position: relative;
+  max-width: min(78%, 760px);
+  padding: 13px 16px 14px;
+  border: 1px solid transparent;
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.68;
   word-break: break-word;
   white-space: pre-wrap;
+  user-select: text;
 }
+
+.sender-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+/* 2026-08-21 布局⑤：用户气泡便签化——她=信纸（边框/渐变/衬线署名），
+   你=便签（纯底色块、紧凑内边距、更小的不对称圆角），一去一留形成材质对比 */
 .bubble.user {
+  max-width: min(70%, 680px);
+  padding: 10px 14px 11px;
+  border-color: transparent;
+  border-radius: 14px 14px 4px 14px;
   background: var(--color-user-bubble);
-  color: var(--color-text);
+  box-shadow: none;
 }
+
+.bubble.user .sender-label {
+  color: var(--color-accent);
+}
+
 .bubble.assistant {
-  background: var(--color-assistant-bubble);
-  color: var(--color-text);
+  border-color: var(--color-border-subtle);
+  border-radius: 18px 18px 18px 6px;
+  background:
+    linear-gradient(145deg, var(--color-companion-soft), transparent 52%),
+    var(--color-assistant-bubble);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
 }
+
+.bubble.assistant .sender-label {
+  color: var(--color-companion);
+  font-family: var(--font-family-display);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
 .status-tag {
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--spacing-xs);
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-error-bg);
   color: var(--color-error);
+  font-size: var(--font-size-xs);
 }
+
 .status-tag.cancelled {
+  background: var(--color-bg-tertiary);
   color: var(--color-text-muted);
 }
+
+.retry-btn {
+  min-height: 22px;
+  padding: 1px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 35%, transparent);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-elevated);
+  color: var(--color-error);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.retry-btn:hover {
+  background: var(--color-error);
+  color: var(--color-text-on-accent);
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  gap: 3px;
+}
+
 .typing-indicator span {
   display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin: 0 2px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--color-text-muted);
-  animation: bounce 1.2s infinite ease-in-out;
+  background: var(--color-companion);
+  animation: bounce 1.4s infinite ease-in-out;
 }
+
 .typing-indicator span:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: 0.16s;
 }
+
 .typing-indicator span:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: 0.32s;
 }
+
 @keyframes bounce {
   0%,
-  60%,
+  62%,
   100% {
+    opacity: 0.42;
     transform: translateY(0);
   }
   30% {
-    transform: translateY(-6px);
+    opacity: 1;
+    transform: translateY(-4px);
   }
 }
+
 .cursor {
   animation: blink 1s step-end infinite;
   color: var(--color-accent);
 }
+
 @keyframes blink {
   50% {
     opacity: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .message-row {
+    margin-inline: 12px;
+  }
+
+  .bubble,
+  .bubble.user {
+    max-width: 90%;
   }
 }
 </style>

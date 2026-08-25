@@ -19,6 +19,10 @@ export interface SseParseOptions {
   signal?: AbortSignal
 }
 
+/** SSE 行协议：data: <payload>\n\n，支持多行 data 拼接（SSE 规范） */
+const MAX_LINE_LENGTH = 1_000_000 // M-27：单行缓冲上限（1MB），防恶意/故障端点无限增长内存
+const MAX_DATA_LINES = 100_000 // M-27：单事件累积 data 行上限
+
 /**
  * 解析 SSE 流，逐个 yield data 负载字符串。
  *
@@ -83,9 +87,22 @@ export async function* parseSseStream(
       let readResult: ReadableStreamReadResult<Uint8Array>
       try {
         readResult = await reader.read()
-      } catch {
-        // reader.read() reject = 被 cancel（abort）。立即返回，保证"abort 后无晚到 chunk"。
-        return
+      } catch (e) {
+        // 审计 B-5：只有 abort 才是"正常结束"。
+        // 旧实现把一切读取异常都当正常结束，于是网络中断（undici
+        // 'terminated'/ECONNRESET）产生的半截回复会被当成完整回复落库，
+        // 用户看到的是一句没说完的话，且没有任何错误提示、无法重试。
+        if (signal?.aborted) {
+          // 用户主动取消：静默返回，保证"abort 后无晚到 chunk"
+          return
+        }
+        throw new AppError({
+          code: 'LLM_SERVER',
+          userMessage: '回复中断了，网络好像不太稳定。要我再试一次吗？',
+          severity: 'error',
+          retryable: true,
+          cause: e
+        })
       }
 
       const { done, value } = readResult
@@ -93,6 +110,16 @@ export async function* parseSseStream(
 
       // UTF-8 跨 chunk 边界：stream:true 保留未完成的多字节序列
       lineBuffer += decoder.decode(value, { stream: true })
+
+      // M-27：单行长度上限（无换行的巨行会无限增长 lineBuffer）
+      if (lineBuffer.length > MAX_LINE_LENGTH) {
+        throw new AppError({
+          code: 'LLM_MALFORMED',
+          userMessage: '模型响应行过长，连接可能异常',
+          severity: 'error',
+          retryable: false
+        })
+      }
 
       // 按行处理。最后一个可能不完整的行保留在 lineBuffer。
       const lines = lineBuffer.split('\n')
@@ -121,6 +148,15 @@ export async function* parseSseStream(
           const data = line.slice(5)
           // 保留 data 内容（包括前导空格后的内容），但去掉规范允许的单个前导空格
           dataLines.push(data.startsWith(' ') ? data.slice(1) : data)
+          // M-27：单事件累积 data 行上限（超大事件防内存膨胀）
+          if (dataLines.length > MAX_DATA_LINES) {
+            throw new AppError({
+              code: 'LLM_MALFORMED',
+              userMessage: '模型响应事件过大，连接可能异常',
+              severity: 'error',
+              retryable: false
+            })
+          }
           continue
         }
 
@@ -128,7 +164,15 @@ export async function* parseSseStream(
       }
     }
 
-    // 流结束：flush 剩余的 lineBuffer（可能没有结尾空行）
+    // M-01 修复：流结束时先把 decoder 残留的尾字节并入 lineBuffer，再统一按行 flush。
+    // 旧实现把 decoder.decode() 补出的字符单独按"整行以 data: 开头"判断——
+    // 当流无结尾空行、且最后 data 行的末字符被切在 chunk 边界时，补全出的尾字符
+    // 因不构成完整 `data:` 行而被静默丢弃（如 "你"+"好"首字节 → 只 yield "你"）。
+    const tail = decoder.decode()
+    if (tail) {
+      lineBuffer += tail
+    }
+    // flush 剩余的 lineBuffer（可能没有结尾空行）
     if (lineBuffer) {
       const line = lineBuffer.replace(/\r$/, '')
       if (line.startsWith('data:')) {
@@ -140,17 +184,6 @@ export async function* parseSseStream(
     if (dataLines.length > 0) {
       yield dataLines.join('\n')
       dataLines = []
-    }
-
-    // flush decoder 中可能残留的尾字节
-    const tail = decoder.decode()
-    if (tail.trim()) {
-      // 极端情况：流结束时 decoder 仍有残留且包含 data 行
-      const tailLine = tail.replace(/\r$/, '')
-      if (tailLine.startsWith('data:')) {
-        const data = tailLine.slice(5)
-        yield data.startsWith(' ') ? data.slice(1) : data
-      }
     }
   } finally {
     if (signal) {

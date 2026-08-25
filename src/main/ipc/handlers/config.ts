@@ -32,23 +32,37 @@ function toPublicSnapshot(
     schemaVersion: config.schemaVersion,
     model: {
       provider: config.model.provider,
+      protocol: config.model.protocol,
       baseUrl: config.model.baseUrl,
       model: config.model.model,
+      displayName: config.model.displayName,
       temperature: config.model.temperature,
+      topP: config.model.topP,
       maxTokens: config.model.maxTokens,
+      timeoutMs: config.model.timeoutMs,
       reasoningEffort: config.model.reasoningEffort,
       supportsThinking: compat.thinkingFormat !== 'none',
-      hasApiKey: secretStore.has('modelApiKey'),
+      hasApiKey: hasReadableSecret(secretStore, 'modelApiKey'),
       validated: false
     },
     ui: config.ui,
     tts: {
       ...config.tts,
-      hasApiKey: secretStore.has('ttsApiKey')
+      hasApiKey: hasReadableSecret(secretStore, 'ttsApiKey')
     },
     memory: config.memory,
     security: config.security
   }
+}
+
+/**
+ * hasApiKey 语义（M-34）："存在且可读"才算有。
+ * 此前只查 secretStore.has()——历史遗留的无前缀/损坏值会让 UI 显示"已安全保存"，
+ * 但 get() 读不出、聊天报"未配置"，两条信息自相矛盾。
+ * 改为 has+get 双重判定后，不可读时设置页自然显示"输入 API Key"，引导用户重输。
+ */
+function hasReadableSecret(secretStore: SecretStore, name: string): boolean {
+  return secretStore.has(name) && secretStore.get(name) !== null
 }
 
 /** 从 API Key 字段名映射到 SecretStore 中的 key 名 */
@@ -88,6 +102,17 @@ export interface ConfigHandlerDeps {
   configStore: ConfigStore
   secretStore: SecretStore
   logger: Logger
+  /**
+   * 创建"测试连接"用的 fetch（P1-09B Layer 2）。
+   *
+   * 安全红线（2026-08-03 审计 B-1）：test-model 会带着 API Key 访问用户填写的
+   * 任意 baseUrl，必须与正式聊天路径（index.ts providerFactory）走同一套
+   * createSecureFetch，否则整套私网/SSRF 防护被绕过。
+   *
+   * 用工厂而非现成 fetch：每次测试都要读当前 config.security
+   * （allowHttpLocalhostInDev 等运行时可变）。
+   */
+  createTestFetch: () => typeof globalThis.fetch
 }
 
 /**
@@ -95,7 +120,7 @@ export interface ConfigHandlerDeps {
  * 在 main/index.ts 中调用，需在 configureIpcGuard 之后。
  */
 export function registerConfigHandlers(deps: ConfigHandlerDeps): void {
-  const { configStore, secretStore, logger } = deps
+  const { configStore, secretStore, logger, createTestFetch } = deps
 
   // === companion:config:get ===
   registerValidatedHandler('companion:config:get', async () => {
@@ -169,7 +194,12 @@ export function registerConfigHandlers(deps: ConfigHandlerDeps): void {
     }
 
     // 通过 createProvider 创建 provider（复用 compat 检测 + adapter）
-    const llmProvider = createProvider({ config: testConfig, apiKey: effectiveApiKey }, { logger })
+    // 必须注入 secureFetch：测试连接同样携带 API Key 访问用户填写的 baseUrl，
+    // 不注入会回退到 provider.ts 的裸 globalThis.fetch，绕过全部私网防护（审计 B-1）。
+    const llmProvider = createProvider(
+      { config: testConfig, apiKey: effectiveApiKey, fetchFn: createTestFetch() },
+      { logger }
+    )
 
     // testConnection 发送最小 ping 消息，收到首个 chunk 即判定成功
     return testConnection(llmProvider, {

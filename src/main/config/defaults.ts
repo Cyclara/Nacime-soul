@@ -3,6 +3,7 @@
 // 依据：S-005 §3.7
 
 import type { AppConfigV1 } from '@shared/config/types'
+import { DEFAULT_ANOMALY_MUTED, DEFAULT_ANOMALY_WINDOWS } from '@shared/memory/dmae-config'
 
 /**
  * 深度冻结对象，使 DEFAULT_CONFIG_V1 在运行时不可变。
@@ -71,6 +72,8 @@ export const DEFAULT_CONFIG_V1: Readonly<AppConfigV1> = deepFreeze({
     embeddingDimension: 1024,
     maxActive: 15,
     minRetrievalScore: 0.35,
+    // M-42：归因门独立模型默认全空 = 回退提取同款 chat 模型
+    attributionGate: { provider: '', model: '', baseUrl: '' },
     dmae: {
       enabled: true,
       maxScore: 100,
@@ -80,15 +83,26 @@ export const DEFAULT_CONFIG_V1: Readonly<AppConfigV1> = deepFreeze({
       modelRewardBase: 8,
       wakeLambda: 0.3,
       decayAlpha: 1.5,
-      decayBeta: 0.3
+      decayBeta: 0.3,
+      // P2-31.5A：四字段默认。presets=[]（内置预设常驻代码，不落 config）。
+      // muted/windows 完整列 13 键（deepMergeWithDefaults 只遍历默认对象已有键）。
+      presets: [],
+      anomaly: {
+        muted: DEFAULT_ANOMALY_MUTED,
+        windows: DEFAULT_ANOMALY_WINDOWS
+      },
+      historySampleEveryTurns: 1
     }
   },
   ui: {
     locale: 'zh-CN',
-    theme: 'system',
+    theme: 'light', // P2-46：默认浅色（此前 'system' 跟随 OS，深色系统会开局深色）
     fontScale: 1,
     reduceMotion: false,
-    window: { width: 900, height: 720, maximized: false },
+    // x/y 以 undefined 占位键列出：deepMergeWithDefaults 只遍历默认对象已有键，
+    // 不占位则运行期写入的窗口位置会被静默剔除（66143e6 漏网缺陷，08-22 真机验收抓获）；
+    // JSON.stringify 落盘时丢弃 undefined——首次启动 config 仍无 x/y，Electron 居中语义不变
+    window: { width: 900, height: 720, x: undefined, y: undefined, maximized: false },
     chat: { sendOnEnter: true, showTimestamps: false, showReasoning: true },
     live2d: { enabled: false, zoom: 1, alwaysOnTop: true }
   },

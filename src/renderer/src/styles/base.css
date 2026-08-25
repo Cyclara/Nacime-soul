@@ -1,31 +1,285 @@
 /* src/renderer/src/styles/base.css
- * P1-24: 基础样式 - CSS 变量、reset、布局
- * 依据：S-001 P1-24
+ * P1-24/P2-31/P2-46: 基础样式 - CSS 变量、reset、布局、多主题
+ * 依据：S-001 P1-24、S-006 §1.4（无障碍与视觉基线）、P2-46 主题扩展准备
+ *
+ * 主题规则（P2-46 起：:root 即默认浅色，深色/未来主题是覆盖块）：
+ *   - :root（+ [data-theme="light"]）提供默认浅色调色板（config 加载前即浅色，避免闪黑）
+ *   - [data-theme="dark"] 覆盖为深色
+ *   - 新增主题 = 加一块 [data-theme="<id>"] + @shared/config/themes 注册表加 id
+ *   - App.vue 在 config store 加载后设置 document.documentElement.dataset.theme
  */
 
-:root {
-  --color-bg: #1a1b26;
-  --color-bg-secondary: #24283b;
-  --color-bg-tertiary: #2f334d;
-  --color-text: #c0caf5;
-  --color-text-secondary: #9aa5ce;
-  --color-text-muted: #565f89;
-  --color-accent: #7aa2f7;
-  --color-accent-hover: #89b4fa;
-  --color-user-bubble: #2f334d;
-  --color-assistant-bubble: #24283b;
-  --color-error: #f7768e;
-  --color-success: #9ece6a;
-  --color-warning: #e0af68;
-  --color-border: #2f334d;
-  --radius: 8px;
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* === 背景层级：亚麻纸、晨雾与温柔墨色 === */
+  --color-bg: #eee9df;
+  --color-bg-secondary: #f7f3eb;
+  --color-bg-tertiary: #e4ddd2;
+  --color-surface: #e8e2d8;
+  --color-surface-elevated: #fffdf8;
+  --color-surface-translucent: rgba(255, 253, 248, 0.88);
+
+  /* === 文字层级：偏暖的炭墨，不用机械纯黑 === */
+  --color-text: #282c31;
+  --color-text-secondary: #51565d;
+  --color-text-muted: #676b70;
+  --color-text-tertiary: #75777a;
+  --color-text-on-accent: #f9fcfc;
+
+  /* === 强调与语义色：雨后青蓝 + 晒干玫瑰 === */
+  --color-accent: #315f72;
+  --color-accent-hover: #244d5f;
+  --color-accent-soft: rgba(49, 95, 114, 0.105);
+  --color-accent-soft-hover: rgba(49, 95, 114, 0.17);
+  --color-companion: #985d63;
+  --color-companion-soft: rgba(152, 93, 99, 0.105);
+  --color-sage: #456c5a;
+  --color-error: #a33243;
+  --color-error-bg: rgba(163, 50, 67, 0.095);
+  --color-error-border: rgba(163, 50, 67, 0.28);
+  --color-success: #32694e;
+  --color-success-bg: rgba(50, 105, 78, 0.095);
+  --color-success-border: rgba(50, 105, 78, 0.26);
+  --color-warning: #7d5718;
+  --color-warning-bg: rgba(125, 87, 24, 0.1);
+  --color-warning-border: rgba(125, 87, 24, 0.27);
+  --color-info: #376985;
+
+  /* === 状态色（记忆面板）=== */
+  --color-state-active: #2f674a;
+  --color-state-active-bg: rgba(47, 103, 74, 0.1);
+  --color-state-dormant: #775416;
+  --color-state-dormant-bg: rgba(119, 84, 22, 0.1);
+  --color-state-archived: #55545c;
+  --color-state-archived-bg: rgba(85, 84, 92, 0.095);
+  --color-state-deleted: #943044;
+  --color-state-deleted-bg: rgba(148, 48, 68, 0.095);
+
+  /* === 聊天气泡 === */
+  --color-user-bubble: #dde6e8;
+  --color-assistant-bubble: rgba(255, 253, 248, 0.8);
+
+  /* === 边框与分割线 === */
+  --color-border: #cbc3b7;
+  --color-border-subtle: rgba(49, 45, 42, 0.105);
+
+  /* === 阴影：纸张悬浮感而非浓重玻璃阴影 === */
+  --shadow-sm: 0 1px 2px rgba(51, 43, 38, 0.07), 0 4px 12px rgba(51, 43, 38, 0.035);
+  --shadow-md: 0 12px 30px rgba(51, 43, 38, 0.1);
+  --shadow-lg: 0 28px 70px rgba(51, 43, 38, 0.14);
+  --shadow-drawer: -18px 0 64px rgba(39, 34, 32, 0.18);
+  --shadow-glow: 0 0 0 1px rgba(49, 95, 114, 0.08), 0 18px 46px rgba(49, 71, 78, 0.13);
+
+  /* === 圆角与间距 === */
+  --radius: 12px;
+  --radius-sm: 7px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  /* === 字体 === */
+  --font-family-body:
+    'Aptos', 'Segoe UI Variable Text', 'Microsoft YaHei UI', 'Noto Sans SC', sans-serif;
+  --font-family-display:
+    'Baskerville', 'STKaiti', 'KaiTi', 'Noto Serif SC', 'Source Han Serif SC', serif;
+  --font-size-xs: 11px;
   --font-size-sm: 13px;
   --font-size-base: 14px;
   --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 22px;
+  --font-size-3xl: 28px;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #111620;
+  --color-bg-secondary: #171d28;
+  --color-bg-tertiary: #1c2430;
+  --color-surface: #202735;
+  --color-surface-elevated: #262f3e;
+  --color-surface-translucent: rgba(27, 34, 46, 0.89);
+
+  --color-text: #f0ede7;
+  --color-text-secondary: #c4c2bd;
+  --color-text-muted: #a4a4a1;
+  --color-text-tertiary: #8e9298;
+  --color-text-on-accent: #10232a;
+
+  --color-accent: #91c5cd;
+  --color-accent-hover: #b0d9de;
+  --color-accent-soft: rgba(145, 197, 205, 0.125);
+  --color-accent-soft-hover: rgba(145, 197, 205, 0.2);
+  --color-companion: #d49a9e;
+  --color-companion-soft: rgba(212, 154, 158, 0.13);
+  --color-sage: #93b9a7;
+  --color-error: #f0a1ad;
+  --color-error-bg: rgba(240, 161, 173, 0.13);
+  --color-error-border: rgba(240, 161, 173, 0.34);
+  --color-success: #91cbae;
+  --color-success-bg: rgba(145, 203, 174, 0.13);
+  --color-success-border: rgba(145, 203, 174, 0.32);
+  --color-warning: #e3bf7e;
+  --color-warning-bg: rgba(227, 191, 126, 0.13);
+  --color-warning-border: rgba(227, 191, 126, 0.32);
+  --color-info: #94c1d7;
+
+  --color-state-active: #91cbae;
+  --color-state-active-bg: rgba(145, 203, 174, 0.13);
+  --color-state-dormant: #deb979;
+  --color-state-dormant-bg: rgba(222, 185, 121, 0.13);
+  --color-state-archived: #b2b4ba;
+  --color-state-archived-bg: rgba(178, 180, 186, 0.12);
+  --color-state-deleted: #eca0ac;
+  --color-state-deleted-bg: rgba(236, 160, 172, 0.13);
+
+  --color-user-bubble: #283b47;
+  --color-assistant-bubble: rgba(255, 255, 255, 0.045);
+
+  --color-border: #414b59;
+  --color-border-subtle: rgba(239, 237, 231, 0.09);
+
+  --shadow-sm: 0 1px 2px rgba(2, 5, 10, 0.24), 0 5px 14px rgba(2, 5, 10, 0.12);
+  --shadow-md: 0 12px 34px rgba(2, 5, 10, 0.28);
+  --shadow-lg: 0 28px 76px rgba(2, 5, 10, 0.42);
+  --shadow-drawer: -18px 0 70px rgba(2, 5, 10, 0.5);
+  --shadow-glow: 0 0 0 1px rgba(145, 197, 205, 0.1), 0 20px 52px rgba(7, 23, 30, 0.36);
+}
+
+/* === 浅色2号（2026-08-21，v2 调色）：晨雾苔原 —— 冷调植物系。
+ *   与 1 号浅色的"暖纸墨"对位：1 号是书桌上的亚麻纸，2 号是清晨植物园。
+ *   v2：去薄荷感——绿族带一点新叶的黄与苔的灰；受光面（elevated）引入
+ *   晨光暖色，画面有了光源。主强调苔绿，点缀赤陶做冷暖对比。 */
+[data-theme='light2'] {
+  color-scheme: light;
+
+  /* === 背景层级：苔原、新叶与晨光 === */
+  --color-bg: #e9eee4;
+  --color-bg-secondary: #f4f6ee;
+  --color-bg-tertiary: #dce3d0;
+  --color-surface: #e2e7d9;
+  --color-surface-elevated: #fcfcf3;
+  --color-surface-translucent: rgba(252, 252, 243, 0.88);
+
+  /* === 文字层级：带绿意的炭墨 === */
+  --color-text: #26312a;
+  --color-text-secondary: #48534b;
+  --color-text-muted: #5e685e;
+  --color-text-tertiary: #6d766d;
+  --color-text-on-accent: #f6faf3;
+
+  /* === 强调与语义色：苔绿 + 赤陶 === */
+  --color-accent: #3f6c4f;
+  --color-accent-hover: #2e523c;
+  --color-accent-soft: rgba(63, 108, 79, 0.105);
+  --color-accent-soft-hover: rgba(63, 108, 79, 0.17);
+  --color-companion: #b16243;
+  --color-companion-soft: rgba(177, 98, 67, 0.1);
+  --color-sage: #5f7767;
+  --color-error: #a63c40;
+  --color-error-bg: rgba(166, 60, 64, 0.095);
+  --color-error-border: rgba(166, 60, 64, 0.28);
+  --color-success: #2e7a4a;
+  --color-success-bg: rgba(46, 122, 74, 0.095);
+  --color-success-border: rgba(46, 122, 74, 0.26);
+  --color-warning: #8a5c14;
+  --color-warning-bg: rgba(138, 92, 20, 0.1);
+  --color-warning-border: rgba(138, 92, 20, 0.27);
+  --color-info: #3a6e82;
+
+  /* === 状态色（记忆面板）=== */
+  --color-state-active: #2e7a4a;
+  --color-state-active-bg: rgba(46, 122, 74, 0.1);
+  --color-state-dormant: #83590f;
+  --color-state-dormant-bg: rgba(131, 89, 15, 0.1);
+  --color-state-archived: #5c655c;
+  --color-state-archived-bg: rgba(92, 101, 92, 0.095);
+  --color-state-deleted: #a63c40;
+  --color-state-deleted-bg: rgba(166, 60, 64, 0.095);
+
+  /* === 聊天气泡 === */
+  --color-user-bubble: #dce6cf;
+  --color-assistant-bubble: rgba(252, 252, 243, 0.8);
+
+  /* === 边框与分割线 === */
+  --color-border: #bfc9b2;
+  --color-border-subtle: rgba(38, 48, 40, 0.105);
+
+  /* === 阴影：带绿意的薄雾投影 === */
+  --shadow-sm: 0 1px 2px rgba(36, 46, 38, 0.07), 0 4px 12px rgba(36, 46, 38, 0.035);
+  --shadow-md: 0 12px 30px rgba(36, 46, 38, 0.1);
+  --shadow-lg: 0 28px 70px rgba(36, 46, 38, 0.14);
+  --shadow-drawer: -18px 0 64px rgba(30, 38, 31, 0.18);
+  --shadow-glow: 0 0 0 1px rgba(63, 108, 79, 0.08), 0 18px 46px rgba(43, 66, 50, 0.13);
+}
+
+/* === 深色2号（2026-08-21，v2 调色）：暖炭余烬 —— 壁炉旁的低蓝光夜色。
+ *   与 1 号深色的"冷蓝夜海"对位：1 号是深夜的海，2 号是炉边的夜。
+ *   v2：琥珀转蜜色（少一分橙）；elevated 层提亮增暖——被火光照亮的面
+ *   应该明显更亮，层次才出得来。鼠尾草绿做冷色平衡，避免暖色单一。 */
+[data-theme='dark2'] {
+  color-scheme: dark;
+
+  --color-bg: #161210;
+  --color-bg-secondary: #1c1713;
+  --color-bg-tertiary: #231d17;
+  --color-surface: #2a2219;
+  --color-surface-elevated: #34291e;
+  --color-surface-translucent: rgba(28, 23, 18, 0.89);
+
+  --color-text: #f1ebde;
+  --color-text-secondary: #cec2af;
+  --color-text-muted: #ab9e8a;
+  --color-text-tertiary: #938573;
+  --color-text-on-accent: #2b1d0e;
+
+  --color-accent: #e5ad61;
+  --color-accent-hover: #f2c78d;
+  --color-accent-soft: rgba(229, 173, 97, 0.125);
+  --color-accent-soft-hover: rgba(229, 173, 97, 0.2);
+  --color-companion: #d28b7d;
+  --color-companion-soft: rgba(210, 139, 125, 0.13);
+  --color-sage: #a2b086;
+  --color-error: #f09b92;
+  --color-error-bg: rgba(240, 155, 146, 0.13);
+  --color-error-border: rgba(240, 155, 146, 0.34);
+  --color-success: #a3c48d;
+  --color-success-bg: rgba(163, 196, 141, 0.13);
+  --color-success-border: rgba(163, 196, 141, 0.32);
+  --color-warning: #e6bd74;
+  --color-warning-bg: rgba(230, 189, 116, 0.13);
+  --color-warning-border: rgba(230, 189, 116, 0.32);
+  --color-info: #9bb6c6;
+
+  --color-state-active: #a3c48d;
+  --color-state-active-bg: rgba(163, 196, 141, 0.13);
+  --color-state-dormant: #dfb476;
+  --color-state-dormant-bg: rgba(223, 180, 118, 0.13);
+  --color-state-archived: #b5a996;
+  --color-state-archived-bg: rgba(181, 169, 150, 0.12);
+  --color-state-deleted: #f09b92;
+  --color-state-deleted-bg: rgba(240, 155, 146, 0.13);
+
+  --color-user-bubble: #3d2f21;
+  --color-assistant-bubble: rgba(255, 246, 232, 0.05);
+
+  --color-border: #4a3e2f;
+  --color-border-subtle: rgba(241, 231, 213, 0.09);
+
+  --shadow-sm: 0 1px 2px rgba(6, 4, 2, 0.24), 0 5px 14px rgba(6, 4, 2, 0.12);
+  --shadow-md: 0 12px 34px rgba(6, 4, 2, 0.28);
+  --shadow-lg: 0 28px 76px rgba(6, 4, 2, 0.42);
+  --shadow-drawer: -18px 0 70px rgba(6, 4, 2, 0.5);
+  --shadow-glow: 0 0 0 1px rgba(229, 173, 97, 0.1), 0 20px 52px rgba(30, 16, 4, 0.36);
 }
 
 * {
@@ -42,12 +296,44 @@ body,
   overflow: hidden;
 }
 
+html {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-family-body);
   font-size: var(--font-size-base);
   color: var(--color-text);
-  background: var(--color-bg);
+  background:
+    radial-gradient(circle at 10% -5%, var(--color-companion-soft), transparent 34%),
+    radial-gradient(circle at 96% 8%, var(--color-accent-soft), transparent 30%), var(--color-bg);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+#app {
+  position: relative;
+  isolation: isolate;
+}
+
+p,
+pre,
+code,
+input,
+textarea,
+[contenteditable='true'],
+.selectable-text {
+  user-select: text;
+}
+
+button,
+[role='button'] {
   user-select: none;
 }
 
@@ -56,25 +342,33 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
+  background: transparent;
+  color: inherit;
   transition:
-    background 0.15s ease,
-    opacity 0.15s ease;
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.12s ease,
+    box-shadow 0.18s ease;
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.48;
 }
 
-textarea {
-  font-family: inherit;
-  outline: none;
-  resize: none;
+button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
 }
 
+textarea,
 input {
   font-family: inherit;
   outline: none;
+}
+
+textarea {
+  resize: none;
 }
 
 a {
@@ -82,8 +376,13 @@ a {
   text-decoration: none;
 }
 
+a:hover {
+  color: var(--color-accent-hover);
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
@@ -91,10 +390,58 @@ a {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-border) 78%, transparent);
+  border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
+}
+
+/* 聚焦环：可见但不刺眼 */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+/* v-tooltip 共享浮层（directives/tooltip.ts）：替代纯黑原生 title */
+.app-tooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 240px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  word-break: break-word;
+}
+
+.app-tooltip.is-open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body {
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

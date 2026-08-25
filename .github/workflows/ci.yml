@@ -3,12 +3,14 @@
 #
 # 作用：每次 push 代码或提交 PR 到 main/master 分支时，
 # GitHub 云端自动跑以下检查，任一失败则显示红色 ❌ 阻止合并：
-#   1. Lint        - 代码风格 0 error
-#   2. Typecheck   - 类型检查 0 error
-#   3. Test+coverage - 单元/集成/对抗测试全绿 + 覆盖率达标
-#   4. Build       - electron-vite 构建通过
-#   5. E2E         - Playwright Electron 端到端测试
-#   6. Security    - 源码无明文 API key
+#   1. Repository hygiene - 禁止构建产物、环境文件、证书、个人配置和临时验证截图进入 Git 历史
+#   2. Lint        - 代码风格 0 error
+#   3. Typecheck   - 类型检查 0 error
+#   4. Test+coverage - 单元/集成/对抗测试全绿 + 覆盖率达标
+#   5. Build       - electron-vite 构建通过
+#   6. Gate        - phase1-gate：lint/typecheck/test/build + 3 项静态扫描（M-11 补）
+#   7. E2E         - Playwright Electron 端到端测试（M-11：门禁，失败即红，不再 continue-on-error）
+#   8. Security    - 源码无明文 API key
 
 name: CI
 
@@ -27,39 +29,50 @@ jobs:
         with:
           node-version: '26'
 
+      # === 1. Repository hygiene：即使绕过 .gitignore 强制 add，也不允许私有/可再生文件进入历史 ===
+      - name: Repository hygiene
+        run: npm run check:repo-hygiene
+
       - name: Install dependencies
         run: npm ci
         env:
           # 国内镜像加速 Electron 二进制下载
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      # === 1. Lint：代码风格检查（0 error） ===
+      # === 2. Lint：代码风格检查（0 error） ===
       - name: Lint
         run: npm run lint
 
-      # === 2. Typecheck：TypeScript 类型检查（0 error） ===
+      # === 3. Typecheck：TypeScript 类型检查（0 error） ===
       - name: Typecheck
         run: npm run typecheck
 
-      # === 3. Test + coverage：单元/集成/对抗测试 + 覆盖率达标 ===
+      # === 4. Test + coverage：单元/集成/对抗测试 + 覆盖率达标 ===
       # test:coverage 跑全部 *.test.ts（含 adversarial.test.ts），
-      # 并检查 vitest.config.ts 里的 thresholds（lines 65% / branches 70%）
+      # 并检查 vitest.config.ts 里的 thresholds（lines 75% / branches 70%）。
+      # 注意：该阈值仅覆盖纯逻辑层（见 vitest.config.ts exclude 注释），
+      # UI/入口/IPC handler/preload 由 E2E 覆盖，不计入此阈值。
       - name: Test + coverage
         run: npm run test:coverage
 
-      # === 4. Build：electron-vite 构建（生成 out/） ===
+      # === 5. Build：electron-vite 构建（生成 out/） ===
       - name: Build
         run: npm run build
 
-      # === 5. E2E：Playwright Electron 端到端测试 ===
+      # === 6. Gate：phase1-gate 全量门禁（M-11 补：gate 必须在 CI 中实际运行） ===
+      # 上述 lint/typecheck/test/build 已覆盖工具链；gate 额外做 3 项静态扫描
+      # （源码无明文 key / 构建产物无聊天正文残留 / LogFields 白名单不含聊天正文字段）。
+      - name: Gate (phase1-gate)
+        run: npm run gate
+
+      # === 7. E2E：Playwright Electron 端到端测试 ===
       # 启动真实 Electron 应用，模拟用户操作（S-004 §3.3 #36/#37）
-      # continue-on-error: E2E 在 CI 上可能不稳定（窗口/超时），不阻塞 PR
-      # S-004 §3.5 将 E2E 归为 main/nightly 级别，PR 不强制
+      # M-11：提升为门禁——E2E 失败即 CI 红，不允许静默合并。
+      # （若 CI 上出现偶发失败，优先修复 flaky 根因而非回到 continue-on-error。）
       - name: E2E (Playwright Electron)
         run: npx playwright test
-        continue-on-error: true
 
-      # === 6. Security scan：源码无明文 API key ===
+      # === 8. Security scan：源码无明文 API key ===
       # 扫描 src/ 下的 .ts/.vue 文件，确保不含 sk- 开头的明文 API key
       # 依据 S-001 P1-28 验收"磁盘无明文 key"
       - name: Security scan (no plaintext API key)
@@ -77,8 +90,10 @@ jobs:
                 // 跳过测试文件：测试文件里的 key 是 fixture（假 key），用于测试 scrub 脱敏功能，不是真实 key
                 if (/\.test\.ts$/.test(f)) continue;
                 const content = fs.readFileSync(fp, 'utf8');
-                // 匹配 sk- 后跟 20+ 个字母数字（OpenAI/DeepSeek key 格式）
-                const match = content.match(/sk-[A-Za-z0-9]{20,}/);
+                // 匹配 sk- 后跟可选 proj-/ant-api03- 段 + 至少 16 个 key 字符（含连字符）。
+                // 覆盖 OpenAI 旧/新格式（sk-xxx / sk-proj-xxx）与 Anthropic（sk-ant-api03-xxx），
+                // 与日志脱敏规则 observability/types.ts 的 /sk-[A-Za-z0-9_-]{8,}/ 对齐（拦截层不弱于脱敏层）。
+                const match = content.match(/\bsk-(?:ant-api03-|proj-)?[A-Za-z0-9_-]{16,}/);
                 if (match) {
                   console.error('  FAIL: ' + fp + ' 含明文 API key: ' + match[0].slice(0,10) + '...');
                   found = true;

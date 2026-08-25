@@ -4,7 +4,12 @@
 //       S-001 P1-23 验收（单一 turnId、失败只终止当前轮、用户 role 不变、事件顺序固定）
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { createChatService, type ChatService, type ChatEventSink } from './service'
+import {
+  createChatService,
+  releaseSessionTurnOwnership,
+  type ChatService,
+  type ChatEventSink
+} from './service'
 import { createMemorySessionStore } from './session-store'
 import { createFauxProvider, type FauxProviderHandle } from '../llm/providers/faux'
 import { createMemoryPromptLoader } from '../prompts/loader'
@@ -303,10 +308,10 @@ describe('ChatService', () => {
     // 第一条是 system prompt
     expect(messages[0].role).toBe('system')
 
-    // 最后一条是用户消息，role=user
+    // 最后一条是用户消息，role=user（content 带 `[YYYY-MM-DD HH:MM] ` 时间前缀——datetime-prefix）
     const lastMsg = messages[messages.length - 1]
     expect(lastMsg.role).toBe('user')
-    expect(lastMsg.content).toBe('你好世界')
+    expect(lastMsg.content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] 你好世界$/)
 
     // 用户消息不出现在 system 内容中（冻结合同 §1.0）
     expect(messages[0].content).not.toContain('你好世界')
@@ -528,10 +533,11 @@ describe('ChatService', () => {
     const secondMessages = calls[1].messages
 
     // system + user1 + assistant1 + user2
+    // user 消息带 `[YYYY-MM-DD HH:MM] ` 时间前缀（datetime-prefix，仅装配时附加）
     const userMessages = secondMessages.filter((m) => m.role === 'user')
     expect(userMessages.length).toBe(2)
-    expect(userMessages[0].content).toBe('first question')
-    expect(userMessages[1].content).toBe('second question')
+    expect(userMessages[0].content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] first question$/)
+    expect(userMessages[1].content).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\] second question$/)
 
     const assistantMessages = secondMessages.filter((m) => m.role === 'assistant')
     expect(assistantMessages.length).toBe(1)
@@ -619,5 +625,73 @@ describe('ChatService', () => {
     }
 
     await collector.done
+  })
+
+  // C-β R-3：必须真正并发，串行测试无法覆盖 busy-check 与登记之间的 TOCTOU。
+  it('concurrent sends for one session allow exactly one and reject the other with CHAT_BUSY', async () => {
+    const faux = createFauxProvider()
+    faux.setResponses([
+      { type: 'text', text: 'first response', delayMs: 20 },
+      { type: 'text', text: 'second response', delayMs: 20 }
+    ])
+    const service = makeChatService(faux)
+    const sessionId = service.createSession()
+    const collector1 = makeCollector()
+    const collector2 = makeCollector()
+
+    const results = await Promise.all([
+      service.send({ sessionId, text: 'first', clientRequestId: 'c1' }, collector1.sink).then(
+        (value) => ({ ok: true as const, value, collector: collector1 }),
+        (error: unknown) => ({ ok: false as const, error, collector: collector1 })
+      ),
+      service.send({ sessionId, text: 'second', clientRequestId: 'c2' }, collector2.sink).then(
+        (value) => ({ ok: true as const, value, collector: collector2 }),
+        (error: unknown) => ({ ok: false as const, error, collector: collector2 })
+      )
+    ])
+
+    const fulfilled = results.filter((r) => r.ok)
+    const rejected = results.filter((r) => !r.ok)
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(isAppError(rejected[0].error)).toBe(true)
+    if (isAppError(rejected[0].error)) {
+      expect(rejected[0].error.code).toBe('CHAT_BUSY')
+    }
+
+    await Promise.all(fulfilled.map((r) => r.collector.done))
+  })
+
+  it('duplicate clientRequestId returns the same ACK and creates only one turn', async () => {
+    const faux = createFauxProvider()
+    faux.setResponses([
+      { type: 'text', text: 'only response', delayMs: 10 },
+      { type: 'text', text: 'must not run', delayMs: 10 }
+    ])
+    const service = makeChatService(faux)
+    const sessionId = service.createSession()
+    const collector = makeCollector()
+    const duplicateCollector = makeCollector()
+    const request = { sessionId, text: 'same request', clientRequestId: 'client-same' }
+
+    const [ack1, ack2] = await Promise.all([
+      service.send(request, collector.sink),
+      service.send(request, duplicateCollector.sink)
+    ])
+
+    expect(ack2).toEqual(ack1)
+    const historyAtAck = service.list(sessionId, 100)
+    expect(historyAtAck.messages.filter((m) => m.role === 'user')).toHaveLength(1)
+
+    await collector.done
+    expect(faux.callCount()).toBe(1)
+  })
+
+  it('迟到的旧轮次 release 不得删除新轮次的 session 所有权', () => {
+    const owners = new Map<string, string>([['s1', 'request-B']])
+
+    releaseSessionTurnOwnership(owners, 's1', 'request-A')
+
+    expect(owners.get('s1')).toBe('request-B')
   })
 })

@@ -2,7 +2,7 @@
 // 导航/新窗口拦截 + 权限请求拒绝
 // 依据：S-005 §3.6、S-001 P1-10
 
-import type { BrowserWindow, HandlerDetails } from 'electron'
+import type { BrowserWindow, HandlerDetails, WebContents } from 'electron'
 import { shell } from 'electron'
 
 /**
@@ -40,18 +40,41 @@ export function registerNavigationGuard(window: BrowserWindow): void {
 }
 
 /**
- * 拒绝所有权限请求。
+ * 拒绝（几乎）所有权限请求。
  * 桌面 AI 伴侣不需要摄像头、麦克风、通知、midi 等权限。
  * 唯一的 "权限" 即用户点击链接 → 系统浏览器打开，此由 navigation guard 处理。
  *
+ * 例外（第一方功能白名单）：
+ *   - clipboard-read / clipboard-sanitized-write——验收反馈⑤主题化右键菜单的
+ *     复制/粘贴/剪切走 renderer navigator.clipboard，被全拒策略会静默失败。
+ *
  * 依据 S-005 §3.6：权限请求拒绝策略。
  */
+
+/** 第一方功能需要的权限白名单；其余一律拒绝 */
+const ALLOWED_PERMISSIONS: ReadonlySet<string> = new Set([
+  'clipboard-read',
+  'clipboard-sanitized-write'
+])
+
 export function registerPermissionDenial(window: BrowserWindow): void {
   const webContents = window.webContents
   const session = webContents.session
 
-  session.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    // 拒绝所有权限请求
-    callback(false)
+  // 白名单只对本窗口的 webContents 生效：session 是全局共享的，若不加这个身份检查，
+  // 任何挂到 defaultSession 的内容（BrowserView/未来新窗/被注入的页面）都能拿到剪贴板。
+  // 用 webContents 身份而不是 origin 前缀——dev server 端口可变，身份不会漂移。
+  const isFirstParty = (wc: WebContents | null): boolean => wc !== null && wc.id === webContents.id
+
+  session.setPermissionRequestHandler((wc, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission) && isFirstParty(wc))
   })
+
+  // 审计 B-4：RequestHandler 只覆盖"异步弹窗式"权限请求。
+  // 同步检查路径（navigator.permissions.query、部分 getUserMedia 前置检查、
+  // Notification.permission 等）走 CheckHandler；不设的话 Electron 用默认策略，
+  // 等于权限防护只做了一半。两个 handler 必须成对出现。
+  session.setPermissionCheckHandler(
+    (wc, permission) => ALLOWED_PERMISSIONS.has(permission) && isFirstParty(wc)
+  )
 }

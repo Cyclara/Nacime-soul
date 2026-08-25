@@ -24,6 +24,9 @@ import { installGlobalAgentGuard, createSecureFetch } from './security/network-p
 import { configureLogger, getLogger, createElectronLogSink } from './observability/logger'
 import { createErrorBuffer } from './observability/error-buffer'
 import { createCrashGuard } from './observability/crash-guard'
+import { installStreamErrorTolerance } from './observability/stream-error-tolerance'
+import { createMetrics, configureMetrics } from './observability/metrics'
+import { createTracer, configureTracer } from './observability/tracer'
 import { setHookRunnerLogger } from './hooks/runner'
 
 // 配置与密钥
@@ -37,32 +40,115 @@ import { sanitizeMessageHook } from './hooks/builtin/sanitize-message'
 // LLM
 import { createProvider } from './llm/provider'
 import { createFauxProvider } from './llm/providers/faux'
-import { AppError } from '@shared/errors'
+import { AppError, isAppError, type PublicAppError } from '@shared/errors'
 
 // Prompt
 import { createFilePromptLoader } from './prompts/loader'
 
 // Chat
 import { createChatService, type ProviderFactoryResult } from './chat/service'
-import { createMemorySessionStore } from './chat/session-store'
+import { createSQLiteSessionStore } from './chat/sqlite-session-store'
+import { searchMessages as searchChatMessages } from './chat/search'
+import { createIdempotencyLedger } from './chat/idempotency-ledger'
+import { openMemoryDb } from './memory/db'
+
+// Memory 基础设施（Phase 2：P2-10~15 接线）
+import { setupMemoryInfrastructure } from './memory/setup'
+import type { PromptContextAssembler } from './prompts/context-assembler'
 
 // 窗口
 import { createChatWindow } from './windows/create-chat-window'
+import { trackWindowState, type WindowState } from './windows/window-state'
+
+// 迁移（F5-013：启动链第一个数据触碰者）
+import { createMigrationRunner } from './migrations/runner'
+import { MIGRATIONS } from './migrations/registry'
 
 // IPC
 import { configureIpcGuard } from './ipc/register'
 import { registerAppHandlers } from './ipc/handlers/app'
-import { registerWindowHandlers } from './ipc/handlers/window'
+import { registerWindowHandlers, attachWindowStateListeners } from './ipc/handlers/window'
 import { registerConfigHandlers } from './ipc/handlers/config'
 import { registerChatHandlers } from './ipc/handlers/chat'
 import { registerDebugHandlers } from './ipc/handlers/debug'
+import { registerMemoryHandlers } from './ipc/handlers/memory'
+import { registerGrowthHandlers } from './ipc/handlers/growth'
+import { registerDmaeHandlers } from './ipc/handlers/dmae'
+
+// M-50：自动更新（updater 状态机；enabled 门控打包环境，dev/E2E 不加载 electron-updater）
+import { createUpdater } from './updater'
 
 // 应用启动时间（CrashGuard 的 uptime 计算需要，在一切初始化前捕获）
 const appStartTime = Date.now()
 
-let mainWindow: BrowserWindow | null = null
+// M-47（2026-08-20 根因修复）：开发模式下立即钉死 app 身份，必须在任何
+// safeStorage/getPath/singleInstanceLock 使用之前。
+// 背景（探针实证）：Electron 43 的 safeStorage 加密上下文绑定 app.name——
+// `electron out/main/index.js` 启动时名为 "Electron"（app 路径是文件，无
+// package.json 可读），`electron .` 启动时名为 "nacime-soul"；两种姿势产出
+// 互不解密的两个加密上下文。在 "Electron" 身份下封存的 API key 换到
+// "nacime-soul" 身份实例里全部解不开（用户视角："API key 又没了"）。
+// 同一漂移还移动 userData/logs（M-36 日志目录漂移，同根因），且两种身份的
+// singleInstanceLock 锁文件各自独立，曾允许双实例并发写同一数据目录。
+// 钉死后两种启动姿势身份一致：加密上下文、userData、日志目录、单实例锁全部稳定。
+// 打包版身份由 electron-builder productName（Nacime-soul）决定，不在此干预。
+if (!app.isPackaged) {
+  app.setName('nacime-soul')
+}
 
-app.whenReady().then(() => {
+// M-35（2026-08-21）：stdout/stderr 写入失败容忍（详见 stream-error-tolerance.ts 头注）。
+// 必须在任何日志写入之前安装：dev/管道启动时终端可合法消失（如 `electron . | head -30`
+// 收满即退），EPIPE 不应升级成 uncaughtException 让整应用陪葬。
+// 首次吞掉时用 log.warn 在文件日志留一句——console transport 走 Node console
+// （ignoreErrors 不同步抛错），断管后的异步 'error' 事件已被上面的监听吞掉，
+// 文件 transport 不经 stdout 正常落盘，不会打转转；留痕失败也哑火。
+installStreamErrorTolerance([process.stdout, process.stderr], (errorCode) => {
+  try {
+    log.warn(`stdout/stderr write failed (${errorCode}); console output muted, file log continues`)
+  } catch {
+    /* 留痕失败同样哑火 */
+  }
+})
+
+let mainWindow: BrowserWindow | null = null
+// P2-43：SessionStore 独立 WAL 连接，before-quit 显式关闭（Windows 文件锁）。
+let sessionDb: ReturnType<typeof openMemoryDb> | null = null
+// M-28：幂等账本防抖写盘的退出前 flush（避免最后一批记录因 quit 丢失）
+let idempotencyLedgerRef: { flushNow(): void } | null = null
+// memoryInfra 在 whenReady 内创建，before-quit 时清理（需提升到模块作用域）
+let memoryInfra: {
+  cleanup: () => void
+  contextAssembler: PromptContextAssembler | null
+  services: import('./memory/setup').MemoryServices | null
+} = {
+  cleanup: () => {},
+  contextAssembler: null,
+  services: null
+}
+
+// === 0. 单实例锁（审计 B-4）===
+// 必须在 whenReady 之前：双开会让两个进程并发写同一个 memory.db / config.json /
+// dmae-state.json，SQLite 与原子写都挡不住"两个 writer 各自持有内存状态"，
+// 结果是记忆丢失或库损坏。第二实例直接退出并把焦点还给已有窗口。
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // 用户再次点击图标/命令行启动：聚焦已有窗口而不是开新的
+    const existing = BrowserWindow.getAllWindows()[0]
+    if (existing) {
+      if (existing.isMinimized()) existing.restore()
+      existing.show()
+      existing.focus()
+    }
+  })
+}
+
+app.whenReady().then(async () => {
+  // 未拿到单实例锁时 app.quit() 已调用，whenReady 仍可能触发一次，直接返回避免初始化
+  if (!gotSingleInstanceLock) return
+
   // === 1. Logger ===
   log.transports.file.resolvePathFn = () => join(app.getPath('logs'), 'main.log')
   const errorBuffer = createErrorBuffer()
@@ -73,6 +159,12 @@ app.whenReady().then(() => {
   })
   const logger = getLogger('main')
   setHookRunnerLogger(getLogger('hooks'))
+
+  // === 1b. MetricsRegistry + TurnTracer（P2-26/27 全局单例）===
+  // F5-011 §5：metrics/tracer 单例，debug:get-snapshot 通过 getMetrics()/getTracer() 拉取
+  configureMetrics(createMetrics())
+  configureTracer(createTracer())
+  // app.uptimeSec gauge 在 snapshot 时由 debug handler 算（uptimeSec 字段已含），不在这里设
   logger.info('application starting', {
     scope: 'main',
     tags: { version: app.getVersion(), platform: process.platform, arch: process.arch }
@@ -80,23 +172,92 @@ app.whenReady().then(() => {
 
   // === 2. ConfigStore + SecretStore ===
   // E2E 测试支持：COMPANION_USER_DATA 环境变量指定临时 userData 目录
+  // M-16：配置/密钥 setup 包 try/catch——旧实现 setup() 抛错（如磁盘满/被锁、
+  // M-15 的超前版本拒绝）会直接让 whenReady 链 reject，应用无窗口静默"僵尸进程"。
   const userDataPath = process.env['COMPANION_USER_DATA'] ?? app.getPath('userData')
-  const configStore = createConfigStore({
-    configPath: join(userDataPath, 'config.json'),
-    logger: getLogger('config')
-  })
-  const configDiag = configStore.setup()
-  logger.info('config loaded', {
-    scope: 'main',
-    tags: { status: configDiag.status, healed: String(configDiag.healed) }
-  })
+  let configStore: ReturnType<typeof createConfigStore>
+  let secretStore: ReturnType<typeof createSecretStore>
+  try {
+    configStore = createConfigStore({
+      configPath: join(userDataPath, 'config.json'),
+      logger: getLogger('config')
+    })
+    const configDiag = configStore.setup()
+    logger.info('config loaded', {
+      scope: 'main',
+      tags: { status: configDiag.status, healed: String(configDiag.healed) }
+    })
 
-  const secretStore = createSecretStore({
-    secretsPath: join(userDataPath, 'secrets.json'),
-    safeStorage,
-    logger: getLogger('secret')
+    secretStore = createSecretStore({
+      secretsPath: join(userDataPath, 'secrets.json'),
+      safeStorage,
+      logger: getLogger('secret')
+    })
+    secretStore.setup()
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    logger.fatal('config setup failed; refusing to start', {
+      scope: 'main',
+      code: isAppError(e) ? e.code : 'CFG_INVALID',
+      detail: message
+    })
+    dialog.showErrorBox(
+      '配置加载失败',
+      `应用无法启动。\n\n原因: ${message}\n\n原配置文件已保留。请反馈此问题。`
+    )
+    app.exit(1)
+    return
+  }
+
+  // === 2.5 迁移框架（F5-013：启动链第一个数据触碰者，在任何 memory Store 打开前）===
+  // Phase 2 Batch A 已实现迁移框架代码，此处接线到启动流程。
+  // 失败时拒绝启动（F5-013 §3 降级保护 + dry-run 失败恢复备份）。
+  const dataDir = join(userDataPath, 'data')
+  const dbPath = join(dataDir, 'memory.db')
+  const migrationRunner = createMigrationRunner({
+    dbPath,
+    dataDir,
+    migrations: MIGRATIONS,
+    jsonStores: [
+      { kind: 'l0', filePath: join(dataDir, 'l0-profile.json') },
+      { kind: 'l1', filePath: join(dataDir, 'l1-state.json') },
+      { kind: 'dmae', filePath: join(dataDir, 'dmae-state.json') }
+    ],
+    logger: getLogger('migrate'),
+    appVersion: app.getVersion()
   })
-  secretStore.setup()
+  try {
+    const migrationReport = await migrationRunner.run()
+    logger.info('migrations applied', {
+      scope: 'migrate',
+      tags: {
+        ok: String(migrationReport.ok),
+        ran: migrationReport.ran.join(',') || 'none'
+      },
+      metrics: { durationMs: migrationReport.durationMs }
+    })
+    if (!migrationReport.ok) {
+      // dry-run 失败或真跑失败（已恢复备份）：拒绝启动
+      dialog.showErrorBox(
+        '数据迁移失败',
+        '应用无法启动，数据已恢复到迁移前状态。\n\n请反馈此问题，或从 data-backups/ 目录恢复。'
+      )
+      app.exit(1)
+      return
+    }
+  } catch (e) {
+    logger.fatal('migration failed; refusing to start', {
+      scope: 'migrate',
+      code: 'MEM_MIGRATE_FAIL',
+      detail: e instanceof Error ? e.message : String(e)
+    })
+    dialog.showErrorBox(
+      '数据迁移失败',
+      `应用无法启动。\n\n原因: ${e instanceof Error ? e.message : String(e)}`
+    )
+    app.exit(1)
+    return
+  }
 
   // === 3. 网络出口策略 Layer 1（P1-09B: globalAgent 钩子）===
   // 拦截直接用 IP 访问私网的 http/https 请求（含第三方库的请求）。
@@ -133,6 +294,33 @@ app.whenReady().then(() => {
     )
   }
 
+  // S-005 §3.7 落地：窗口尺寸/位置持久化（schema/默认值早已就位，此前只建不存）。
+  // resize/move/maximize 走防抖写（configStore 内置 250ms 节流合并），close 立即写。
+  // 写失败（校验不过/磁盘满）只记日志——窗口状态是顺手度数据，不值得炸启动链。
+  function persistWindowState(state: WindowState, immediate: boolean): void {
+    configStore.update({ ui: { window: state } }, { immediate }).catch((e: unknown) => {
+      getLogger('window').warn('window state persist failed', {
+        scope: 'window',
+        detail: e instanceof Error ? e.message : String(e)
+      })
+    })
+  }
+
+  /** 创建主窗口并还原上次的尺寸/位置/最大化（崩溃重建与 activate 重开同样走这里） */
+  function createMainWindow(): BrowserWindow {
+    const win = createChatWindow({ windowState: configStore.get().ui.window })
+    trackWindowState(win, persistWindowState)
+    return win
+  }
+
+  // M-07：向 renderer 推送 app-error 事件（companion:event:app-error）。
+  // 此前该通道在 main 侧无任何发射点，主进程内部错误永远到不了 UI。
+  function sendAppError(error: PublicAppError): void {
+    const wc = mainWindow?.webContents
+    if (!wc || wc.isDestroyed()) return
+    wc.send('companion:event:app-error', error)
+  }
+
   const crashGuard = createCrashGuard({
     logger: getLogger('crash'),
     errorBuffer,
@@ -142,8 +330,10 @@ app.whenReady().then(() => {
     createWindow: () => {
       // renderer 崩溃后重建窗口：更新 mainWindow 引用 + 重新配置 IPC guard
       // （新窗口的 webContents.id 与旧窗口不同，必须更新 trustedWebContentsIds）
-      mainWindow = createChatWindow()
+      mainWindow = createMainWindow()
       setupWindowIpcGuard(mainWindow)
+      // 重建窗口后重新挂载 maximize/unmaximize 监听（修复前只挂初始窗口，重建后事件失效）
+      attachWindowStateListeners(mainWindow)
       return mainWindow
     },
     showCrashDialog: (reason: string) => {
@@ -151,7 +341,9 @@ app.whenReady().then(() => {
         '应用遇到严重错误',
         `应用遇到不可恢复的错误，需要退出。\n\n原因: ${reason}\n\n请重新启动应用。`
       )
-    }
+    },
+    // M-07：main 内部错误（未处理 rejection 等）推送到 renderer 显示横幅
+    onAppError: sendAppError
   })
   crashGuard.install()
   logger.info('crash guard installed', { scope: 'main' })
@@ -162,7 +354,22 @@ app.whenReady().then(() => {
   // 这与 create-chat-window.ts 用 __dirname 找 preload/renderer 同理。
   const promptsDir = join(__dirname, '../../resources/prompts')
   const promptLoader = createFilePromptLoader(promptsDir)
-  const sessionStore = createMemorySessionStore()
+  // P2-43：SQLite SessionStore（接替内存实现，S-001 P1-24 遗留合同兑现）。
+  // 构造时同步完成中断修复（streaming->failed），ChatService 接受请求前不见尸体轮次。
+  // 独立 WAL 连接（与 memoryInfra 各自持连接；单写者 = main 进程）。
+  sessionDb = openMemoryDb({ dbPath, logger: getLogger('memory') })
+  const sessionStore = createSQLiteSessionStore({
+    db: sessionDb,
+    logger: getLogger('chat')
+  })
+  // P2-44：全文搜索直接绑 sessionDb（handler 依赖注入用；const 捕获保持非空类型收窄）
+  const chatSearchDb = sessionDb
+  // P2-43：clientRequestId 跨重启幂等账本（缓存定性：损坏/缺失不拦启动）
+  const idempotencyLedger = createIdempotencyLedger({
+    filePath: join(dataDir, 'chat-idempotency.json'),
+    logger: getLogger('chat')
+  })
+  idempotencyLedgerRef = idempotencyLedger
 
   // Phase 1 默认 contextWindow。
   // DeepSeek V4 Flash/Pro 上下文长度 1M（1,048,576 tokens），最大输出 384K。
@@ -189,9 +396,13 @@ app.whenReady().then(() => {
     const config = configStore.get()
     const apiKey = secretStore.get('modelApiKey')
     if (!apiKey) {
+      // M-34：区分"没配过"与"存了但读不出（旧格式残留）"——指引文案不同
+      const unreadable = secretStore.has('modelApiKey')
       throw new AppError({
         code: 'LLM_AUTH',
-        userMessage: '未配置 API Key，请在设置中添加',
+        userMessage: unreadable
+          ? '已保存的 API Key 无法读取（可能是旧版本写入的格式），请在设置中重新输入并保存'
+          : '未配置 API Key，请在设置中添加',
         severity: 'error',
         retryable: false
       })
@@ -219,29 +430,98 @@ app.whenReady().then(() => {
     }
   }
 
+  // === 6.5 Memory 基础设施（Phase 2：P2-10~15 接线）===
+  // 必须在 ChatService 之前创建：ChatService 需要 contextAssembler 接入动态 Prompt 层。
+  // 创建全部 memory Store / Service / Hook 并注册 extraction hook 到 turn.end。
+  // memory.enabled=false 时全旁路（setup 内部检查）。
+  // memory.enabled=true 但无 API Key 时：embedding 走 pending 路径，extraction 不注册。
+  // P2-29：getWebContents 闭包读取最新 mainWindow（CrashGuard 重建后仍能广播 memory-updated）
+  // P2-36：seedsDir 与 promptsDir 同层（resources/ 下），__dirname 向上两级。
+  // P2-41：growthMilestonesPath 同层（resources/growth/milestones.json）。
+  memoryInfra = await setupMemoryInfrastructure({
+    dbPath,
+    dataDir,
+    seedsDir: join(__dirname, '../../resources/seeds'),
+    growthMilestonesPath: join(__dirname, '../../resources/growth/milestones.json'),
+    configStore,
+    secretStore,
+    sessionStore,
+    logger: getLogger('memory'),
+    isDev: is.dev,
+    getWebContents: () => mainWindow?.webContents ?? null
+  })
+
+  // === 6.6 ChatService（providerFactory 注入 createSecureFetch - P1-09B Layer 2）===
+  // P2-18: 动态 Prompt 接线（S-021 §1.6）
+  // getMemoryConfig 返回当前 memory 配置；memory.enabled=true 但 dynamicPrompt 缺失时
+  // ChatService 会抛 CFG_INVALID（S-021 §1.2 合同）
   const chatService = createChatService({
     logger: getLogger('chat'),
     promptLoader,
     sessionStore,
-    providerFactory
+    providerFactory,
+    getMemoryConfig: () => configStore.get().memory,
+    idempotencyLedger,
+    ...(memoryInfra.contextAssembler
+      ? { dynamicPrompt: { contextAssembler: memoryInfra.contextAssembler } }
+      : {})
   })
 
   // === 7. IPC handler 注册 ===
-  registerAppHandlers({ logger: getLogger('app') })
+  // M-50：updater 先于 handler 创建（getWebContents 闭包读最新 mainWindow，CrashGuard 重建安全）；
+  // start() 推迟到窗口创建之后（步骤 8 末尾），dev/E2E 下 enabled=false 不调度不加载。
+  const updater = createUpdater({
+    logger: getLogger('updater'),
+    getWebContents: () => mainWindow?.webContents ?? null,
+    enabled: app.isPackaged && !is.dev
+  })
+  updaterRef = updater
+  registerAppHandlers({ logger: getLogger('app'), updater })
   registerConfigHandlers({
     configStore,
     secretStore,
-    logger: getLogger('config')
+    logger: getLogger('config'),
+    // P1-09B Layer 2：测试连接与正式聊天走同一套 secureFetch（审计 B-1）。
+    // 每次调用时读当前 config.security，反映运行时配置变更。
+    createTestFetch: () =>
+      createSecureFetch(
+        {
+          isDev: is.dev,
+          allowHttpLocalhostInDev: configStore.get().security.allowHttpLocalhostInDev
+        },
+        getLogger('network')
+      )
   })
   registerChatHandlers({
     chatService,
-    logger: getLogger('chat')
+    logger: getLogger('chat'),
+    searchMessages: (query, limit) => searchChatMessages(chatSearchDb, query, limit)
   })
   registerDebugHandlers({
     logger: getLogger('debug'),
     errorBuffer,
     startTime: appStartTime,
     logFilePath: join(app.getPath('logs'), 'main.log')
+  })
+  // P2-29: memory + growth IPC handler（12 invoke）
+  // memory.enabled=false 时 services=null，handler 返回 disabled 信封
+  registerMemoryHandlers({
+    logger: getLogger('memory-ipc'),
+    services: memoryInfra.services,
+    getMemoryConfig: () => configStore.get().memory
+  })
+  registerGrowthHandlers({
+    logger: getLogger('growth-ipc'),
+    getMemoryConfig: () => configStore.get().memory,
+    services: memoryInfra.services
+  })
+  // P2-32: DMAE 面板 handler（5 invoke）。dmae.enabled=false 时 diagnostics=null
+  registerDmaeHandlers({
+    logger: getLogger('dmae-ipc'),
+    diagnostics: memoryInfra.services?.dmaeDiagnostics ?? null,
+    getMemoryConfig: () => configStore.get().memory,
+    // M-26：mute-anomaly 写异常静音配置
+    configStore
   })
 
   // === 8. 窗口创建 ===
@@ -251,7 +531,7 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  mainWindow = createChatWindow()
+  mainWindow = createMainWindow()
   setupWindowIpcGuard(mainWindow)
 
   // window handler 需要 getMainWindow（窗口可能被 CrashGuard 重建）
@@ -260,12 +540,17 @@ app.whenReady().then(() => {
     logger: getLogger('window')
   })
 
+  // M-50：窗口就绪后启动更新检查调度（首次延迟 10s，之后每 4h；仅打包环境）
+  updater.start()
+
   logger.info('application ready', { scope: 'main' })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createChatWindow()
+      mainWindow = createMainWindow()
       setupWindowIpcGuard(mainWindow)
+      // macOS 关窗重开（activate）后同样需要重新挂载状态监听
+      attachWindowStateListeners(mainWindow)
     }
   })
 })
@@ -274,4 +559,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// M-50：updater 引用提升到模块作用域，before-quit 清理定时器
+let updaterRef: { dispose(): void } | null = null
+
+// app 退出前清理记忆基础设施（关闭 DB、停止队列消费者、terminate worker）
+app.on('before-quit', () => {
+  updaterRef?.dispose()
+  memoryInfra.cleanup()
+  idempotencyLedgerRef?.flushNow() // M-28：防抖写盘的最后一批落盘
+  if (sessionDb?.open) sessionDb.close()
+  sessionDb = null
 })

@@ -14,11 +14,17 @@ import type { Unsubscribe } from '@shared/ipc/contracts'
 
 export type BootStage = 'idle' | 'loading-config' | 'registering-events' | 'ready' | 'blocked'
 
+/** transient 错误条目（带稳定 id，供实例级关闭与 :key） */
+export interface TransientErrorEntry {
+  id: number
+  error: PublicAppError
+}
+
 export interface AppState {
   bootStage: BootStage
   appVersion: string | null
   fatalError: PublicAppError | null
-  transientErrors: PublicAppError[]
+  transientErrors: TransientErrorEntry[]
   isWindowMaximized: boolean
   isOnline: boolean
 }
@@ -44,20 +50,47 @@ export const useAppStore = defineStore('app', () => {
     state.appVersion = version
   }
 
+  // M-32：transient 错误 6s 后自动消失（此前只进不出、长会话越堆越多）；上限 5 条。
+  const TRANSIENT_MAX = 5
+  const TRANSIENT_TTL_MS = 6000
+  let nextErrorId = 1
+  const transientTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
   function reportError(error: PublicAppError): void {
     if (error.severity === 'fatal') {
       state.fatalError = error
       state.bootStage = 'blocked'
     } else {
-      state.transientErrors.push(error)
+      const entry: TransientErrorEntry = { id: nextErrorId++, error }
+      state.transientErrors.push(entry)
+      while (state.transientErrors.length > TRANSIENT_MAX) {
+        const oldest = state.transientErrors.shift()
+        if (oldest) {
+          const t = transientTimers.get(oldest.id)
+          if (t) clearTimeout(t)
+          transientTimers.delete(oldest.id)
+        }
+      }
+      const timer = setTimeout(() => {
+        transientTimers.delete(entry.id)
+        state.transientErrors = state.transientErrors.filter((e) => e.id !== entry.id)
+      }, TRANSIENT_TTL_MS)
+      transientTimers.set(entry.id, timer)
     }
   }
 
-  function dismissError(code: string): void {
-    state.transientErrors = state.transientErrors.filter((e) => e.code !== code)
+  function dismissError(id: number): void {
+    const timer = transientTimers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      transientTimers.delete(id)
+    }
+    state.transientErrors = state.transientErrors.filter((e) => e.id !== id)
   }
 
   function clearTransientErrors(): void {
+    for (const t of transientTimers.values()) clearTimeout(t)
+    transientTimers.clear()
     state.transientErrors = []
   }
 
@@ -77,9 +110,13 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  function subscribe(): Unsubscribe {
-    const unsubs: Unsubscribe[] = []
+  // C-β：store 实例内只允许一组 app listener。旧 teardown 不能误拆新订阅。
+  let currentSubscription: Unsubscribe | null = null
 
+  function subscribe(): Unsubscribe {
+    currentSubscription?.()
+
+    const unsubs: Unsubscribe[] = []
     if (window.companion) {
       unsubs.push(
         window.companion.app.onError((e) => {
@@ -99,11 +136,17 @@ export const useAppStore = defineStore('app', () => {
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
 
-    return () => {
+    let disposed = false
+    const teardown: Unsubscribe = () => {
+      if (disposed) return
+      disposed = true
       for (const unsub of unsubs) unsub()
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
+      if (currentSubscription === teardown) currentSubscription = null
     }
+    currentSubscription = teardown
+    return teardown
   }
 
   function reset(): void {

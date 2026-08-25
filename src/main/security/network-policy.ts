@@ -366,13 +366,17 @@ export function createSecureFetch(
     // 使用 manual redirect 以检查每个重定向目标
     let currentUrl = initialUrl
     let redirectCount = 0
+    // 跨源重定向后必须剥离凭据头（审计 B-2）。
+    // 手动跟随重定向时若原样复用 init，Authorization: Bearer <API Key>
+    // 会被发给跳转目标——LLM 服务商返回一个跳到第三方域名的 302 就足以泄露 Key。
+    let currentInit: RequestInit | undefined = init
 
     while (true) {
       if (signal?.aborted) {
         throw new Error('Network policy check aborted')
       }
 
-      const response = await globalThis.fetch(currentUrl, { ...init, redirect: 'manual' })
+      const response = await globalThis.fetch(currentUrl, { ...currentInit, redirect: 'manual' })
 
       // 检查是否为重定向（3xx）
       if (response.status >= 300 && response.status < 400) {
@@ -399,6 +403,18 @@ export function createSecureFetch(
             `Network policy blocked redirect to ${redirectUrl}: ${redirectCheck.reason}`
           )
         }
+        // 跨源判定：origin 变化即剥离凭据类请求头（审计 B-2）
+        if (!isSameOrigin(currentUrl, redirectUrl)) {
+          const stripped = stripCredentialHeaders(currentInit)
+          if (stripped.removed.length > 0) {
+            log.warn('stripped credential headers on cross-origin redirect', {
+              scope: 'network',
+              tags: { headers: stripped.removed.join(',') },
+              detail: `cross-origin redirect to ${new URL(redirectUrl).origin}`
+            })
+          }
+          currentInit = stripped.init
+        }
         currentUrl = redirectUrl
         continue
       }
@@ -406,4 +422,54 @@ export function createSecureFetch(
       return response
     }
   }
+}
+
+/** 同源判定（protocol + host + port 全等）。URL 非法时保守返回 false（按跨源处理） */
+function isSameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 跨源重定向时需要剥离的请求头（小写比较）。
+ * Authorization/Cookie 是凭据本体；proxy-authorization 同理。
+ */
+const CREDENTIAL_HEADERS = ['authorization', 'cookie', 'proxy-authorization', 'x-api-key']
+
+/**
+ * 从 RequestInit 中剥离凭据类请求头。
+ * 兼容 Headers 实例、数组元组、普通对象三种 headers 形态。
+ * 返回新的 init（不 mutate 调用方的对象）与被移除的头名列表。
+ */
+function stripCredentialHeaders(init: RequestInit | undefined): {
+  init: RequestInit | undefined
+  removed: string[]
+} {
+  if (!init?.headers) return { init, removed: [] }
+
+  const removed: string[] = []
+  const kept: Array<[string, string]> = []
+
+  const consider = (name: string, value: string): void => {
+    if (CREDENTIAL_HEADERS.includes(name.toLowerCase())) {
+      removed.push(name)
+    } else {
+      kept.push([name, value])
+    }
+  }
+
+  const h = init.headers
+  if (h instanceof Headers) {
+    h.forEach((value, name) => consider(name, value))
+  } else if (Array.isArray(h)) {
+    for (const [name, value] of h) consider(name, value)
+  } else {
+    for (const [name, value] of Object.entries(h)) consider(name, String(value))
+  }
+
+  if (removed.length === 0) return { init, removed }
+  return { init: { ...init, headers: kept }, removed }
 }

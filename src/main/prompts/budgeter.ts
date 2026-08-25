@@ -1,50 +1,57 @@
 // src/main/prompts/budgeter.ts
-// P1-21A: PromptBudgeter - 按模型能力分配预算，按层级裁剪
-// 依据：S-001 P1-21A、技术分析 §2.7（预算纪律）、S-004 §3.3.1 合同门禁 #2/#3
+// P2-17: PromptBudgeter - 九层 item 级裁剪 + BudgetHistoryTurn 整轮裁剪
+// 依据：S-021 §1.5、S-001 P1-21A（预算纪律延续）、S-004 §3.3.1 合同门禁 #2/#3
 //
 // 预算公式：
 //   budget = contextWindow - maxOutputTokens - safetyMargin
 //
-// 裁剪优先级（从先到后）：
-//   1. L2（长期记忆，Phase 2+）
-//   2. 旧历史（最老的对话消息先移除）
-//   3. L1（用户近期状态，Phase 2+）
-//   4. style（语气风格）
+// 裁剪顺序（S-021 §1.5，固定）：
+//   1. L2 items：trimRank 升序（越低越先删），同分 id 升序
+//   2. 旧历史：最旧 BudgetHistoryTurn 整体删除；当前 isCurrent turn 永不裁
+//   3. L1 items：trimRank=updatedAt 升序（旧先裁），同分 category+id
+//   4. relationship fragments：trimRank=index 升序（旧先裁）；baseline 保留
+//   5. style 整层最后删除
 //
-// 不可裁剪（S-004 §3.3.1 #3）：
-//   seed / system / identity / soul -> 超过硬上限时 fail-closed（抛 AppError）
+// 不可裁（S-021 §1.5）：
+//   - seed/system/identity/soul（loaded 且非空）-> 超预算 fatal CFG_INVALID
+//   - L0 items（身份连续性资料）
+//   - relationship baseline
+//   - 当前 user turn
 //
-// 禁止静默截断（S-001 P1-21A 验收"无半 token/半字符静默截断"）：
-//   裁剪只移除整条消息或整个层，不在字符串中间截断。
+// 失败边界：
+//   - budget<=0 或静态核心超限 -> CFG_INVALID fatal
+//   - 核心+L0+relationship baseline+当前 user 仍超限 -> CHAT_CONTEXT_TOO_LARGE
+//   - 正常返回必须 totalTokens<=budget，exceededHardLimit 恒为 false
 
 import { AppError } from '@shared/errors'
 import type { LlmMessage } from '../llm/types'
-import type { PromptLayer } from './builder'
+import type { PromptItem, PromptLayer } from './builder'
+import { renderLayer } from './builder'
 import { estimateTokens } from './token-estimator'
-
 // === 类型 ===
 
-/** 默认安全余量（token） */
 const DEFAULT_SAFETY_MARGIN = 256
 
-/** 动态层（Phase 2+ 预留，Phase 1 传入 undefined） */
-export interface DynamicLayers {
-  /** L0：用户核心画像。Phase 1 不裁剪（仅保留显式高置信字段） */
-  l0?: string
-  /** L1：用户近期状态。裁剪优先级 3（在旧历史之后） */
-  l1?: string
-  /** L2：长期记忆/共同经历。裁剪优先级 1（最先裁剪） */
-  l2?: string
+/** M-21：每条消息的 framing 开销（role 标记 + JSON 结构 + 分隔符，估算 ~4-8 token/条）。
+ *  旧实现只按 content 字符估算，总 token 会低估；加这层让预算更贴近真实 usage。 */
+const MESSAGE_FRAMING_TOKENS = 4
+
+/**
+ * 历史按 turn 分组。允许 [user] 或 [user,assistant]；不得 assistant 开头。
+ * isCurrent turn 恰好一个，且含当前 user，永不裁。
+ */
+export interface BudgetHistoryTurn {
+  turnId: string
+  messages: readonly LlmMessage[]
+  isCurrent: boolean
 }
 
 /** Budgeter 输入 */
 export interface BudgetInput {
-  /** 静态 prompt 层（来自 buildPrompt） */
-  layers: PromptLayer[]
-  /** 对话历史（user + assistant 消息，最老在前） */
-  history: LlmMessage[]
-  /** 动态层（Phase 2+，Phase 1 传 undefined） */
-  dynamicLayers?: DynamicLayers
+  /** 九层 Prompt（来自 buildPrompt） */
+  layers: readonly PromptLayer[]
+  /** 历史按 turn 分组 */
+  historyTurns: readonly BudgetHistoryTurn[]
   /** 模型能力 */
   modelCapabilities: {
     contextWindow: number
@@ -56,19 +63,15 @@ export interface BudgetInput {
 
 /** 单次裁剪记录 */
 export interface TrimRecord {
-  /** 被裁剪的目标 */
-  target: 'l2' | 'history' | 'l1' | 'style'
-  /** 描述 */
-  description: string
-  /** 移除的 token 数（估算） */
+  target: 'l2' | 'history' | 'l1' | 'relationship' | 'style'
+  reason: 'lower-rank' | 'old-history' | 'stale-l1' | 'old-fragment' | 'style-last'
+  itemIds: readonly string[]
   tokensRemoved: number
-  /** 移除的消息/项目数 */
-  itemsRemoved: number
 }
 
 /** Budgeter 产出报告 */
 export interface BudgetReport {
-  /** 最终消息数组（可直接用于 LlmRequest.messages） */
+  /** 最终消息数组（system + 历史消息） */
   messages: LlmMessage[]
   /** 最终 system prompt */
   systemPrompt: string
@@ -76,195 +79,323 @@ export interface BudgetReport {
   totalTokens: number
   /** 预算上限 */
   budget: number
-  /** 是否超出硬上限（静态层 > 预算） */
-  exceededHardLimit: boolean
   /** 裁剪记录（按裁剪顺序） */
-  trimmed: TrimRecord[]
+  trimmed: readonly TrimRecord[]
+  /** 最终保留的 L2 memoryId 列表（不含 l2: 前缀） */
+  includedMemoryIds: readonly string[]
+  /** 被裁掉的 L2 memoryId 列表 */
+  droppedMemoryIds: readonly string[]
   /** style 是否被移除 */
   styleRemoved: boolean
-  /** 被移除的历史消息数 */
+  /** 被移除的历史 turn 数 */
   historyRemoved: number
+  /** 函数正常返回时必须恒为 false；无法满足预算就 throw */
+  exceededHardLimit: false
 }
 
 // === 内部辅助 ===
 
-/** 不可裁剪的层名称 */
-const NON_TRIMMABLE_LAYERS = new Set(['seed', 'system', 'identity', 'soul'])
+const STATIC_CRITICAL = new Set(['seed', 'system'])
+const STATIC_NON_CRITICAL = new Set(['identity', 'soul'])
 
-/**
- * 计算不可裁剪层的 token 总数。
- * 只统计 loaded=true 且属于 seed/system/identity/soul 的层。
- */
-function calcStaticTokens(layers: PromptLayer[]): number {
-  return layers
-    .filter((l) => NON_TRIMMABLE_LAYERS.has(l.name) && l.loaded)
-    .reduce((sum, l) => sum + estimateTokens(l.content), 0)
+/** 可变工作层：items 可 splice（内部裁剪用） */
+interface WorkingLayer extends Omit<PromptLayer, 'items'> {
+  items: PromptItem[]
+}
+
+/** 不可裁的静态核心 token：seed+system+identity+soul（loaded 且非空） */
+function calcStaticCoreTokens(layers: readonly (PromptLayer | WorkingLayer)[]): number {
+  let sum = 0
+  for (const layer of layers) {
+    if (STATIC_CRITICAL.has(layer.name) || STATIC_NON_CRITICAL.has(layer.name)) {
+      if (layer.status === 'loaded') sum += layer.tokenEstimate
+    }
+  }
+  return sum
+}
+
+/** 计算当前 system prompt 总 token（基于各层最终 content） */
+function calcSystemTokens(layers: readonly (PromptLayer | WorkingLayer)[]): number {
+  let sum = 0
+  for (const layer of layers) {
+    if (layer.status === 'loaded') sum += layer.tokenEstimate
+  }
+  return sum
+}
+
+/** 计算历史 turns 总 token（M-21：每条消息含 framing 开销） */
+function calcHistoryTokens(turns: readonly BudgetHistoryTurn[]): number {
+  let sum = 0
+  for (const turn of turns) {
+    for (const msg of turn.messages) {
+      sum += estimateTokens(msg.content) + MESSAGE_FRAMING_TOKENS
+    }
+  }
+  return sum
+}
+
+/** L2 item id -> memoryId（去 l2: 前缀） */
+function l2ItemIdToMemoryId(itemId: string): string {
+  return itemId.startsWith('l2:') ? itemId.slice(3) : itemId
 }
 
 /**
- * 构建系统 prompt，可选择排除特定层。
+ * 重算指定动态层的 content + tokenEstimate（裁剪后调用）。
+ * items 为空时 status 变 'empty'，content 清空。
  */
-function buildSystemPrompt(
-  layers: PromptLayer[],
-  opts: { includeStyle: boolean; l0?: string; l1?: string | null; l2?: string | null }
-): string {
-  const parts: string[] = []
-
-  // 静态层（始终包含）
-  for (const layer of layers) {
-    if (!layer.loaded) continue
-    if (layer.name === 'style' && !opts.includeStyle) continue
-    parts.push(layer.content)
+function recomputeLayer(layer: WorkingLayer): void {
+  if (layer.status !== 'loaded' && layer.status !== 'empty') return
+  if (layer.items.length === 0) {
+    layer.status = 'empty'
+    layer.content = ''
+    layer.tokenEstimate = 0
+    layer.loaded = false
+    return
   }
-
-  // 动态层（Phase 2+）
-  if (opts.l0) parts.push(opts.l0)
-  if (opts.l1) parts.push(opts.l1)
-  if (opts.l2) parts.push(opts.l2)
-
-  return parts.join('\n\n')
+  layer.content = renderLayer(layer.prefix, layer.items)
+  layer.tokenEstimate = estimateTokens(layer.content)
+  layer.status = 'loaded'
+  layer.loaded = true
 }
 
 // === Budgeter ===
 
-/**
- * 应用 token 预算，按优先级裁剪。
- *
- * 流程：
- *   1. 计算预算 = contextWindow - maxOutputTokens - safetyMargin
- *   2. 计算静态层 token（seed+system+identity+soul）
- *   3. 静态层 > 预算 -> fail-closed（S-004 §3.3.1 #3）
- *   4. 计算总 token，若超预算则按 L2 -> 旧历史 -> L1 -> style 顺序裁剪
- *   5. 裁剪只移除整条消息/整个层，不截断字符串（S-001 P1-21A "无半 token/半字符"）
- *   6. 返回 BudgetReport
- */
 export function applyBudget(input: BudgetInput): BudgetReport {
-  const {
-    layers,
-    history,
-    dynamicLayers,
-    modelCapabilities,
-    safetyMargin = DEFAULT_SAFETY_MARGIN
-  } = input
+  const { layers, historyTurns, modelCapabilities, safetyMargin = DEFAULT_SAFETY_MARGIN } = input
 
   const budget = modelCapabilities.contextWindow - modelCapabilities.maxOutputTokens - safetyMargin
 
-  // === 1. 检查静态层是否超出硬上限 ===
-  const staticTokens = calcStaticTokens(layers)
-  if (staticTokens > budget) {
-    // S-004 §3.3.1 #3: fail-closed，不静默截断核心合同
+  // === 1. budget<=0 -> CFG_INVALID ===
+  if (budget <= 0) {
     throw new AppError({
       code: 'CFG_INVALID',
-      userMessage: `Prompt 静态层（seed+system+identity+soul）token 估算 ${staticTokens} 超出预算 ${budget}`,
+      userMessage: `模型上下文窗口过小：budget=${budget}（contextWindow=${modelCapabilities.contextWindow} - maxOutput=${modelCapabilities.maxOutputTokens} - safety=${safetyMargin}）`,
       severity: 'fatal',
       retryable: false
     })
   }
 
-  // === 2. 初始化裁剪状态 ===
+  // === 2. 静态核心超限 -> CFG_INVALID fatal ===
+  const staticCoreTokens = calcStaticCoreTokens(layers)
+  if (staticCoreTokens > budget) {
+    throw new AppError({
+      code: 'CFG_INVALID',
+      userMessage: `Prompt 静态层（seed+system+identity+soul）token 估算 ${staticCoreTokens} 超出预算 ${budget}`,
+      severity: 'fatal',
+      retryable: false
+    })
+  }
+
+  // === 3. 准备可变状态 ===
+  // 深拷贝 layers（可变 items 数组），不动原 BuiltPrompt
+  const workingLayers: WorkingLayer[] = layers.map((l) => ({
+    ...l,
+    items: [...l.items]
+  }))
+  const workingTurns: BudgetHistoryTurn[] = [...historyTurns]
   const trimmed: TrimRecord[] = []
-  let includeStyle = true
-  let l1Content: string | null = dynamicLayers?.l1 ?? null
-  let l2Content: string | null = dynamicLayers?.l2 ?? null
-  const workingHistory = [...history]
+  let styleRemoved = false
   let historyRemoved = 0
 
-  // === 3. 计算总 token 并按需裁剪 ===
-  function calcTotal(): number {
-    const systemPrompt = buildSystemPrompt(layers, {
-      includeStyle,
-      l0: dynamicLayers?.l0,
-      l1: l1Content,
-      l2: l2Content
-    })
-    const systemTokens = estimateTokens(systemPrompt)
-    const historyTokens = workingHistory.reduce((sum, msg) => sum + estimateTokens(msg.content), 0)
-    return systemTokens + historyTokens
+  /** 当前总 token */
+  function total(): number {
+    return calcSystemTokens(workingLayers) + calcHistoryTokens(workingTurns)
   }
 
-  let total = calcTotal()
-
-  // 裁剪优先级 1: L2
-  if (total > budget && l2Content !== null) {
-    const l2Tokens = estimateTokens(l2Content)
-    l2Content = null
-    total = calcTotal()
-    trimmed.push({
-      target: 'l2',
-      description: '移除 L2 长期记忆层',
-      tokensRemoved: l2Tokens,
-      itemsRemoved: 1
-    })
+  // === 4. 裁剪顺序 1: L2 items（trimRank 升序，同分 id 升序） ===
+  if (total() > budget) {
+    const l2Layer = workingLayers.find((l) => l.name === 'l2')
+    if (l2Layer && l2Layer.status === 'loaded' && l2Layer.items.length > 0) {
+      // 按 trimRank 升序，同分 id 升序（越低越先删）
+      const sorted = [...l2Layer.items].sort((a, b) => {
+        const ra = a.trimRank ?? 0
+        const rb = b.trimRank ?? 0
+        if (ra !== rb) return ra - rb
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
+      const removedIds: string[] = []
+      let removedTokens = 0
+      for (const item of sorted) {
+        if (total() <= budget) break
+        const idx = l2Layer.items.indexOf(item)
+        if (idx < 0) continue
+        l2Layer.items.splice(idx, 1)
+        removedIds.push(item.id)
+        removedTokens += item.tokenEstimate
+        // 每次裁剪后立即重算，避免 total() 用过期 tokenEstimate
+        recomputeLayer(l2Layer)
+      }
+      if (removedIds.length > 0) {
+        trimmed.push({
+          target: 'l2',
+          reason: 'lower-rank',
+          itemIds: removedIds,
+          tokensRemoved: removedTokens
+        })
+      }
+    }
   }
 
-  // 裁剪优先级 2: 旧历史（最老先移除）
-  if (total > budget && workingHistory.length > 0) {
-    // 保留至少最后一条消息（当前用户消息）
-    while (total > budget && workingHistory.length > 1) {
-      const removed = workingHistory.shift()!
-      const removedTokens = estimateTokens(removed.content)
+  // === 5. 裁剪顺序 2: 旧历史 turns（最旧先删，整 turn，当前永不裁） ===
+  if (total() > budget) {
+    while (total() > budget && workingTurns.length > 1) {
+      // 找最旧非当前 turn（historyTurns 按时间升序，第一个非 current 即最旧）
+      const oldestIdx = workingTurns.findIndex((t) => !t.isCurrent)
+      if (oldestIdx < 0) break
+      const removed = workingTurns.splice(oldestIdx, 1)[0]
+      const removedTokens = removed.messages.reduce(
+        (s, m) => s + estimateTokens(m.content) + MESSAGE_FRAMING_TOKENS,
+        0
+      )
       historyRemoved++
-      total = calcTotal()
       trimmed.push({
         target: 'history',
-        description: `移除历史消息（role=${removed.role}）`,
-        tokensRemoved: removedTokens,
-        itemsRemoved: 1
+        reason: 'old-history',
+        itemIds: [removed.turnId],
+        tokensRemoved: removedTokens
       })
     }
   }
 
-  // 裁剪优先级 3: L1
-  if (total > budget && l1Content !== null) {
-    const l1Tokens = estimateTokens(l1Content)
-    l1Content = null
-    total = calcTotal()
-    trimmed.push({
-      target: 'l1',
-      description: '移除 L1 近期状态层',
-      tokensRemoved: l1Tokens,
-      itemsRemoved: 1
+  // === 6. 裁剪顺序 3: L1 items（trimRank=updatedAt 升序，同分 category+id） ===
+  if (total() > budget) {
+    const l1Layer = workingLayers.find((l) => l.name === 'l1')
+    if (l1Layer && l1Layer.status === 'loaded' && l1Layer.items.length > 0) {
+      const sorted = [...l1Layer.items].sort((a, b) => {
+        const ra = a.trimRank ?? 0
+        const rb = b.trimRank ?? 0
+        if (ra !== rb) return ra - rb
+        const ca = a.category ?? ''
+        const cb = b.category ?? ''
+        if (ca !== cb) return ca < cb ? -1 : 1
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      })
+      const removedIds: string[] = []
+      let removedTokens = 0
+      for (const item of sorted) {
+        if (total() <= budget) break
+        const idx = l1Layer.items.indexOf(item)
+        if (idx < 0) continue
+        l1Layer.items.splice(idx, 1)
+        removedIds.push(item.id)
+        removedTokens += item.tokenEstimate
+        recomputeLayer(l1Layer)
+      }
+      if (removedIds.length > 0) {
+        trimmed.push({
+          target: 'l1',
+          reason: 'stale-l1',
+          itemIds: removedIds,
+          tokensRemoved: removedTokens
+        })
+      }
+    }
+  }
+
+  // === 7. 裁剪顺序 4: relationship fragments（trimRank=index 升序，baseline 保留） ===
+  if (total() > budget) {
+    const relLayer = workingLayers.find((l) => l.name === 'relationship')
+    if (relLayer && relLayer.status === 'loaded' && relLayer.items.length > 0) {
+      // 只裁 fragments（trimmable=true），baseline 保留
+      const fragments = relLayer.items.filter((i) => i.trimmable)
+      fragments.sort((a, b) => {
+        const ra = a.trimRank ?? 0
+        const rb = b.trimRank ?? 0
+        return ra - rb
+      })
+      const removedIds: string[] = []
+      let removedTokens = 0
+      for (const item of fragments) {
+        if (total() <= budget) break
+        const idx = relLayer.items.indexOf(item)
+        if (idx < 0) continue
+        relLayer.items.splice(idx, 1)
+        removedIds.push(item.id)
+        removedTokens += item.tokenEstimate
+        recomputeLayer(relLayer)
+      }
+      if (removedIds.length > 0) {
+        trimmed.push({
+          target: 'relationship',
+          reason: 'old-fragment',
+          itemIds: removedIds,
+          tokensRemoved: removedTokens
+        })
+      }
+    }
+  }
+
+  // === 8. 裁剪顺序 5: style 整层最后删除 ===
+  if (total() > budget) {
+    const styleLayer = workingLayers.find((l) => l.name === 'style')
+    if (styleLayer && styleLayer.status === 'loaded' && styleLayer.items.length > 0) {
+      const styleTokens = styleLayer.tokenEstimate
+      const removedIds = styleLayer.items.map((i) => i.id)
+      styleLayer.items = []
+      recomputeLayer(styleLayer)
+      styleRemoved = true
+      trimmed.push({
+        target: 'style',
+        reason: 'style-last',
+        itemIds: removedIds,
+        tokensRemoved: styleTokens
+      })
+    }
+  }
+
+  // === 9. 仍超预算 -> 核心+L0+relationship baseline+当前 user 超限 -> CHAT_CONTEXT_TOO_LARGE ===
+  if (total() > budget) {
+    throw new AppError({
+      code: 'CHAT_CONTEXT_TOO_LARGE',
+      userMessage: '当前消息和必要上下文超过模型窗口，请缩短消息或选择更大上下文模型',
+      severity: 'error',
+      retryable: false
     })
   }
 
-  // 裁剪优先级 4: style
-  if (total > budget && includeStyle) {
-    const styleLayer = layers.find((l) => l.name === 'style')
-    if (styleLayer?.loaded) {
-      const styleTokens = estimateTokens(styleLayer.content)
-      includeStyle = false
-      total = calcTotal()
-      trimmed.push({
-        target: 'style',
-        description: '移除 style 语气风格层',
-        tokensRemoved: styleTokens,
-        itemsRemoved: 1
-      })
-    }
-  }
-
-  // === 4. 构建最终输出 ===
-  const systemPrompt = buildSystemPrompt(layers, {
-    includeStyle,
-    l0: dynamicLayers?.l0,
-    l1: l1Content,
-    l2: l2Content
-  })
+  // === 10. 构建最终输出 ===
+  const systemPrompt = workingLayers
+    .filter((l) => l.status === 'loaded' && l.content)
+    .map((l) => l.content)
+    .join('\n\n')
 
   const messages: LlmMessage[] = []
   if (systemPrompt) {
     messages.push({ role: 'system', content: systemPrompt })
   }
-  messages.push(...workingHistory)
+  for (const turn of workingTurns) {
+    messages.push(...turn.messages)
+  }
+
+  // 计算 included/dropped L2 memoryIds
+  const finalL2Layer = workingLayers.find((l) => l.name === 'l2')
+  const includedMemoryIds: string[] = []
+  if (finalL2Layer) {
+    for (const item of finalL2Layer.items) {
+      if (item.kind === 'l2-memory') {
+        includedMemoryIds.push(l2ItemIdToMemoryId(item.id))
+      }
+    }
+  }
+  const droppedMemoryIds: string[] = []
+  for (const rec of trimmed) {
+    if (rec.target === 'l2') {
+      for (const id of rec.itemIds) {
+        droppedMemoryIds.push(l2ItemIdToMemoryId(id))
+      }
+    }
+  }
 
   return {
     messages,
     systemPrompt,
-    totalTokens: total,
+    totalTokens: total(),
     budget,
-    exceededHardLimit: false,
     trimmed,
-    styleRemoved: !includeStyle,
-    historyRemoved
+    includedMemoryIds,
+    droppedMemoryIds,
+    styleRemoved,
+    historyRemoved,
+    exceededHardLimit: false
   }
 }

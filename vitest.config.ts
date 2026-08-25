@@ -1,21 +1,40 @@
 import { defineConfig } from 'vitest/config'
+import vue from '@vitejs/plugin-vue'
 import path from 'node:path'
 
+const isCi = process.env.CI === 'true'
+
 export default defineConfig({
+  plugins: [vue()], // M-31：组件测试需要转换 .vue SFC
   resolve: {
-    alias: {
-      '@shared': path.resolve('src/shared'),
-      '@renderer': path.resolve('src/renderer/src')
-    }
+    alias: [
+      { find: '@shared', replacement: path.resolve('src/shared') },
+      { find: '@renderer', replacement: path.resolve('src/renderer/src') },
+      // electron-vite 的 `?modulePath` worker 后缀只在构建时生效（apply:'build'），
+      // vitest 环境不处理它；映射到测试 stub，避免源码里的 worker import 在测试中崩。
+      // 生产构建仍由 electron-vite 注入真实 worker bundle 路径（F5-003 §5 worker_thread）。
+      {
+        find: /\.\/ivf-worker\?modulePath$/,
+        replacement: path.resolve('src/test/fixtures/ivf-worker-stub.ts')
+      }
+    ]
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.integration.test.ts'],
+    // GitHub Windows runner 只有有限 CPU/磁盘；coverage 下并行跑 SQLite、IVF worker 与
+    // 82 例 Golden harness 会互相争抢，造成断言未执行前的假超时。CI 串行文件并放宽
+    // 单测上限；本地仍保持默认并行 + 5s fail-fast。
+    ...(isCi ? { maxWorkers: 1, testTimeout: 120_000 } : {}),
+    include: ['src/**/*.test.ts', 'src/**/*.integration.test.ts', 'tests/evals/**/*.test.ts'],
     exclude: ['node_modules', 'out', 'dist', 'tests/e2e'],
     coverage: {
       provider: 'istanbul',
       all: true,
       include: ['src/**/*.ts'],
+      // 此阈值（lines 75% / branches 70%）仅覆盖纯逻辑层。
+      // 以下 exclude 的文件因 Electron 运行时依赖（app/BrowserWindow/ipcMain/session）
+      // 无法在 vitest 纯 Node 环境加载，由 E2E 测试（tests/e2e/）覆盖，不计入此阈值。
+      // 误读「75% = 全项目覆盖率」会高估实际覆盖范围。
       exclude: [
         'src/**/*.test.ts',
         'src/**/*.integration.test.ts',

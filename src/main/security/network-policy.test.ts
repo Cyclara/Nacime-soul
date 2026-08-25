@@ -433,6 +433,61 @@ describe('P1-09B createSecureFetch 重定向复验', () => {
     expect(res.status).toBe(200)
   })
 
+  // === 审计 B-2 回归：跨源重定向必须剥离 Authorization ===
+  it('跨源重定向剥离 Authorization / Cookie（API Key 不泄露给第三方）', async () => {
+    mockDns(['8.8.8.8'])
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: 'https://attacker.example.net/collect' }
+      })
+    )
+    fetchMock.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    const secureFetch = createSecureFetch(PROD_OPTS)
+    await secureFetch('https://api.example.com/v1/chat', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer sk-secret-key',
+        Cookie: 'session=abc',
+        'Content-Type': 'application/json'
+      }
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // 第一跳（同源）仍带凭据
+    const firstInit = fetchMock.mock.calls[0]?.[1] as RequestInit
+    expect(JSON.stringify(firstInit.headers)).toContain('sk-secret-key')
+
+    // 第二跳（跨源）必须已剥离凭据，但保留非凭据头
+    const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit
+    const serialized = JSON.stringify(secondInit.headers)
+    expect(serialized).not.toContain('sk-secret-key')
+    expect(serialized).not.toContain('session=abc')
+    expect(serialized).toContain('Content-Type')
+  })
+
+  it('同源重定向保留 Authorization（不误伤正常 302）', async () => {
+    mockDns(['8.8.8.8'])
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: 'https://api.example.com/v1/chat/retry' }
+      })
+    )
+    fetchMock.mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+    const secureFetch = createSecureFetch(PROD_OPTS)
+    await secureFetch('https://api.example.com/v1/chat', {
+      headers: { Authorization: 'Bearer sk-secret-key' }
+    })
+
+    const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit
+    expect(JSON.stringify(secondInit.headers)).toContain('sk-secret-key')
+  })
+
   it('超过 5 次重定向拒绝', async () => {
     mockDns(['8.8.8.8'])
     const fetchMock = vi.spyOn(globalThis, 'fetch')
