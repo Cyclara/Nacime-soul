@@ -29,6 +29,8 @@ describe('提取 prompt 的 forbiddenOverclaims 语义锚点（2026-08-20 修复
     const messages = buildExtractionMessages('msg_test', '内容')
     const system = messages.find((m) => m.role === 'system')
     expect(system).toBeTruthy()
-    expect(system?.content).toContain(CANDIDATE_ITEM_SCHEMA.properties.forbiddenOverclaims.description)
+    expect(system?.content).toContain(
+      CANDIDATE_ITEM_SCHEMA.properties.forbiddenOverclaims.description
+    )
   })
 })

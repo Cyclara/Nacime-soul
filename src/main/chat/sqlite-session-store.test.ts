@@ -234,7 +234,13 @@ describe('验收反馈④c：deleteSupersededAssistantMessages（重试终局清
     store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
     store.appendMessage(
       sid,
-      makeMessage({ id: 'a-old', role: 'assistant', turnId: 't1', status: 'failed', errorCode: 'NET_TIMEOUT' })
+      makeMessage({
+        id: 'a-old',
+        role: 'assistant',
+        turnId: 't1',
+        status: 'failed',
+        errorCode: 'NET_TIMEOUT'
+      })
     )
     store.appendMessage(
       sid,
@@ -242,12 +248,24 @@ describe('验收反馈④c：deleteSupersededAssistantMessages（重试终局清
     )
     store.appendMessage(
       sid,
-      makeMessage({ id: 'a-new', role: 'assistant', turnId: 't1', status: 'complete', content: '新回答' })
+      makeMessage({
+        id: 'a-new',
+        role: 'assistant',
+        turnId: 't1',
+        status: 'complete',
+        content: '新回答'
+      })
     )
     // 另一轮的 failed 行不受影响
     store.appendMessage(
       sid,
-      makeMessage({ id: 'a-other', role: 'assistant', turnId: 't2', status: 'failed', errorCode: 'NET_TIMEOUT' })
+      makeMessage({
+        id: 'a-other',
+        role: 'assistant',
+        turnId: 't2',
+        status: 'failed',
+        errorCode: 'NET_TIMEOUT'
+      })
     )
 
     const removed = store.deleteSupersededAssistantMessages(sid, 't1', 'a-new')
@@ -263,11 +281,23 @@ describe('验收反馈④c：deleteSupersededAssistantMessages（重试终局清
     store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
     store.appendMessage(
       sid,
-      makeMessage({ id: 'a-good', role: 'assistant', turnId: 't1', status: 'complete', content: '旧好回答' })
+      makeMessage({
+        id: 'a-good',
+        role: 'assistant',
+        turnId: 't1',
+        status: 'complete',
+        content: '旧好回答'
+      })
     )
     store.appendMessage(
       sid,
-      makeMessage({ id: 'a-new', role: 'assistant', turnId: 't1', status: 'complete', content: '新回答' })
+      makeMessage({
+        id: 'a-new',
+        role: 'assistant',
+        turnId: 't1',
+        status: 'complete',
+        content: '新回答'
+      })
     )
 
     const removed = store.deleteSupersededAssistantMessages(sid, 't1', 'a-new')
@@ -283,11 +313,23 @@ describe('验收反馈④c：deleteSupersededAssistantMessages（重试终局清
       store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
       store.appendMessage(
         sid,
-        makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'failed', errorCode: 'CHAT_INTERRUPTED' })
+        makeMessage({
+          id: 'a1',
+          role: 'assistant',
+          turnId: 't1',
+          status: 'failed',
+          errorCode: 'CHAT_INTERRUPTED'
+        })
       )
       store.appendMessage(
         sid,
-        makeMessage({ id: 'a2', role: 'assistant', turnId: 't1', status: 'complete', content: '答' })
+        makeMessage({
+          id: 'a2',
+          role: 'assistant',
+          turnId: 't1',
+          status: 'complete',
+          content: '答'
+        })
       )
     }
     seed(sqlite)
@@ -316,7 +358,13 @@ describe('验收反馈⑥：deleteTurnMessages / deleteMessage（按轮删除对
     store.appendMessage(sid, makeMessage({ id: 'u2', turnId: 't2', content: '我是你的制造者' }))
     store.appendMessage(
       sid,
-      makeMessage({ id: 'ph', role: 'assistant', turnId: 't2', status: 'failed', errorCode: 'CHAT_INTERRUPTED' })
+      makeMessage({
+        id: 'ph',
+        role: 'assistant',
+        turnId: 't2',
+        status: 'failed',
+        errorCode: 'CHAT_INTERRUPTED'
+      })
     )
 
     const deleted = store.deleteTurnMessages(sid, 't2')
@@ -347,7 +395,13 @@ describe('验收反馈⑥：deleteTurnMessages / deleteMessage（按轮删除对
       store.appendMessage(sid, makeMessage({ id: 'u1', turnId: 't1' }))
       store.appendMessage(
         sid,
-        makeMessage({ id: 'a1', role: 'assistant', turnId: 't1', status: 'failed', errorCode: 'NET_TIMEOUT' })
+        makeMessage({
+          id: 'a1',
+          role: 'assistant',
+          turnId: 't1',
+          status: 'failed',
+          errorCode: 'NET_TIMEOUT'
+        })
       )
       store.appendMessage(sid, makeMessage({ id: 'legacy' }))
     }

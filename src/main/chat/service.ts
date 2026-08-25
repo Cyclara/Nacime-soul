@@ -434,7 +434,10 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
    *   - streamTurn 终局删除同轮被取代的 assistant 行（supersedeTurnId）。
    * 幂等与 send 同一套两层账本（clientRequests + idempotencyLedger）。
    */
-  async function retryTurn(request: RetryTurnRequest, sink: ChatEventSink): Promise<TurnAck | null> {
+  async function retryTurn(
+    request: RetryTurnRequest,
+    sink: ChatEventSink
+  ): Promise<TurnAck | null> {
     const { sessionId, messageId, clientRequestId } = request
 
     // === 定位目标轮（先于幂等账本：目标不存在时不必占用账本记录）===
@@ -487,7 +490,10 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     }
     const persisted = idempotencyLedger?.get(clientRequestId)
     if (persisted) {
-      if (persisted.sessionId !== sessionId || persisted.textHash !== hashIdempotencyText(retryText)) {
+      if (
+        persisted.sessionId !== sessionId ||
+        persisted.textHash !== hashIdempotencyText(retryText)
+      ) {
         throw new AppError({
           code: 'IPC_VALIDATION',
           userMessage: '同一请求标识不能用于不同的聊天请求',

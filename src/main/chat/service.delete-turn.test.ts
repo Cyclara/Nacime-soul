@@ -157,7 +157,10 @@ describe('ChatService.deleteTurn（验收反馈⑥：按轮删除对话）', () 
   })
 
   it('无 turnId 的遗产行：回退为只删被点的那一条', () => {
-    store.appendMessage(sessionId, row('legacy', sessionId, undefined, 'user', '老消息', 'complete'))
+    store.appendMessage(
+      sessionId,
+      row('legacy', sessionId, undefined, 'user', '老消息', 'complete')
+    )
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '新消息', 'complete'))
 
     const result = service.deleteTurn(sessionId, 'legacy')
@@ -306,7 +309,10 @@ describe('ChatService.deleteSelected（验收反馈⑦：批量按轮删除）',
   })
 
   it('混合遗产行：无 turnId 的按单条删，有 turnId 的按轮删', () => {
-    store.appendMessage(sessionId, row('legacy', sessionId, undefined, 'user', '老消息', 'complete'))
+    store.appendMessage(
+      sessionId,
+      row('legacy', sessionId, undefined, 'user', '老消息', 'complete')
+    )
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
     store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '答', 'complete'))
 

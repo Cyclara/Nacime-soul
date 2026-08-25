@@ -313,7 +313,10 @@ describe('chat store retry（验收反馈④c：终局摘除旧失败气泡）',
     seedFailedTurn(store)
 
     await store.retry('a-old')
-    expect(window.companion.chat.retry).toHaveBeenCalledWith({ sessionId: 's1', messageId: 'a-old' })
+    expect(window.companion.chat.retry).toHaveBeenCalledWith({
+      sessionId: 's1',
+      messageId: 'a-old'
+    })
 
     store.applyStream({
       type: 'started',

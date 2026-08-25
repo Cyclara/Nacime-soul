@@ -100,7 +100,9 @@ describe('提取 wire body 显式关思考（2026-08-20 修复）', () => {
     const fetchFn = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
       return new Response(
-        JSON.stringify({ choices: [{ message: { content: '{"schemaVersion":1,"candidates":[]}' } }] }),
+        JSON.stringify({
+          choices: [{ message: { content: '{"schemaVersion":1,"candidates":[]}' } }]
+        }),
         { status: 200, headers: { 'content-type': 'application/json' } }
       )
     }) as typeof globalThis.fetch
@@ -112,7 +114,13 @@ describe('提取 wire body 显式关思考（2026-08-20 修复）', () => {
   async function completeOnce(thinkingFormat?: ThinkingFormat): Promise<Record<string, unknown>> {
     const { fetchFn, bodies } = makeOkFetch()
     const provider = createOpenAIExtractionProvider(
-      { provider: 'test', model: 'm', baseUrl: 'https://api.example.com', apiKey: 'k', thinkingFormat },
+      {
+        provider: 'test',
+        model: 'm',
+        baseUrl: 'https://api.example.com',
+        apiKey: 'k',
+        thinkingFormat
+      },
       { logger: testNoopLogger, fetchFn }
     )
     await provider.complete(

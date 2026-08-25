@@ -12,7 +12,10 @@ import type { L1Store } from '../l1-store'
 import type { L2Store } from '../l2-store'
 import type { MemoryWriter } from '../writer'
 
-function makeCapturingLogger(): { logger: Logger; infos: Array<{ message: string; meta?: unknown }> } {
+function makeCapturingLogger(): {
+  logger: Logger
+  infos: Array<{ message: string; meta?: unknown }>
+} {
   const infos: Array<{ message: string; meta?: unknown }> = []
   const logger = {
     debug: vi.fn(),

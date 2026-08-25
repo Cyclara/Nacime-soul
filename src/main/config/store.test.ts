@@ -196,7 +196,13 @@ describe('P1-07 update - 合法更新', () => {
     await store.update({
       ui: { window: { width: 1000, height: 700, x: 150, y: 120, maximized: false } }
     })
-    expect(store.get().ui.window).toEqual({ width: 1000, height: 700, x: 150, y: 120, maximized: false })
+    expect(store.get().ui.window).toEqual({
+      width: 1000,
+      height: 700,
+      x: 150,
+      y: 120,
+      maximized: false
+    })
     const onDisk = readConfig().ui.window as { x?: number; y?: number }
     expect(onDisk.x).toBe(150)
     expect(onDisk.y).toBe(120)

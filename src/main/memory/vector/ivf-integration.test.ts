@@ -15,6 +15,10 @@ import { makeMemoryDb, type TestDb } from '../../../../tests/helpers/test-db'
 
 type VectorStore = ReturnType<typeof createSQLiteVectorStore>
 
+const IVF_WAIT_TIMEOUT_MS = process.env.CI === 'true' ? 60_000 : 10_000
+const IVF_RECALL_TIMEOUT_MS = process.env.CI === 'true' ? 120_000 : 30_000
+const IVF_WORKER_WAIT_TIMEOUT_MS = process.env.CI === 'true' ? 60_000 : 30_000
+
 /**
  * 事件驱动等待（C-δ-4）：轮询直到索引进入目标状态，替代固定 setTimeout 猜时长。
  * 注入 syncKmeans 时构建在微任务内完成，首轮轮询（5ms）即命中，测试反而更快；
@@ -23,7 +27,7 @@ type VectorStore = ReturnType<typeof createSQLiteVectorStore>
 async function waitIndexKind(
   store: VectorStore,
   kind: 'flat' | 'ivf',
-  timeoutMs = 10_000
+  timeoutMs = IVF_WAIT_TIMEOUT_MS
 ): Promise<void> {
   await vi.waitFor(
     () => {
@@ -37,7 +41,7 @@ async function waitIndexKind(
 async function waitRebuilt(
   store: VectorStore,
   prevBuiltAt: number,
-  timeoutMs = 10_000
+  timeoutMs = IVF_WAIT_TIMEOUT_MS
 ): Promise<void> {
   await vi.waitFor(
     () => {
@@ -177,43 +181,61 @@ describe('P2-14/15 IVF integration', () => {
     expect(stats.K).toBeUndefined()
   })
 
-  it('n=5k realistic embedding (20 clusters, noise 0.5): recall >= 95%', async () => {
-    const dim = 64
-    const n = 5000
-    const { ids, vecs } = seedRealisticVectors(n, dim, 12345, 20, 0.5)
-    const store = createSQLiteVectorStore({ db: t.db, dim, seed: 12345, kmeansBuilder: syncKmeans })
-    await store.init()
-    for (let i = 0; i < n; i++) store.upsert(ids[i], vecs[i])
-    store.rebuildIndex(true)
-    await waitIndexKind(store, 'ivf')
+  it(
+    'n=5k realistic embedding (20 clusters, noise 0.5): recall >= 95%',
+    async () => {
+      const dim = 64
+      const n = 5000
+      const { ids, vecs } = seedRealisticVectors(n, dim, 12345, 20, 0.5)
+      const store = createSQLiteVectorStore({
+        db: t.db,
+        dim,
+        seed: 12345,
+        kmeansBuilder: syncKmeans
+      })
+      await store.init()
+      for (let i = 0; i < n; i++) store.upsert(ids[i], vecs[i])
+      store.rebuildIndex(true)
+      await waitIndexKind(store, 'ivf')
 
-    const stats = store.stats()
-    expect(stats.indexKind).toBe('ivf')
-    expect(stats.K).toBeGreaterThan(0)
-    expect(stats.K).toBeDefined()
-    if (stats.K !== undefined) {
-      expect(stats.nprobe).toBeGreaterThanOrEqual(Math.round(stats.K / 4)) // K/4 调整
-    }
+      const stats = store.stats()
+      expect(stats.indexKind).toBe('ivf')
+      expect(stats.K).toBeGreaterThan(0)
+      expect(stats.K).toBeDefined()
+      if (stats.K !== undefined) {
+        expect(stats.nprobe).toBeGreaterThanOrEqual(Math.round(stats.K / 4)) // K/4 调整
+      }
 
-    const recall = measureRecall(store, ids, vecs, dim, mulberry32(999), 30)
-    // F5-003 §4 验收：recall >= 95%
-    expect(recall).toBeGreaterThanOrEqual(0.95)
-  }, 30_000)
+      const recall = measureRecall(store, ids, vecs, dim, mulberry32(999), 30)
+      // F5-003 §4 验收：recall >= 95%
+      expect(recall).toBeGreaterThanOrEqual(0.95)
+    },
+    IVF_RECALL_TIMEOUT_MS
+  )
 
-  it('n=5k weak clustering (50 clusters, noise 0.7): recall >= 90%', async () => {
-    const dim = 64
-    const n = 5000
-    const { ids, vecs } = seedRealisticVectors(n, dim, 12345, 50, 0.7)
-    const store = createSQLiteVectorStore({ db: t.db, dim, seed: 12345, kmeansBuilder: syncKmeans })
-    await store.init()
-    for (let i = 0; i < n; i++) store.upsert(ids[i], vecs[i])
-    store.rebuildIndex(true)
-    await waitIndexKind(store, 'ivf')
+  it(
+    'n=5k weak clustering (50 clusters, noise 0.7): recall >= 90%',
+    async () => {
+      const dim = 64
+      const n = 5000
+      const { ids, vecs } = seedRealisticVectors(n, dim, 12345, 50, 0.7)
+      const store = createSQLiteVectorStore({
+        db: t.db,
+        dim,
+        seed: 12345,
+        kmeansBuilder: syncKmeans
+      })
+      await store.init()
+      for (let i = 0; i < n; i++) store.upsert(ids[i], vecs[i])
+      store.rebuildIndex(true)
+      await waitIndexKind(store, 'ivf')
 
-    const recall = measureRecall(store, ids, vecs, dim, mulberry32(999), 30)
-    // 弱聚类边界：90% 阈值（真实 embedding 不会这么弱）
-    expect(recall).toBeGreaterThanOrEqual(0.9)
-  }, 30_000)
+      const recall = measureRecall(store, ids, vecs, dim, mulberry32(999), 30)
+      // 弱聚类边界：90% 阈值（真实 embedding 不会这么弱）
+      expect(recall).toBeGreaterThanOrEqual(0.9)
+    },
+    IVF_RECALL_TIMEOUT_MS
+  )
 
   it('IVF search respects minScore and returns sorted results', async () => {
     const dim = 16
@@ -353,8 +375,8 @@ describe('P2-14/15 IVF integration', () => {
     await store.init()
     for (let i = 0; i < n; i++) store.upsert(ids[i], vecs[i])
     store.rebuildIndex(true)
-    // 真实 worker 线程启动较慢（Windows 更明显），超时放宽到 30s；命中即返回
-    await waitIndexKind(store, 'ivf', 30_000)
+    // 真实 worker 线程启动较慢（GitHub Windows coverage runner 更明显）；命中即返回
+    await waitIndexKind(store, 'ivf', IVF_WORKER_WAIT_TIMEOUT_MS)
 
     const stats = store.stats()
     // worker 可能成功（indexKind=ivf）或回退同步（如果 worker 加载失败）
@@ -455,7 +477,10 @@ describe('C-γ-1: IVF 自递归炸栈防护', () => {
       store.upsert(`l2_${i}`, vec)
     }
     // 等失败链耗尽：1 次初始成功 + 3 次失败重试 = 4（有上限这一事实本身就是等待条件）
-    await vi.waitFor(() => expect(kmeansCalls).toBe(4), { timeout: 10_000, interval: 5 })
+    await vi.waitFor(() => expect(kmeansCalls).toBe(4), {
+      timeout: IVF_WAIT_TIMEOUT_MS,
+      interval: 5
+    })
 
     // kmeans 调用次数有上界：1 次初始成功 + 最多 3 次失败重试 = 4
     expect(kmeansCalls).toBeLessThanOrEqual(4)

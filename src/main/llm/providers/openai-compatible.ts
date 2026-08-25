@@ -313,9 +313,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       buildThinkingWireParams(
         this.compat.thinkingFormat,
         wantThinking,
-        wantThinking
-          ? (this.config.reasoningEffort as Exclude<ReasoningEffort, 'off'>)
-          : undefined
+        wantThinking ? (this.config.reasoningEffort as Exclude<ReasoningEffort, 'off'>) : undefined
       )
     )
 

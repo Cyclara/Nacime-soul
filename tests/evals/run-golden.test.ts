@@ -255,6 +255,8 @@ async function runCase(harness: GoldenHarness, c: GoldenCase): Promise<RunResult
 
 // === 测试主体 ===
 
+const GOLDEN_EVAL_TIMEOUT_MS = process.env.CI === 'true' ? 180_000 : 60_000
+
 describe('P2-44 Golden Eval v1（S-004-补充 §3.2）', () => {
   const { cases, byCategory } = loadAllCases()
   assertCaseIdUnique(cases)
@@ -275,27 +277,32 @@ describe('P2-44 Golden Eval v1（S-004-补充 §3.2）', () => {
     expect(byCategory.get('attribution-gate')).toHaveLength(7)
   })
 
-  // 82 例各建完整 harness（makeMemoryDb 跑全部迁移），全量跑约 8-10s；放宽超时避免 CI 抖动
-  it('全部 82 例结构性断言通过（CI 门禁：结构层 100%）', async () => {
-    for (const c of cases) {
-      const harness = await createGoldenHarness()
-      try {
-        const result = await runCase(harness, c)
-        if (!result.pass) {
-          failedCases.push({ caseId: c.caseId, category: c.category, failures: result.failures })
+  // 82 例各建完整 harness（makeMemoryDb 跑全部迁移）；GitHub Windows coverage runner
+  // 实测可超过 60s，CI 给 180s 仅用于容纳环境开销，本地仍保持 60s fail-fast。
+  it(
+    '全部 82 例结构性断言通过（CI 门禁：结构层 100%）',
+    async () => {
+      for (const c of cases) {
+        const harness = await createGoldenHarness()
+        try {
+          const result = await runCase(harness, c)
+          if (!result.pass) {
+            failedCases.push({ caseId: c.caseId, category: c.category, failures: result.failures })
+          }
+          report[c.caseId] = {
+            category: c.category,
+            pass: result.pass,
+            failures: result.failures,
+            rubric: c.rubric
+          }
+        } finally {
+          harness.cleanup()
         }
-        report[c.caseId] = {
-          category: c.category,
-          pass: result.pass,
-          failures: result.failures,
-          rubric: c.rubric
-        }
-      } finally {
-        harness.cleanup()
       }
-    }
-    expect(failedCases).toEqual([])
-  }, 60_000)
+      expect(failedCases).toEqual([])
+    },
+    GOLDEN_EVAL_TIMEOUT_MS
+  )
 
   it('rubric 报告落盘供人工评分（不阻塞 CI）', () => {
     fs.mkdirSync(REPORTS_DIR, { recursive: true })

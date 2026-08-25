@@ -68,7 +68,9 @@ describe('resolveInitialBounds（启动还原）', () => {
 
   it('x/y 在虚空中 -> 省略位置（交给 Electron 居中），宽高仍还原', () => {
     expect(
-      resolveInitialBounds({ width: 1260, height: 1040, x: 2560, y: 10, maximized: false }, [PRIMARY])
+      resolveInitialBounds({ width: 1260, height: 1040, x: 2560, y: 10, maximized: false }, [
+        PRIMARY
+      ])
     ).toEqual({ width: 1260, height: 1040 })
   })
 

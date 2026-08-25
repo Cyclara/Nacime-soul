@@ -299,9 +299,9 @@ describe('验收反馈⑥c ChatDeleteMessageRequest validator', () => {
   })
 
   it('缺字段 / 多余字段被拒绝', () => {
-    expect(
-      validateIpcPayload('companion:chat:delete-message', { sessionId: 'sess_01JG' })
-    ).toBe(false)
+    expect(validateIpcPayload('companion:chat:delete-message', { sessionId: 'sess_01JG' })).toBe(
+      false
+    )
     expect(
       validateIpcPayload('companion:chat:delete-message', {
         sessionId: 'sess_01JG',
@@ -351,9 +351,9 @@ describe('验收反馈⑦ ChatDeleteSelectedRequest / ChatClearSessionRequest va
   })
 
   it('clear-session 合法 payload 通过；缺字段/多余字段被拒绝', () => {
-    expect(
-      validateIpcPayload('companion:chat:clear-session', { sessionId: 'sess_01JG' })
-    ).toBe(true)
+    expect(validateIpcPayload('companion:chat:clear-session', { sessionId: 'sess_01JG' })).toBe(
+      true
+    )
     expect(validateIpcPayload('companion:chat:clear-session', {})).toBe(false)
     expect(
       validateIpcPayload('companion:chat:clear-session', {
@@ -1590,9 +1590,9 @@ describe('P2-29 memory/growth invoke validator', () => {
       validateIpcPayload('companion:memory:set-l0-field', { field: 'occupation', value: '工程师' })
     ).toBe(true)
     // 空串合法（= 清空字段）
-    expect(
-      validateIpcPayload('companion:memory:set-l0-field', { field: 'likes', value: '' })
-    ).toBe(true)
+    expect(validateIpcPayload('companion:memory:set-l0-field', { field: 'likes', value: '' })).toBe(
+      true
+    )
     // 蛇形字段名（白名单成员）
     expect(
       validateIpcPayload('companion:memory:set-l0-field', {

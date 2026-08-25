@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import path from 'node:path'
 
+const isCi = process.env.CI === 'true'
+
 export default defineConfig({
   plugins: [vue()], // M-31：组件测试需要转换 .vue SFC
   resolve: {
@@ -19,6 +21,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // GitHub Windows runner 只有有限 CPU/磁盘；coverage 下并行跑 SQLite、IVF worker 与
+    // 82 例 Golden harness 会互相争抢，造成断言未执行前的假超时。CI 串行文件并放宽
+    // 单测上限；本地仍保持默认并行 + 5s fail-fast。
+    ...(isCi ? { maxWorkers: 1, testTimeout: 120_000 } : {}),
     include: ['src/**/*.test.ts', 'src/**/*.integration.test.ts', 'tests/evals/**/*.test.ts'],
     exclude: ['node_modules', 'out', 'dist', 'tests/e2e'],
     coverage: {

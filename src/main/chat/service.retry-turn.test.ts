@@ -71,10 +71,7 @@ function makeCollector(): {
   return { events, sink, done }
 }
 
-function makeService(
-  faux: FauxProviderHandle,
-  sessionStore: SessionStore
-): ChatService {
+function makeService(faux: FauxProviderHandle, sessionStore: SessionStore): ChatService {
   return createChatService({
     logger: noopLogger(),
     promptLoader: makeTestLoader(),
@@ -125,7 +122,10 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
 
   it('失败轮重试成功：无新 user 行、同 turnId、旧 failed 行被删、只留最新 assistant', async () => {
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '昨晚那句', 'complete'))
-    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT'))
+    store.appendMessage(
+      sessionId,
+      row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT')
+    )
 
     const faux = createFauxProvider()
     faux.setResponses([{ type: 'text', text: '重新回答' }])
@@ -192,7 +192,10 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
 
   it('幂等：进行中同 clientRequestId 重投返回同一 ACK；终局后旧气泡已删 -> null', async () => {
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
-    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT'))
+    store.appendMessage(
+      sessionId,
+      row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT')
+    )
 
     const faux = createFauxProvider()
     faux.setResponses([{ type: 'text', text: '答', delayMs: 300 }])
@@ -201,8 +204,14 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
 
     // 第一轮还在流式（delayMs），同 clientRequestId 重投 -> 同一 ACK，不重复真跑
     const [ack1, ack2] = await Promise.all([
-      service.retryTurn({ sessionId, messageId: 'a1', clientRequestId: 'retry-a1' }, collector.sink),
-      service.retryTurn({ sessionId, messageId: 'a1', clientRequestId: 'retry-a1' }, makeCollector().sink)
+      service.retryTurn(
+        { sessionId, messageId: 'a1', clientRequestId: 'retry-a1' },
+        collector.sink
+      ),
+      service.retryTurn(
+        { sessionId, messageId: 'a1', clientRequestId: 'retry-a1' },
+        makeCollector().sink
+      )
     ])
     expect(ack2).toEqual(ack1)
     await collector.done
@@ -231,7 +240,10 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
 
   it('有 active turn 时拒绝：CHAT_BUSY', async () => {
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
-    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT'))
+    store.appendMessage(
+      sessionId,
+      row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT')
+    )
 
     const faux = createFauxProvider()
     // 第一轮 send 延迟 500ms，保证 retryTurn 撞 active
@@ -244,7 +256,10 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
     await service.send({ sessionId, text: '进行中', clientRequestId: 'c1' }, collector.sink)
 
     await expect(
-      service.retryTurn({ sessionId, messageId: 'a1', clientRequestId: 'retry-a1' }, makeCollector().sink)
+      service.retryTurn(
+        { sessionId, messageId: 'a1', clientRequestId: 'retry-a1' },
+        makeCollector().sink
+      )
     ).rejects.toMatchObject({ code: 'CHAT_BUSY' })
 
     await collector.done
@@ -252,7 +267,10 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
 
   it('重试再失败：旧失败行同样被删，一轮只留最新失败行（可继续点重试）', async () => {
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '问', 'complete'))
-    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT'))
+    store.appendMessage(
+      sessionId,
+      row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT')
+    )
 
     const faux = createFauxProvider()
     faux.setResponses([{ type: 'error', code: 'NET_TIMEOUT', afterChars: 0 }])
@@ -275,14 +293,20 @@ describe('ChatService.retryTurn（验收反馈④c：重试不增消息）', () 
 
   it('重试成功后 getTurnMessages 能取到配对（记忆提取不被旧失败行挡住）', async () => {
     store.appendMessage(sessionId, row('u1', sessionId, 't1', 'user', '我喜欢打游戏', 'complete'))
-    store.appendMessage(sessionId, row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT'))
+    store.appendMessage(
+      sessionId,
+      row('a1', sessionId, 't1', 'assistant', '', 'failed', 'NET_TIMEOUT')
+    )
 
     const faux = createFauxProvider()
     faux.setResponses([{ type: 'text', text: '你平时玩什么呀' }])
     const service = makeService(faux, store)
     const collector = makeCollector()
 
-    await service.retryTurn({ sessionId, messageId: 'a1', clientRequestId: 'retry-a1' }, collector.sink)
+    await service.retryTurn(
+      { sessionId, messageId: 'a1', clientRequestId: 'retry-a1' },
+      collector.sink
+    )
     await collector.done
 
     const pair = store.getTurnMessages(sessionId, 't1')
