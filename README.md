@@ -2,7 +2,7 @@
 
 Electron + Vue 3 + Pinia + better-sqlite3 + TypeScript 的桌面 AI 伴侣应用。
 
-> 项目总览、设计文档与审计记录见父仓库 `E:\github深度研究\`（README / CHANGELOG / docs/）。
+> 项目总览、设计文档与审计记录见父仓库。
 
 ## 功能
 
