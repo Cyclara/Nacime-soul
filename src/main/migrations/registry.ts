@@ -11,5 +11,9 @@ import { migration as m005 } from './scripts/005_dmae_turn_stats'
 import { migration as m006 } from './scripts/006_l2_source'
 import { migration as m007 } from './scripts/007_l2_pin_edit'
 import { migration as m008 } from './scripts/008_search_fts'
+import { migration as m009 } from './scripts/009_compliance_history'
+import { migration as m010 } from './scripts/010_dmae_prompt_truth'
+import { migration as m011 } from './scripts/011_gc_retention_metadata'
+import { migration as m012 } from './scripts/012_gc_log'
 
-export const MIGRATIONS: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008]
+export const MIGRATIONS: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012]

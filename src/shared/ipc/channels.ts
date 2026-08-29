@@ -30,6 +30,22 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:chat:clear-session',
   // ── P2-44：聊天记录全文搜索（FTS5，additive 新增）──
   'companion:chat:search',
+  // ── P3C1-07：合规用户反馈（F5-001 §3.7，additive 新增；幂等写入 compliance_feedback）──
+  'companion:chat:feedback',
+  // ── P3C1-08：合规调试快照（F5-001 §3.10，additive 新增；仅调试面板用，聚合量无正文）──
+  'companion:compliance:get-snapshot',
+  // ── P3A-05/06：仅 Live2D stage capability 可调用（不向 chat preload 暴露）──
+  'companion:stage:ready',
+  'companion:stage:report-state',
+  // ── P3A-23：chat renderer Live2D management ──
+  'companion:live2d:get-state',
+  'companion:live2d:choose-import-source',
+  'companion:live2d:select-model',
+  'companion:live2d:set-visible',
+  'companion:live2d:reset-window-placement',
+  // P3A-25：取景实时预览。只驱动 stage 视觉，不写 config；保存/放弃时由 main 归位。
+  'companion:live2d:preview-framing',
+  'companion:live2d:retry-load',
   'companion:debug:get-snapshot',
   'companion:debug:open-log-folder',
   // ── Phase 2：memory + growth（S-003-补充 §3.1：12 invoke）──
@@ -40,6 +56,10 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:memory:set-pinned',
   'companion:memory:soft-delete',
   'companion:memory:restore',
+  // ── P3G-04：回收站（GC soft_deleted 的唯一公开管理面）──
+  'companion:memory:list-recycle-bin',
+  'companion:memory:restore-from-recycle-bin',
+  'companion:memory:empty-recycle-bin',
   // ── M-44：记忆编辑（L2 内容 + L0 字段；additive 新增，不动既有通道）──
   'companion:memory:update-content',
   'companion:memory:set-l0-field',
@@ -71,7 +91,11 @@ export const IPC_EVENT_CHANNELS = [
   // ── Phase 2：记忆/成长跨进程同步唯一通知源（S-003-补充 §3.2）──
   'companion:event:memory-updated',
   // ── M-50：更新状态推送（main 侧 Updater 状态机 → renderer toast）──
-  'companion:event:update-status'
+  'companion:event:update-status',
+  // ── P3A-05/06：main → stage；只承载枚举命令，不接受任意 JSON 指令 ──
+  'companion:event:stage-command',
+  // ── P3A-23：main → chat renderer Live2D projection ──
+  'companion:event:live2d-state'
 ] as const
 
 export type IpcInvokeChannel = (typeof IPC_INVOKE_CHANNELS)[number]

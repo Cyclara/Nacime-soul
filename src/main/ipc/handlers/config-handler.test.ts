@@ -358,3 +358,89 @@ describe('M-34：config:get 的 hasApiKey 只认"存在且可读"', () => {
     expect(result.data?.model.hasApiKey).toBe(true)
   })
 })
+
+describe('CFG-PER-09：persona 经 handler 的公开快照一致（get/update 往返）', () => {
+  let tmpDir: string
+  let configPath: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nacime-cfg-persona-'))
+    configPath = path.join(tmpDir, 'config.json')
+    vi.mocked(ipcMain.handle).mockClear()
+    vi.mocked(ipcMain.removeHandler).mockClear()
+    configureIpcGuard(
+      { trustedOrigins: new Set(['http://localhost:5173']), trustedWebContentsIds: new Set([1]) },
+      noopLogger()
+    )
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('config:get 快照含 persona 默认；update 后快照/store/磁盘一致', async () => {
+    const configStore = createConfigStore({ configPath, logger: noopLogger() })
+    configStore.setup()
+    const secretStore = createMemorySecretStore()
+
+    registerConfigHandlers({
+      configStore,
+      secretStore,
+      logger: noopLogger(),
+      createTestFetch: () => globalThis.fetch
+    })
+
+    // get：公开快照携带 persona（gate.enabled=true / scope=observe / maxHoldMs=400）
+    const getHandlerFn = getHandler('companion:config:get')
+    const got = (await getHandlerFn(trustedEvent(), undefined)) as {
+      ok: boolean
+      data?: {
+        persona: {
+          compliance: {
+            gate: { enabled: boolean; scope: string; maxHoldMs: number }
+            audit: { sampleRate: number }
+          }
+        }
+      }
+    }
+    expect(got.ok).toBe(true)
+    expect(got.data?.persona.compliance.gate.enabled).toBe(true)
+    expect(got.data?.persona.compliance.gate.scope).toBe('observe')
+    expect(got.data?.persona.compliance.gate.maxHoldMs).toBe(400)
+    expect(got.data?.persona.compliance.audit.sampleRate).toBe(0.25)
+
+    // update：深层局部 patch 真写入
+    const updateHandler = getHandler('companion:config:update')
+    const request: ConfigUpdateRequest = {
+      expectedSchemaVersion: 1,
+      domains: {
+        persona: { compliance: { gate: { scope: 'off' }, audit: { recentTurnWindow: 5 } } }
+      }
+    }
+    const updated = (await updateHandler(trustedEvent(), request)) as {
+      ok: boolean
+      data?: {
+        persona: {
+          compliance: {
+            gate: { scope: string; enabled: boolean }
+            audit: { recentTurnWindow: number }
+          }
+        }
+      }
+    }
+    expect(updated.ok).toBe(true)
+    // 返回快照反映新值；同 patch 未触及的键保留
+    expect(updated.data?.persona.compliance.gate.scope).toBe('off')
+    expect(updated.data?.persona.compliance.gate.enabled).toBe(true)
+    expect(updated.data?.persona.compliance.audit.recentTurnWindow).toBe(5)
+
+    // store 与磁盘一致
+    expect(configStore.get().persona.compliance.gate.scope).toBe('off')
+    expect(configStore.get().persona.compliance.audit.recentTurnWindow).toBe(5)
+    const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      persona: { compliance: { gate: { scope: string }; audit: { recentTurnWindow: number } } }
+    }
+    expect(onDisk.persona.compliance.gate.scope).toBe('off')
+    expect(onDisk.persona.compliance.audit.recentTurnWindow).toBe(5)
+  })
+})

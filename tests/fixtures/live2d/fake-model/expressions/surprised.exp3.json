@@ -1,0 +1,8 @@
+{
+  "Version": 3,
+  "Type": "Live2D Expression",
+  "Parameters": [
+    { "Id": "ParamEyeLOpen", "Value": 1.2, "Blend": "Add" },
+    { "Id": "ParamMouthOpenY", "Value": 0.6, "Blend": "Add" }
+  ]
+}

@@ -164,7 +164,7 @@ function makeDmaeService(): DmaeEngineService {
     { activation: number; userSilence: number; modelSilence: number; everActivated: boolean }
   >()
   for (let i = 0; i < 20; i++)
-    states.set(`l2_1700000000000_m${i}`, {
+    states.set(`l2_${1700000000000}_m${i}`, {
       activation: i % 3 === 0 ? 45 : 10,
       userSilence: 0,
       modelSilence: 0,

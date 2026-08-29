@@ -11,6 +11,7 @@ import SelectionToolbar from './SelectionToolbar.vue'
 import ChatSearch from './ChatSearch.vue'
 import { useSettingsUiStore } from '../../stores/settings-ui'
 import { useChatStore } from '../../stores/chat'
+import Live2dPresenceButton from '../live2d/Live2dPresenceButton.vue'
 
 const router = useRouter()
 const settingsUi = useSettingsUiStore()
@@ -44,6 +45,7 @@ const presenceText = computed(() => PRESENCE_TEXT[presencePhase.value])
           </span>
           <!-- P2-44：聊天记录搜索入口（放大镜在标题旁，用户指定位置） -->
           <ChatSearch />
+          <Live2dPresenceButton />
         </div>
         <div class="header-actions">
           <button

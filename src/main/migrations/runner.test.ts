@@ -74,16 +74,16 @@ function paths(): { dir: string; dataDir: string; dbPath: string } {
 }
 
 describe('P2-02 001+002+003+004+005 fresh path', () => {
-  it('M-01: empty dir first start -> all tables, user_version=8, no backup', async () => {
+  it('M-01: empty dir first start -> all tables, user_version=10, no backup', async () => {
     const { dataDir, dbPath } = paths()
     const report = await makeRunner(dbPath, dataDir, MIGRATIONS).run()
 
     expect(report.ok).toBe(true)
-    expect(report.ran).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(report.ran).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
     expect(report.backupPath).toBeNull() // 全新用户不产生备份
 
     const db = new Database(dbPath)
-    expect(db.pragma('user_version', { simple: true })).toBe(8)
+    expect(db.pragma('user_version', { simple: true })).toBe(12)
     const tables = new Set(
       (
         db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{
@@ -118,12 +118,16 @@ describe('P2-02 001+002+003+004+005 fresh path', () => {
     for (const t of ['dmae_samples', 'dmae_turns', 'dmae_daily', 'dmae_annotations']) {
       expect(tables.has(t), `table ${t}`).toBe(true)
     }
-    // migrations_log 有八行审计记录（001 ~ 008）
-    expect(db.prepare(`SELECT COUNT(*) c FROM migrations_log`).get()).toEqual({ c: 8 })
+    // 009：合规审查三表存在（详细 schema 断言在 009_compliance_history.test.ts）
+    for (const t of ['compliance_samples', 'compliance_turns', 'compliance_feedback']) {
+      expect(tables.has(t), `table ${t}`).toBe(true)
+    }
+    // migrations_log 有十二行审计记录（001 ~ 012）
+    expect(db.prepare(`SELECT COUNT(*) c FROM migrations_log`).get()).toEqual({ c: 12 })
     db.close()
   })
 
-  it('M-02: repeat start is idempotent (no pending, version stays 8)', async () => {
+  it('M-02: repeat start is idempotent (no pending, version stays 10)', async () => {
     const { dataDir, dbPath } = paths()
     await makeRunner(dbPath, dataDir, MIGRATIONS).run()
     const report2 = await makeRunner(dbPath, dataDir, MIGRATIONS).run()
@@ -132,14 +136,14 @@ describe('P2-02 001+002+003+004+005 fresh path', () => {
     expect(report2.backupPath).toBeNull()
 
     const db = new Database(dbPath)
-    expect(db.pragma('user_version', { simple: true })).toBe(8)
+    expect(db.pragma('user_version', { simple: true })).toBe(12)
     db.close()
   })
 
-  it('plan() returns [1,2,3,4,5,6,7,8] on fresh, [] after applied', async () => {
+  it('plan() returns [1,2,3,4,5,6,7,8,9,10] on fresh, [] after applied', async () => {
     const { dataDir, dbPath } = paths()
     const runner = makeRunner(dbPath, dataDir, MIGRATIONS)
-    expect(runner.plan().map((p) => p.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(runner.plan().map((p) => p.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
     await runner.run()
     expect(makeRunner(dbPath, dataDir, MIGRATIONS).plan()).toEqual([])
   })
@@ -150,7 +154,7 @@ describe('P2-01 downgrade protection', () => {
     const { dataDir, dbPath } = paths()
     mkdirSync(dataDir, { recursive: true })
     const db = new Database(dbPath)
-    db.pragma('user_version = 9') // 高于 EXPECTED.db=8
+    db.pragma('user_version = 13') // 高于 EXPECTED.db=12
     db.close()
 
     await expect(makeRunner(dbPath, dataDir, MIGRATIONS).run()).rejects.toMatchObject({
@@ -170,10 +174,10 @@ describe('P2-01 backup / dry-run / restore', () => {
     db.prepare(`INSERT INTO l2_memories (id, content, confidence) VALUES ('A','rowA',0.9)`).run()
     db.close()
 
-    // 合成迁移：dry-run（第 1 次）通过，真跑（第 2 次）抛错。id=9（在 008 之后）
+    // 合成迁移：dry-run（第 1 次）通过，真跑（第 2 次）抛错。id=10（在 009 之后）
     let calls = 0
     const failing: Migration = {
-      id: 9,
+      id: 13,
       store: 'db',
       title: 'passes dry-run, throws on real run',
       up() {
@@ -187,12 +191,12 @@ describe('P2-01 backup / dry-run / restore', () => {
 
     const report = await makeRunner(dbPath, dataDir, [...MIGRATIONS, failing], () => 2_000).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(9)
+    expect(report.failedAt).toBe(13)
     expect(report.restored).toBe(true)
     expect(report.backupPath).not.toBeNull()
 
     db = new Database(dbPath)
-    expect(db.pragma('user_version', { simple: true })).toBe(8) // 版本回滚到 8（备份时已含 008）
+    expect(db.pragma('user_version', { simple: true })).toBe(12) // 版本回滚到 9（备份时已含 009）
     expect(db.prepare(`SELECT content FROM l2_memories WHERE id='A'`).get()).toEqual({
       content: 'rowA'
     })
@@ -207,7 +211,7 @@ describe('P2-01 backup / dry-run / restore', () => {
     db.close()
 
     const alwaysFails: Migration = {
-      id: 9,
+      id: 13,
       store: 'db',
       title: 'always throws (dry-run fails)',
       up() {
@@ -225,12 +229,12 @@ describe('P2-01 backup / dry-run / restore', () => {
       () => 2_000
     ).run()
     expect(report.ok).toBe(false)
-    expect(report.failedAt).toBe(9)
+    expect(report.failedAt).toBe(13)
     expect(report.ran).toEqual([]) // 真身未动
     expect(existsSync(sentinelPath(dataDir))).toBe(false) // 哨兵已清
 
     db = new Database(dbPath)
-    expect(db.pragma('user_version', { simple: true })).toBe(8)
+    expect(db.pragma('user_version', { simple: true })).toBe(12)
     expect(db.prepare(`SELECT content FROM l2_memories WHERE id='A'`).get()).toEqual({
       content: 'rowA'
     })

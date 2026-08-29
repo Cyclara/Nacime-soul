@@ -104,6 +104,18 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     touchSession: db.prepare(`UPDATE sessions SET updated_at = ? WHERE id = ?`),
     existsSession: db.prepare(`SELECT 1 AS one FROM sessions WHERE id = ?`),
     lastSession: db.prepare(`SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1`),
+    hasCompletedTurn: db.prepare(
+      `SELECT 1 AS one
+       FROM messages user_message
+       JOIN messages assistant_message
+         ON assistant_message.session_id = user_message.session_id
+        AND assistant_message.turn_id = user_message.turn_id
+       WHERE user_message.role = 'user'
+         AND user_message.turn_id IS NOT NULL
+         AND assistant_message.role = 'assistant'
+         AND assistant_message.status = 'complete'
+       LIMIT 1`
+    ),
     nextSeq: db.prepare(
       `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM messages WHERE session_id = ?`
     ),
@@ -317,6 +329,10 @@ export function createSQLiteSessionStore(deps: SQLiteSessionStoreDeps): SessionS
     getLastSessionId(): SessionId | null {
       const row = stmts.lastSession.get() as { id: string } | undefined
       return row?.id ?? null
+    },
+
+    hasCompletedTurn(): boolean {
+      return stmts.hasCompletedTurn.get() !== undefined
     },
 
     toView(message: ChatMessage): ChatMessageView {

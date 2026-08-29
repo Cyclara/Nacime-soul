@@ -13,6 +13,7 @@ import type {
   ConfigStore,
   DeepPartial
 } from '@shared/config/types'
+import { CONFIG_DOMAINS } from '@shared/config/types'
 import { AppError } from '@shared/errors'
 import { AppConfigSchema } from './schema'
 import { DEFAULT_CONFIG_V1, deepFreeze } from './defaults'
@@ -112,15 +113,18 @@ function issuesToDiagnostics(
   }))
 }
 
-/** 检测 oldConfig 与 newConfig 之间第一个变化的域 */
-function detectChangedDomain(old: AppConfigV1, next: AppConfigV1): ConfigDomain {
-  const domains: ConfigDomain[] = ['model', 'tts', 'memory', 'ui', 'security']
-  for (const d of domains) {
+/**
+ * 检测 oldConfig 与 newConfig 之间第一个变化的域。
+ * 域遍历由 CONFIG_DOMAINS 派生（开工裁定 §2.2，禁止人工域数组）；
+ * 无域变化时返回 null——旧实现兜底返回 'model' 会把"无变化"误报成 model 域事件。
+ */
+function detectChangedDomain(old: AppConfigV1, next: AppConfigV1): ConfigDomain | null {
+  for (const d of CONFIG_DOMAINS) {
     if (JSON.stringify(old[d]) !== JSON.stringify(next[d])) {
       return d
     }
   }
-  return 'model'
+  return null
 }
 
 interface Resolver {
@@ -359,7 +363,11 @@ class ConfigStoreImpl implements ConfigStore {
     const oldConfig = this.current
     this.current = newConfig
 
-    this.emit({ domain: detectChangedDomain(oldConfig, newConfig), config: newConfig })
+    // 无域变化（等值重写）不发事件——detectChangedDomain 返回 null 时跳过 emit
+    const changedDomain = detectChangedDomain(oldConfig, newConfig)
+    if (changedDomain !== null) {
+      this.emit({ domain: changedDomain, config: newConfig })
+    }
     return newConfig
   }
 

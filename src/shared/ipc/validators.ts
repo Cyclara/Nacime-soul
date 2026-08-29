@@ -12,6 +12,9 @@ import type { IpcEventChannel } from './channels'
 import type { IpcEventMap } from './contracts'
 import type { MemoryUpdatedEvent } from '../memory/types'
 import type { UpdateStatus } from '../update/types'
+import type { Live2dStageCommand } from '../live2d/stage-types'
+import type { Live2dStateEvent } from '../live2d/public-types'
+import { LIVE2D_LOAD_ERROR_CODES } from '../live2d/types'
 
 // === 工具函数（main 的 invoke validator 也复用）===
 
@@ -64,6 +67,10 @@ export function isId(value: unknown, opts?: { maxLen?: number }): value is strin
   const maxLen = opts?.maxLen ?? 200
   if (value.length < 1 || value.length > maxLen) return false
   return /^[A-Za-z0-9._:-]+$/.test(value)
+}
+
+function isLive2dModelId(value: unknown): value is string {
+  return isId(value, { maxLen: 128 })
 }
 
 /** URL 校验：必须是有效 URL。协议由调用方检查 */
@@ -195,7 +202,97 @@ function isMemoryUpdatedEvent(value: unknown): value is MemoryUpdatedEvent {
   return true
 }
 
-/** M-50：UpdateStatus 联合验证（companion:event:update-status 载荷） */
+/** P3A-23：Live2D state projection event（仅元数据，不含绝对路径/模型正文） */
+function isLive2dModelListItem(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['id', 'displayName', 'source', 'cubismVersion', 'expressionCount', 'motionCount', 'hasMouthOpen', 'warnings'])) return false
+  return (
+    isLive2dModelId(value.id) &&
+    isString(value.displayName, { minLen: 1, maxLen: 128 }) &&
+    (value.source === 'builtin' || value.source === 'user') &&
+    isNumber(value.cubismVersion, { min: 3, max: 5, integer: true }) &&
+    isNumber(value.expressionCount, { min: 0, max: 512, integer: true }) &&
+    isNumber(value.motionCount, { min: 0, max: 4096, integer: true }) &&
+    isBoolean(value.hasMouthOpen) &&
+    Array.isArray(value.warnings) &&
+    value.warnings.length <= 64 &&
+    value.warnings.every((warning) => isString(warning, { minLen: 1, maxLen: 128 }))
+  )
+}
+
+function isLive2dLoadError(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['code', 'retryable', 'suggestedAction'])) return false
+  return (
+    typeof value.code === 'string' && (LIVE2D_LOAD_ERROR_CODES as readonly string[]).includes(value.code) &&
+    isBoolean(value.retryable) &&
+    (value.suggestedAction === 'retry' || value.suggestedAction === 'choose-model' || value.suggestedAction === 'use-default' || value.suggestedAction === 'update-driver')
+  )
+}
+
+function isLive2dStateEvent(value: unknown): value is Live2dStateEvent {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['models', 'selectedModelId', 'loadedModelId', 'window', 'loading', 'lastError', 'revision', 'lastEventSequence', 'sequence'])) return false
+  if (!isNumber(value.revision, { min: 0, integer: true }) || !isNumber(value.lastEventSequence, { min: 0, integer: true }) || !isNumber(value.sequence, { min: 0, integer: true })) return false
+  if (!Array.isArray(value.models) || value.models.length > 512 || !value.models.every(isLive2dModelListItem)) return false
+  if (value.selectedModelId !== null && !isLive2dModelId(value.selectedModelId)) return false
+  if (value.loadedModelId !== null && !isLive2dModelId(value.loadedModelId)) return false
+  if (!isBoolean(value.loading)) return false
+  if (value.lastError !== null && !isLive2dLoadError(value.lastError)) return false
+  if (!isPlainObject(value.window) || !hasOnlyKeys(value.window, ['visible', 'alwaysOnTop', 'zoom', 'offsetX', 'offsetY', 'stageStatus'])) return false
+  return (
+    isBoolean(value.window.visible) &&
+    isBoolean(value.window.alwaysOnTop) &&
+    isNumber(value.window.zoom, { min: 0.25, max: 3 }) &&
+    isNumber(value.window.offsetX, { min: -100, max: 100 }) &&
+    isNumber(value.window.offsetY, { min: -100, max: 100 }) &&
+    ['closed', 'starting', 'loading-model', 'ready', 'degraded', 'error'].includes(String(value.window.stageStatus))
+  )
+}
+
+/** expression 名单来自模型作者，属外部数据：数量与单条长度都要有界。 */
+function isExpressionNameList(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 64 &&
+    value.every((name) => isString(name, { minLen: 1, maxLen: 64 }))
+  )
+}
+
+function isStageCommand(value: unknown): value is Live2dStageCommand {
+  if (!isPlainObject(value) || typeof value.type !== 'string') return false
+  switch (value.type) {
+    case 'load-model':
+      return (
+        hasOnlyKeys(value, ['type', 'modelUrl', 'expressionNames']) &&
+        isString(value.modelUrl, { minLen: 1, maxLen: 2048 }) &&
+        (value.expressionNames === undefined || isExpressionNameList(value.expressionNames))
+      )
+    case 'set-emotion':
+      return hasOnlyKeys(value, ['type', 'emotion']) && ['neutral', 'smile', 'happy', 'surprised', 'sad', 'angry', 'shy', 'confused'].includes(String(value.emotion))
+    case 'set-zoom':
+      return hasOnlyKeys(value, ['type', 'zoom']) && isNumber(value.zoom, { min: 0.25, max: 3 })
+    case 'set-offset':
+      return (
+        hasOnlyKeys(value, ['type', 'offsetX', 'offsetY']) &&
+        isNumber(value.offsetX, { min: -100, max: 100 }) &&
+        isNumber(value.offsetY, { min: -100, max: 100 })
+      )
+    case 'resize':
+      return (
+        hasOnlyKeys(value, ['type', 'width', 'height']) &&
+        isNumber(value.width, { min: 1, max: 8_192 }) &&
+        isNumber(value.height, { min: 1, max: 8_192 })
+      )
+    case 'pause':
+    case 'resume':
+    case 'dispose':
+      return hasOnlyKeys(value, ['type'])
+    default:
+      return false
+  }
+}
+
 function isUpdateStatus(value: unknown): value is UpdateStatus {
   if (!isPlainObject(value)) return false
   if (typeof value.state !== 'string') return false
@@ -245,6 +342,10 @@ export function validateEventPayload<K extends IpcEventChannel>(
       return isMemoryUpdatedEvent(payload)
     case 'companion:event:update-status':
       return isUpdateStatus(payload)
+    case 'companion:event:stage-command':
+      return isStageCommand(payload)
+    case 'companion:event:live2d-state':
+      return isLive2dStateEvent(payload)
     default:
       return false
   }

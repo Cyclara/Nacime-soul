@@ -80,6 +80,10 @@ export interface RecordTurnInput {
   sampleEveryTurns: number
   /** 用户关注的 memory ID 集合（面板 [关注] 按钮） */
   watchedIds: ReadonlySet<string>
+  /** PromptBudgeter 最终保留的 L2 memoryId；undefined = 未进入预算路径。 */
+  promptIncludedIds?: readonly string[]
+  /** PromptBudgeter 最终裁掉的 L2 memoryId；undefined = 未进入预算路径。 */
+  promptTrimmedIds?: readonly string[]
 }
 
 export interface DmaeHistoryStoreOptions {
@@ -94,12 +98,13 @@ export function createDmaeHistoryStore(opts: DmaeHistoryStoreOptions): DmaeHisto
   const insertTurn = db.prepare(`
     INSERT OR REPLACE INTO dmae_turns (
       turn, ts, eligible_active, retrieval_hits, prompt_selected, max_active,
+      prompt_included, prompt_trimmed, prompt_included_ids_json, prompt_trimmed_ids_json,
       user_hits, model_hits, model_hits_gated,
       model_reward_raw_sum, model_reward_effective_sum, total_decay,
       floor_revivals, true_floor_revivals, params_hash,
       dormant, archived, l2_total, activation_sum, activation_count,
       activation_median, archived_transitions
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   const insertSample = db.prepare(`
@@ -175,9 +180,11 @@ export function createDmaeHistoryStore(opts: DmaeHistoryStoreOptions): DmaeHisto
     DELETE FROM dmae_turns WHERE ts < ?
   `)
 
-  function recordTurn(input: RecordTurnInput): void {
+  function recordTurnUnchecked(input: RecordTurnInput): void {
     const { turn, ts, diagnostics, selection, counts, params, sampleEveryTurns, watchedIds } = input
     const l2Total = input.l2Total
+    const promptIncludedIds = input.promptIncludedIds
+    const promptTrimmedIds = input.promptTrimmedIds
 
     const paramsHash = computeParamsHash(params)
 
@@ -192,6 +199,10 @@ export function createDmaeHistoryStore(opts: DmaeHistoryStoreOptions): DmaeHisto
       retrievalHits: selection?.retrievalHits ?? 0,
       promptSelected: selection?.promptSelected ?? 0,
       maxActive: selection?.maxActive ?? 0,
+      promptIncluded: promptIncludedIds === undefined ? null : promptIncludedIds.length,
+      promptTrimmed: promptTrimmedIds === undefined ? null : promptTrimmedIds.length,
+      promptIncludedIds: promptIncludedIds === undefined ? null : [...new Set(promptIncludedIds)],
+      promptTrimmedIds: promptTrimmedIds === undefined ? null : [...new Set(promptTrimmedIds)],
       userHits: diagnostics.entries.filter((e) => e.userHit).length,
       modelHits: diagnostics.entries.filter((e) => e.modelHit).length,
       modelHitsGated: diagnostics.modelHitsGated,
@@ -218,6 +229,10 @@ export function createDmaeHistoryStore(opts: DmaeHistoryStoreOptions): DmaeHisto
       turnRecord.retrievalHits,
       turnRecord.promptSelected,
       turnRecord.maxActive,
+      turnRecord.promptIncluded,
+      turnRecord.promptTrimmed,
+      turnRecord.promptIncludedIds === null ? null : JSON.stringify(turnRecord.promptIncludedIds),
+      turnRecord.promptTrimmedIds === null ? null : JSON.stringify(turnRecord.promptTrimmedIds),
       turnRecord.userHits,
       turnRecord.modelHits,
       turnRecord.modelHitsGated,
@@ -374,6 +389,10 @@ export function createDmaeHistoryStore(opts: DmaeHistoryStoreOptions): DmaeHisto
     return { samplesDeleted, turnsDeleted }
   }
 
+  const recordTurn = db.transaction((input: RecordTurnInput): void => {
+    recordTurnUnchecked(input)
+  })
+
   return {
     recordTurn,
     querySamples,
@@ -435,6 +454,16 @@ function rowToSamplePoint(row: Record<string, unknown>): DmaeSamplePoint {
   }
 }
 
+function parseMemoryIds(value: unknown): readonly string[] | null {
+  if (typeof value !== 'string') return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) && parsed.every((id) => typeof id === 'string') ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function rowToTurnRecord(row: Record<string, unknown>): DmaeTurnRecord {
   return {
     turn: row.turn as number,
@@ -443,6 +472,10 @@ function rowToTurnRecord(row: Record<string, unknown>): DmaeTurnRecord {
     retrievalHits: row.retrieval_hits as number,
     promptSelected: row.prompt_selected as number,
     maxActive: row.max_active as number,
+    promptIncluded: (row.prompt_included as number | null) ?? null,
+    promptTrimmed: (row.prompt_trimmed as number | null) ?? null,
+    promptIncludedIds: parseMemoryIds(row.prompt_included_ids_json),
+    promptTrimmedIds: parseMemoryIds(row.prompt_trimmed_ids_json),
     userHits: row.user_hits as number,
     modelHits: row.model_hits as number,
     modelHitsGated: row.model_hits_gated as number,

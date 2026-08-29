@@ -184,8 +184,17 @@ describe('C-γ-2 DMAE hook：sessionId 透传', () => {
       counts: { active: 2, dormant: 1, archived: 0 },
       l2Total: 42 // 修复前恒 0
     })
+    // P3X-01：最终预算保留/裁掉真值由 TurnEndData 透传；selected 不冒充 injected。
+    hook.fn({ event: 'turn.end' }, makeTurnEnd({
+      promptIncludedMemoryIds: ['m-actual'],
+      promptTrimmedMemoryIds: ['m-dropped']
+    }))
+    expect(recordTurnSpy.mock.calls.at(-1)![0]).toMatchObject({
+      promptIncludedIds: ['m-actual'],
+      promptTrimmedIds: ['m-dropped']
+    })
     // 每轮都聚合同日（修复前只在日期变化时聚合）
-    expect(aggregateDailySpy).toHaveBeenCalledTimes(2)
+    expect(aggregateDailySpy).toHaveBeenCalledTimes(3)
   })
 
   it('P2: save 失败 -> 不记录历史（激活未落盘，历史行不能谎称持久化）', () => {

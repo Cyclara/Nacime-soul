@@ -11,6 +11,7 @@ import { useConfigStore } from '../stores/config'
 import { useChatStore } from '../stores/chat'
 import ChatShell from '../components/chat/ChatShell.vue'
 import FirstRunGuide from '../components/onboarding/FirstRunGuide.vue'
+import StartupTransition, { type StartupStage } from '../components/onboarding/StartupTransition.vue'
 
 const appStore = useAppStore()
 const configStore = useConfigStore()
@@ -23,12 +24,18 @@ const isFirstRunCompleted = ref(false)
 const needsOnboarding = computed(() => {
   if (isFirstRunCompleted.value) return false
   if (!configState.value.draft) return true
-  return !configState.value.draft.model.hasApiKey
+  return configState.value.draft.ui.onboarding.stage !== 'complete'
 })
 
 const isLoading = computed(
-  () => appState.value.bootStage === 'idle' || appState.value.bootStage === 'loading-config'
+  () => appState.value.bootStage === 'idle' || appState.value.bootStage === 'loading-config' || appState.value.bootStage === 'registering-events'
 )
+const startupStage = computed<StartupStage>(() => {
+  if (appState.value.fatalError) return 'blocked'
+  if (appState.value.bootStage === 'ready') return 'ready'
+  if (appState.value.bootStage === 'registering-events') return 'checking-data'
+  return 'preparing-memory'
+})
 
 function onFirstRunComplete(text: string): void {
   isFirstRunCompleted.value = true
@@ -39,10 +46,10 @@ function onFirstRunComplete(text: string): void {
 
 <template>
   <div class="chat-view">
-    <div v-if="isLoading" class="loading" role="status" aria-live="polite">
-      <div class="spinner"></div>
-      <p>正在加载...</p>
-    </div>
+    <StartupTransition
+      v-if="isLoading"
+      :stage="startupStage"
+    />
     <div v-else-if="appState.fatalError" class="fatal-error" role="alert">
       <p>{{ appState.fatalError.message }}</p>
       <button class="retry-btn" @click="appStore.reset()">重试</button>

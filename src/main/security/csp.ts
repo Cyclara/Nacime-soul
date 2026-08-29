@@ -16,12 +16,12 @@ import type { Session } from 'electron'
  *  - img-src 'self' data:：渲染进程只需本地图片和 data URI。
  */
 export const CSP_HEADER_VALUE =
-  "default-src 'self'; " +
-  "script-src 'self'; " +
+  "default-src 'self' nacime-live2d:; " +
+  "script-src 'self' nacime-live2d:; " +
   "style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; " +
+  "img-src 'self' data: nacime-live2d:; " +
   "font-src 'self'; " +
-  "connect-src 'self'; " +
+  "connect-src 'self' nacime-live2d:; " +
   "media-src 'none'; " +
   "object-src 'none'; " +
   "frame-src 'none'; " +
@@ -35,14 +35,14 @@ export const CSP_HEADER_VALUE =
  * electron-vite HMR 需要 ws:// 连接到 localhost。
  */
 export const CSP_HEADER_VALUE_DEV =
-  "default-src 'self'; " +
-  "script-src 'self'; " +
+  "default-src 'self' nacime-live2d:; " +
+  "script-src 'self' nacime-live2d:; " +
   // HMR 可能需要 eval（Vue devtools 热重载）
   "style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; " +
+  "img-src 'self' data: nacime-live2d:; " +
   "font-src 'self'; " +
   // 开发环境放开 ws:// 和 localhost 连接（HMR）
-  "connect-src 'self' ws://localhost:* http://localhost:*; " +
+  "connect-src 'self' nacime-live2d: ws://localhost:* http://localhost:*; " +
   "media-src 'none'; " +
   "object-src 'none'; " +
   "frame-src 'none'; " +

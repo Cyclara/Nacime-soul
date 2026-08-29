@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // P2-46: 设置模态抽屉。遵循 S-006：设置不占路由，renderer settingsUi 控制开关与 section。
-// 四个正式分区均复用既有 config store/IPC；高级分区在没有真实功能前保持隐藏。
+// 四个正式分区均复用既有 config store/IPC；高级分区仅开发构建显示（F5-001 C0-5）。
 
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -12,6 +12,8 @@ import ModelSettingsSection from './ModelSettingsSection.vue'
 import MemorySettingsSection from './MemorySettingsSection.vue'
 import SecuritySettingsSection from './SecuritySettingsSection.vue'
 import AboutSection from './AboutSection.vue'
+import AdvancedSection from './AdvancedSection.vue'
+import Live2dSettingsSection from './Live2dSettingsSection.vue'
 
 const settingsUi = useSettingsUiStore()
 const configStore = useConfigStore()
@@ -23,7 +25,7 @@ const showDiscardConfirm = ref(false)
 let previousFocus: HTMLElement | null = null
 
 const NAV_ITEMS: Array<{
-  id: Exclude<SettingsSection, 'advanced'>
+  id: SettingsSection
   label: string
   marker: string
   description: string
@@ -31,12 +33,25 @@ const NAV_ITEMS: Array<{
   { id: 'model', label: '模型', marker: '01', description: '连接与回应方式' },
   { id: 'memory', label: '记忆', marker: '02', description: '记住与淡忘' },
   { id: 'appearance', label: '外观', marker: '03', description: '主题与视觉' },
-  { id: 'security', label: '安全', marker: '04', description: '隐私与诊断' },
-  { id: 'about', label: '关于', marker: '05', description: '版本与更新' }
+  { id: 'live2d', label: '角色', marker: '04', description: '形象与在场感' },
+  { id: 'security', label: '安全', marker: '05', description: '隐私与诊断' },
+  { id: 'about', label: '关于', marker: '06', description: '版本与更新' },
+  // C0-5：高级分区仅开发构建进入导航（生产构建 settings-ui 同步拦截 advanced）
+  ...(import.meta.env.DEV
+    ? [
+        {
+          id: 'advanced' as const,
+          label: '高级',
+          // 角色分区插入后编号整体后移；高级仍排在关于（06）之后。
+          marker: '07',
+          description: '开发者诊断（仅开发构建）'
+        }
+      ]
+    : [])
 ]
 
-const resolvedSection = computed<Exclude<SettingsSection, 'advanced'>>(() =>
-  activeSection.value === 'advanced' ? 'appearance' : activeSection.value
+const resolvedSection = computed<SettingsSection>(() =>
+  activeSection.value === 'advanced' && !import.meta.env.DEV ? 'appearance' : activeSection.value
 )
 const currentNav = computed(
   () => NAV_ITEMS.find((item) => item.id === resolvedSection.value) ?? NAV_ITEMS[2]
@@ -181,7 +196,9 @@ onBeforeUnmount(() => {
               <ModelSettingsSection v-if="resolvedSection === 'model'" />
               <MemorySettingsSection v-else-if="resolvedSection === 'memory'" />
               <AppearanceSection v-else-if="resolvedSection === 'appearance'" />
+              <Live2dSettingsSection v-else-if="resolvedSection === 'live2d'" />
               <AboutSection v-else-if="resolvedSection === 'about'" />
+              <AdvancedSection v-else-if="resolvedSection === 'advanced'" />
               <SecuritySettingsSection v-else />
             </div>
           </main>

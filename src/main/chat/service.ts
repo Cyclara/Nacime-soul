@@ -24,6 +24,9 @@ import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import type { Logger } from '@shared/observability/types'
 import { AppError, isAppError, type ErrorCode } from '@shared/errors'
+import type { ComplianceDecisionRecord } from '@shared/compliance/types'
+import type { ComplianceGate, ComplianceGateOutcome } from '../compliance/gate'
+import { capComplianceRecords } from '../compliance/gate'
 import type {
   ChatMessage,
   ChatHistorySnapshot,
@@ -43,6 +46,7 @@ import type { SessionStore } from './session-store'
 import { formatTimePrefix } from './datetime-prefix'
 import { hashIdempotencyText, type IdempotencyLedger } from './idempotency-ledger'
 import { getTracer } from '../observability/tracer'
+import type { SpanHandle } from '../observability/tracer'
 import { getMetrics } from '../observability/metrics'
 
 // === 类型定义 ===
@@ -64,6 +68,28 @@ export interface DynamicPromptDeps {
   contextAssembler: PromptContextAssembler
 }
 
+/**
+ * P3C1-08: 合规观测集成（F5-001 §3.5/§3.11 + 开工裁定 1.1/1.2/1.4）。
+ * 由 setupCompliance 构造注入；未注入（Phase 1 单测）时全旁路。
+ * gate.enabled=false / scope='off' 时集成层返回 Null Object——ChatService
+ * 不写 enabled/disabled 分支（F5-001 §5 边界条件：单一代码路径）。
+ */
+export interface ChatComplianceIntegration {
+  /** 每轮创建一个 gate（含 live config 读取；C1 一轮一个 attempt 一个 gate，不复用）。 */
+  createGate(turnId: string, candidateId: string): ComplianceGate
+  /**
+   * TURN_END 时点收尾：compliance_turns 行 INSERT（§3.11 纪律 1：先建行，
+   * 审计/反馈是后来的 UPDATE）+ 跨轮熔断器 record + 时序遥测两列落库。
+   * 内部 fail-open：DB 写失败只 warn，绝不影响聊天终局。
+   */
+  recordTurnEnd(input: {
+    turnId: string
+    outcome: ComplianceGateOutcome
+    providerFirstDeltaMs: number | null
+    gateHoldMs: number | null
+  }): void
+}
+
 /** ChatService 依赖 */
 export interface ChatServiceDeps {
   logger: Logger
@@ -81,6 +107,10 @@ export interface ChatServiceDeps {
    * 走逃生门——删除记录按全新请求处理（防死轮次锁死重试）。
    */
   idempotencyLedger?: IdempotencyLedger
+  /**
+   * P3C1-08：合规观测集成。可选注入（生产由 setupCompliance 接线；测试可省略）。
+   */
+  compliance?: ChatComplianceIntegration
 }
 
 /** 事件接收器。ChatService 通过此回调发射 ChatStreamEvent */
@@ -176,6 +206,27 @@ export interface TurnEndData {
    * failed/cancelled/stopped/检索命中但被 budget 裁掉均传 []。
    */
   referencedMemoryIds: readonly string[]
+  /**
+   * PromptBudgeter 最终实际保留的 L2 memoryId；与 `referencedMemoryIds` 不同，失败/取消
+   * 轮也保留该预算真值，供 DMAE 区分“被选择”与“真正注入 Prompt”。
+   */
+  promptIncludedMemoryIds?: readonly string[]
+  /** PromptBudgeter 最终裁掉的 L2 memoryId；与 included 同源，供 DMAE 记录裁剪真值。 */
+  promptTrimmedMemoryIds?: readonly string[]
+  /**
+   * 逐命中合规决策记录（开工裁定 1.4）：与 `complianceGate` outcome 聚合（随 P3C1-08
+   * ChatService 集成落地）并列的新字段。只有 id/偏移/枚举/时序计数，**无正文**（§3.11 红线），
+   * 过 hook 总线安全。单轮上限 `COMPLIANCE_RECORDS_MAX_PER_TURN`=64，超出截断并把
+   * 截断条数写入 `complianceRecordsTruncated`。
+   */
+  /**
+   * 本轮门控汇总结论（P3C1-08 落地；F5-001 集成点「门控结论 -> TurnEndData.complianceGate
+   * -> 审计 hook」）。仅含聚合量（blocked/规则 ID/段数/耗时），**不含正文**（§3.11 红线）。
+   */
+  complianceGate?: ComplianceGateOutcome
+  complianceRecords?: readonly ComplianceDecisionRecord[]
+  /** `complianceRecords` 超单轮上限被截断的条数（裁定 1.4 #3：截断并计数）。 */
+  complianceRecordsTruncated?: number
 }
 
 // === 内部状态 ===
@@ -223,6 +274,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
   const { logger, promptLoader, sessionStore, providerFactory, getMemoryConfig, dynamicPrompt } =
     deps
   const idempotencyLedger = deps.idempotencyLedger
+  const compliance = deps.compliance
   const chatLogger = logger.child('chat')
 
   // active turns: requestId -> state
@@ -779,6 +831,18 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     // 最终预算保留的 L2 memoryId 列表（S-021 §1.6）。
     // 只在 memoryEligible=true 时才传非空给 turn.end；提前 return 路径保持 []。
     let includedMemoryIds: readonly string[] = []
+    let droppedMemoryIds: readonly string[] = []
+    // P3C1-08: 时序遥测三分量数据源（裁定 1.2：providerTTFB / gateHold / userTTFB）。
+    // providerFirstDeltaMs = 首个 delta 到达 - provider 调用起点；
+    // gateHoldMs = 首次非空放行 - 首个 delta 到达（observe 构造上恒 0）。
+    let providerFirstDeltaMs: number | null = null
+    let gateHoldMs: number | null = null
+    // P3C1-08: 门控与 span（try 内创建、finally 收尾——块作用域必须提到外层函数体）
+    let gate: ComplianceGate | undefined
+    let complianceSpan: SpanHandle | null = null
+    let providerStartAt = 0
+    let firstDeltaAt: number | null = null
+    let firstReleaseAt: number | null = null
 
     // P2-27: 开始一轮 trace（F5-011 §4 验收：连续 10 轮 -> 10 条完整 trace）
     const tracer = getTracer()
@@ -870,6 +934,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       // 记录最终保留的 L2 memoryId（供 turn.end 时 referencedMemoryIds 用）
       // 只在 memoryEligible=true 时才传非空；此处先暂存，最后按门决定
       includedMemoryIds = budgetReport.includedMemoryIds
+      droppedMemoryIds = budgetReport.droppedMemoryIds
       promptSpan.end(true)
 
       if (budgetReport.historyRemoved > 0 || budgetReport.styleRemoved) {
@@ -930,6 +995,15 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         return
       }
 
+      // === P3C1-08: 合规门控（每轮一个实例；C1 observe 直通）===
+      // gate 由集成层构造：enabled=false / scope='off' 时是 Null Object 直通实现
+      // （F5-001 §5：ChatService 不写 enabled/disabled 分支，单一代码路径）。
+      // candidateId 一轮一次生成尝试一个（C1 无真 block 时与 turn 一一对应；C3 起每 attempt 新建）。
+      gate = compliance?.createGate(turnId, randomUUID())
+      // F5-001 §3.9：一轮恰好一个 compliance.review span（绝不能每 segment 一个）。
+      complianceSpan = gate === undefined ? null : tracer.startSpan('compliance.review', turnId)
+      providerStartAt = performance.now()
+
       // === provider stream ===
       // P2-26/27: llm.call span + LLM 指标（calls/errors/latencyMs/tokens）
       const metrics = getMetrics()
@@ -944,9 +1018,38 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           if (turnState) armStallWatchdog(turnState, requestId)
 
           if (chunk.type === 'delta') {
-            accumulated += chunk.text
-            sink({ type: 'chunk', requestId, sequence, delta: chunk.text })
-            sequence++
+            // gateHold 是「因门控持留而多等的时间」，不是同步正则计算 CPU 耗时。
+            // 因此首个 delta 内已经放行时构造上为 0（C1 observe 必经此路径，裁定 1.1）；
+            // 不能用 performance.now() 的微小调用间隔冒充用户可感知的 hold。
+            // 空 delta 不代表 provider 给用户送达了首字；与 gate.ts 的 firstDeltaAt
+            // 语义对齐：TTFB 与 gateHold 都从首个**非空** delta 计时。否则 provider
+            // 在空 chunk 后的等待会被错误归因到 gate（C1 observe 实际没有持留）。
+            const isFirstDelta = chunk.text.length > 0 && firstDeltaAt === null
+            if (isFirstDelta) {
+              firstDeltaAt = performance.now()
+              providerFirstDeltaMs = Math.round(firstDeltaAt - providerStartAt)
+            }
+            // P3C1-08: 双缓冲门控（裁定 1.1）——releaseText 是唯一权威输出，调用方
+            // 不得自行拼接原 delta。observe 下逐字直通；accumulated 只累计放行文本
+            // （§5 边界：memoryEligible = accumulated.trim().length > 0 语义自动正确）。
+            const emission = gate === undefined ? null : gate.push(chunk.text)
+            // C1 observe 恒 false；C3 真阻断在此中止流（provider 清理靠 for-await break 语义）
+            if (emission?.abort) break
+            const releaseText = emission === null ? chunk.text : emission.releaseText
+            // 空串跳过 sink（F5-001 §3.5 改动点 3）
+            if (releaseText.length > 0) {
+              accumulated += releaseText
+              if (firstReleaseAt === null) {
+                firstReleaseAt = performance.now()
+                gateHoldMs = isFirstDelta
+                  ? 0
+                  : firstDeltaAt === null
+                    ? null
+                    : Math.round(firstReleaseAt - firstDeltaAt)
+              }
+              sink({ type: 'chunk', requestId, sequence, delta: releaseText })
+              sequence++
+            }
           } else if (chunk.type === 'reasoning') {
             accumulatedReasoning += chunk.text
             sink({ type: 'reasoning', requestId, sequence, delta: chunk.text })
@@ -954,6 +1057,23 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           } else if (chunk.type === 'usage') {
             inputTokens = chunk.inputTokens
             outputTokens = chunk.outputTokens
+          }
+        }
+        // P3C1-08: 流结束——flush 输出缓冲（EOF 段动作一律降级 flag，永不真 abort）。
+        // observe 下 outputHeld 恒空（releaseText 为空串），flush 只做 EOF 段分析；
+        // 首段门控（C2+）在此吐出持有文本。异常路径（catch 内 return）不 flush，
+        // takeRecords 按 EOF 定格影子首段（gate 合同）。
+        if (gate !== undefined) {
+          const emission = gate.flush()
+          if (emission.releaseText.length > 0) {
+            accumulated += emission.releaseText
+            if (firstReleaseAt === null) {
+              firstReleaseAt = performance.now()
+              gateHoldMs =
+                firstDeltaAt === null ? null : Math.round(firstReleaseAt - firstDeltaAt)
+            }
+            sink({ type: 'chunk', requestId, sequence, delta: emission.releaseText })
+            sequence++
           }
         }
         // P2-26/27: llm.call span 成功结束 + latencyMs observe
@@ -1167,6 +1287,26 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
 
       // === turn.end hook（独立扩展点，始终执行）===
       // Phase 2 记忆提取（MemoryJudge）在此接入
+      // === P3C1-08: 合规收尾（turn.end hook 之前）===
+      // 纪律（§3.11 + 裁定 1.4 #4）：turns 行此刻先 INSERT（集成层内部 fail-open）；
+      // samples 由 350 审计 hook 第一步批写；审计结果与用户反馈是后来的 UPDATE。
+      let complianceGateOutcome: ComplianceGateOutcome | undefined
+      let complianceRecordsOut: readonly ComplianceDecisionRecord[] | undefined
+      let complianceRecordsTrunc: number | undefined
+      if (gate !== undefined && compliance !== undefined) {
+        complianceGateOutcome = gate.outcome()
+        const capped = capComplianceRecords(gate.takeRecords())
+        if (capped.records.length > 0) complianceRecordsOut = capped.records
+        if (capped.truncated > 0) complianceRecordsTrunc = capped.truncated
+        compliance.recordTurnEnd({
+          turnId,
+          outcome: complianceGateOutcome,
+          providerFirstDeltaMs,
+          gateHoldMs
+        })
+      }
+      complianceSpan?.end(true)
+
       const turnEndData: TurnEndData = {
         turnId,
         sessionId,
@@ -1175,9 +1315,17 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         inputLen: sanitizedText.length,
         outputLen: accumulated.length,
         memoryEligible,
-        // S-021 §1.6：只有 memoryEligible=true 才传非空 includedMemoryIds
+        // S-021 §1.6：只有 memoryEligible=true 才传非空 referencedMemoryIds。
+        // DMAE 同时接收不依赖终局状态的最终预算真值，不能用 selected 集合冒充它。
         referencedMemoryIds: memoryEligible ? includedMemoryIds : [],
-        ...(errorCode !== undefined ? { errorCode } : {})
+        promptIncludedMemoryIds: includedMemoryIds,
+        promptTrimmedMemoryIds: droppedMemoryIds,
+        ...(errorCode !== undefined ? { errorCode } : {}),
+        ...(complianceGateOutcome !== undefined ? { complianceGate: complianceGateOutcome } : {}),
+        ...(complianceRecordsOut !== undefined ? { complianceRecords: complianceRecordsOut } : {}),
+        ...(complianceRecordsTrunc !== undefined
+          ? { complianceRecordsTruncated: complianceRecordsTrunc }
+          : {})
       }
 
       try {

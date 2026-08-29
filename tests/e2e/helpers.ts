@@ -1,8 +1,10 @@
-// E2E 测试辅助函数：临时 userData 目录管理 + 预写配置
+// E2E 测试辅助函数：临时 userData 目录管理 + 预写配置 + 进程树收尾
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { execFileSync } from 'node:child_process'
+import type { ElectronApplication } from '@playwright/test'
 
 /** Phase 1 默认配置（与 defaults.ts 一致） */
 export const E2E_DEFAULT_CONFIG = {
@@ -89,6 +91,10 @@ export const E2E_DEFAULT_CONFIG = {
     theme: 'light',
     fontScale: 1,
     reduceMotion: false,
+    // S-014 之后引导阶段由 config 驱动：不显式声明就会被 healing 成 provider-setup，
+    // 有 Key 但历史为空的 E2E 会停在「第一次见面」而不是聊天输入框。这些用例演的是
+    // 老用户，所以固定为 complete；首次引导链路由 onboarding 专项用例覆盖。
+    onboarding: { version: 1, stage: 'complete' },
     window: { width: 900, height: 720, maximized: false },
     chat: { sendOnEnter: true, showTimestamps: false, showReasoning: true },
     live2d: { enabled: false, zoom: 1, alwaysOnTop: true }
@@ -167,9 +173,27 @@ export function writeFakeApiKey(dir: string): void {
   )
 }
 
+/**
+ * 关闭被测 Electron 应用。
+ *
+ * 不能直接用 `ElectronApplication.close()`：Windows 上隐藏的 GPU 子进程会持有 CDP 管道，
+ * close() 可能一直挂到用例超时，再连累同 worker 的其他用例判 teardown timeout——通过的
+ * 用例也会被标红。这里直接杀进程树，再给系统一点时间释放 userData 里的 SQLite/WAL 句柄。
+ */
+export async function shutdownApp(app: ElectronApplication): Promise<void> {
+  try {
+    execFileSync('taskkill', ['/PID', String(app.process().pid), '/T', '/F'])
+  } catch {
+    await app.process().kill()
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 300))
+}
+
 /** 清理临时目录 */
 export function cleanupTmpDir(dir: string): void {
-  fs.rmSync(dir, { recursive: true, force: true })
+  // Electron 子进程在 Windows 上会短暂持有 userData 的 SQLite/WAL 句柄；kill 后重试，
+  // 避免清理竞态把已通过的 E2E 误判失败。
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
 }
 
 /**

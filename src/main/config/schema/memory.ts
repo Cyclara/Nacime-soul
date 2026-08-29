@@ -144,6 +144,28 @@ export const HistorySampleEveryTurnsSchema = v.pipe(
  * 既有 9 字段 + P2-31.5A 四字段（presets/anomaly/historySampleEveryTurns）。
  * 默认值严格为 100/30/20/0.5/8/0.3/1.5/0.3。
  */
+const GcPolicySchema = v.strictObject({
+  archiveToSoftDeleteDays: v.strictObject({
+    one_off: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(7), v.maxValue(365)),
+    situational: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(14), v.maxValue(730)),
+    stable: v.null()
+  }),
+  softDeleteToPurgeDays: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(7), v.maxValue(365)),
+  recentAccessGraceDays: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(7), v.maxValue(365)),
+  anchorImportanceMin: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(10)),
+  maxPurgePerRun: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(500)),
+  schedule: v.strictObject({
+    idleMinutes: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(60)),
+    minIntervalHours: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(168)),
+    eagerCountThreshold: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(100), v.maxValue(100_000))
+  }),
+  monthlyDigest: v.boolean(),
+  coldStorage: v.strictObject({
+    enabled: v.boolean(),
+    dir: v.pipe(v.string(), v.minLength(1), v.maxLength(128), v.regex(/^data\/cold$/))
+  })
+})
+
 const DmaeConfigSchema = v.strictObject({
   enabled: v.boolean(),
   maxScore: v.literal(100),
@@ -180,7 +202,8 @@ export const MemoryConfigSchema = v.object({
   maxActive: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(50)),
   minRetrievalScore: v.pipe(v.number(), v.finite(), v.minValue(-1), v.maxValue(1)),
   attributionGate: AttributionGateConfigSchema,
-  dmae: DmaeConfigSchema
+  dmae: DmaeConfigSchema,
+  gc: GcPolicySchema
 })
 
 // re-export ANOMALY_RULE_IDS 供测试/诊断模块按 id 集合核对

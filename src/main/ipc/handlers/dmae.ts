@@ -16,6 +16,7 @@ import type { DmaeDiagnosticsService } from '../../memory/dmae/diagnostics'
 import { registerValidatedHandler } from '../register'
 import type { MemoryConfig } from '@shared/config/types'
 import type {
+  DmaePanelRequest,
   DmaeTrendRequest,
   DmaeExplainRequest,
   DmaeBenchmarkRequest,
@@ -53,7 +54,7 @@ export function registerDmaeHandlers(deps: DmaeHandlerDeps): void {
   }
 
   // === companion:dmae:get-panel ===
-  registerValidatedHandler('companion:dmae:get-panel', async (): Promise<DmaePanelSnapshot> => {
+  registerValidatedHandler('companion:dmae:get-panel', async (_ctx, input): Promise<DmaePanelSnapshot> => {
     if (disabled()) {
       // disabled 时返回 enabled=false 的空快照（面板显示引导态）
       return {
@@ -75,10 +76,15 @@ export function registerDmaeHandlers(deps: DmaeHandlerDeps): void {
           eligibleActiveCount: 0,
           lastRetrievalHits: 0,
           lastPromptSelectedCount: 0,
+          lastPromptIncludedCount: null,
+          lastPromptTrimmedCount: null,
           lastPromptSelectedIds: [],
           maxActive: 15
         },
         activeSet: [],
+        nextEligibleCursor: null,
+        activeSetPaginated: false,
+        eligibleCursorReset: false,
         anomalies: [],
         lastBenchmark: null,
         lastQualitative: null,
@@ -92,7 +98,7 @@ export function registerDmaeHandlers(deps: DmaeHandlerDeps): void {
         }
       }
     }
-    return diagnostics!.getPanelSnapshot()
+    return diagnostics!.getPanelSnapshot((input ?? {}) as DmaePanelRequest)
   })
 
   // === companion:dmae:get-trend ===

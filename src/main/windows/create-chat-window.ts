@@ -71,7 +71,12 @@ export function createChatWindow(opts?: { windowState?: WindowState }): BrowserW
   // 右键菜单在 renderer（AppContextMenu.vue，验收反馈⑤ 主题化；M-38 原生菜单已被替代）
 
   win.on('ready-to-show', () => {
-    win.show()
+    if (win.isDestroyed()) return
+    try {
+      win.show()
+    } catch {
+      // ready-to-show 与窗口关闭可能竞态；不可让已销毁窗口升级为 main 崩溃。
+    }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

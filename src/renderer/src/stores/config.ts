@@ -20,7 +20,8 @@ import type {
   TtsConfig,
   MemoryConfig,
   UiConfig,
-  SecurityConfig
+  SecurityConfig,
+  PersonaConfig
 } from '@shared/config/types'
 import type { DeepPartial } from '@shared/config/types'
 import { ANOMALY_RULE_IDS } from '@shared/memory/dmae-config'
@@ -131,6 +132,24 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   /**
+   * F5-001 C0（patchDmae 同款模式）：persona.compliance 嵌套草稿 merge。
+   * gate/audit 子对象做二级展开，避免连续改两个键时后一次覆盖前一次的子对象。
+   */
+  function patchPersonaCompliance(patch: DeepPartial<PersonaConfig['compliance']>): void {
+    if (!state.draft) return
+    const current = state.draft.persona.compliance
+    // 解构排除 gate/audit：由下面的嵌套 merge 单独处理
+    const { gate: patchGate, audit: patchAudit, ...restPatch } = patch
+    const next = {
+      ...current,
+      ...restPatch,
+      gate: patchGate ? { ...current.gate, ...patchGate } : current.gate,
+      audit: patchAudit ? { ...current.audit, ...patchAudit } : current.audit
+    } as PersonaConfig['compliance']
+    state.draft.persona = { ...state.draft.persona, compliance: next }
+  }
+
+  /**
    * 设置 API Key。写入模块闭包，不进入 reactive state。
    * 由组件 @input 直接调用。
    */
@@ -169,7 +188,8 @@ export const useConfigStore = defineStore('config', () => {
         tts: { ...plainDraft.tts } as Partial<TtsConfig>,
         memory: { ...plainDraft.memory } as Partial<MemoryConfig>,
         ui: { ...plainDraft.ui } as Partial<UiConfig>,
-        security: { ...plainDraft.security } as Partial<SecurityConfig>
+        security: { ...plainDraft.security } as Partial<SecurityConfig>,
+        persona: { ...plainDraft.persona } as DeepPartial<PersonaConfig>
       }
 
       // 删除 hasApiKey/validated/supportsThinking（不是 ModelConfig 字段，属于 PublicModelConfig 扩展）
@@ -290,6 +310,7 @@ export const useConfigStore = defineStore('config', () => {
     load,
     patch,
     patchDmae,
+    patchPersonaCompliance,
     setApiKey,
     save,
     testConnection,

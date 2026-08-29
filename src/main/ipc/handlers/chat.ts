@@ -14,6 +14,7 @@
 //   companion:chat:delete-selected -> service.deleteSelected（验收反馈⑦ 批量按轮删除）
 //   companion:chat:clear-session -> service.clearSession（验收反馈⑦ 清空会话）
 //   companion:chat:search        -> deps.searchMessages（P2-44 FTS5 全文搜索）
+//   companion:chat:feedback      -> deps.recordFeedback（P3C1-07 合规用户反馈，F5-001 §3.7）
 //
 // 安全红线：
 //   - 聊天正文不写 IPC 日志（只记通道、长度、requestId、耗时）
@@ -23,6 +24,8 @@
 import type { WebContents } from 'electron'
 import type { Logger } from '@shared/observability/types'
 import type { ChatSearchHit, ChatStreamEvent } from '@shared/chat/types'
+import type { ChatFeedbackRequest } from '@shared/compliance/types'
+import type { ComplianceFeedbackOutcome } from '../../compliance/feedback'
 import type { ChatService } from '../../chat/service'
 import { registerValidatedHandler, sendEvent } from '../register'
 
@@ -35,6 +38,12 @@ export interface ChatHandlerDeps {
    * 测试可注入桩。query/limit 已过 validator（query 1..128，limit 1..100）。
    */
   searchMessages: (query: string, limit?: number) => ChatSearchHit[]
+  /**
+   * P3C1-07：合规用户反馈（F5-001 §3.7）。生产绑定 compliance feedback service；
+   * 测试可注入桩。幂等与关联校验语义在 service 内（重复/语义性忽略均返回非插入 outcome，
+   * handler 对外恒 {ok:true}--不向 renderer 泄漏差异）。
+   */
+  recordFeedback: (request: ChatFeedbackRequest) => ComplianceFeedbackOutcome
 }
 
 /**
@@ -182,6 +191,20 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
       metrics: { queryLen: payload.query.length, hits: hits.length }
     })
     return hits
+  })
+
+  // === companion:chat:feedback ===
+  // P3C1-07：合规用户反馈（F5-001 §3.7）。幂等：重复上报/语义性忽略（无 turns 行、
+  // 消息关联不匹配）对外一律 {ok:true}--方向语义（dislike/OOC）与计数在 service 内。
+  // 红线：日志只记元数据（kind/outcome/turnId），不记消息正文。
+  registerValidatedHandler('companion:chat:feedback', async (_ctx, payload) => {
+    const outcome = deps.recordFeedback(payload)
+    chatLogger.debug('chat feedback', {
+      scope: 'compliance',
+      turnId: payload.turnId,
+      tags: { kind: payload.kind, status: outcome.status }
+    })
+    return { ok: true }
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

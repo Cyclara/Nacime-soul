@@ -82,6 +82,8 @@ export interface SessionStore {
   updateMessage(sessionId: SessionId, messageId: MessageId, patch: Partial<ChatMessage>): void
   /** 最近活跃会话（P2-43 启动恢复）。空库/无会话返回 null */
   getLastSessionId(): SessionId | null
+  /** 是否至少存在一轮 user + complete assistant 的真实已完成对话（P3A-29 onboarding 兼容推断）。 */
+  hasCompletedTurn(): boolean
   /** 将内部 ChatMessage 转为 renderer 安全的 ChatMessageView */
   toView(message: ChatMessage): ChatMessageView
 }
@@ -204,6 +206,20 @@ export function createMemorySessionStore(): SessionStore {
 
     getLastSessionId(): SessionId | null {
       return lastTouched
+    },
+
+    hasCompletedTurn(): boolean {
+      for (const messages of sessions.values()) {
+        const completedAssistantTurnIds = new Set(
+          messages
+            .filter((message) => message.role === 'assistant' && message.status === 'complete' && message.turnId !== undefined)
+            .map((message) => message.turnId!)
+        )
+        if (messages.some((message) => message.role === 'user' && message.turnId !== undefined && completedAssistantTurnIds.has(message.turnId))) {
+          return true
+        }
+      }
+      return false
     },
 
     toView: chatMessageToView

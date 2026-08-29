@@ -13,7 +13,7 @@
 // key 不回传由单元测试覆盖（config handler 的 toPublicSnapshot 只返回 hasApiKey）。
 
 import { test, expect, _electron as electron } from '@playwright/test'
-import { createTmpUserData, cleanupTmpDir, createElectronEnv } from './helpers'
+import { createTmpUserData, cleanupTmpDir, createElectronEnv, shutdownApp } from './helpers'
 
 test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () => {
   const tmpDir = createTmpUserData()
@@ -50,7 +50,7 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
       })
     })
   } finally {
-    await app.close()
+    await shutdownApp(app)
   }
 
   // === 第二次启动：验证配置已保存（跳过引导）===
@@ -65,15 +65,29 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
   try {
     const win = await app2.firstWindow()
 
-    // 验证跳过引导（textarea 出现 = hasApiKey=true = 配置已保存）
-    await win.waitForSelector('textarea', { timeout: 30_000 })
-    expect(await win.isVisible('textarea')).toBe(true)
-
-    // 验证引导不再显示
+    // S-014 之后「有 Key」不再等于「直接进聊天」：本例用 IPC 直存配置、没走引导 UI，
+    // 因此引导阶段仍是 provider-setup，重启后 resolver 判为 configured-empty-history，
+    // 落在「第一次见面」。真正要守的不变量是——配置跨重启仍在，且不再要求重填连接表单。
+    await win.waitForSelector('.first-conversation', { timeout: 30_000 })
     const guideVisible = await win.isVisible('input[placeholder="https://api.deepseek.com"]')
     expect(guideVisible).toBe(false)
+
+    const persisted = await win.evaluate(async () => {
+      const current = await window.companion.config.get()
+      if (!current.ok) return null
+      return {
+        hasApiKey: current.data.model.hasApiKey,
+        baseUrl: current.data.model.baseUrl,
+        model: current.data.model.model
+      }
+    })
+    expect(persisted).toEqual({
+      hasApiKey: true,
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash'
+    })
   } finally {
-    await app2.close()
+    await shutdownApp(app2)
     cleanupTmpDir(tmpDir)
   }
 })

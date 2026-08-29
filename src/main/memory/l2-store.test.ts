@@ -62,11 +62,11 @@ describe('P2-07 L2Store', () => {
     expect(store.count({ syncStatus: 'synced' })).toBe(1)
   })
 
-  it('touch increments accessCount', () => {
+  it('touch increments accessCount and records the latest access timestamp for GC grace', () => {
     const mem = store.add({ content: 'x', confidence: 0.5 })
     store.touch(mem.id)
     store.touch(mem.id)
-    expect(store.get(mem.id)?.accessCount).toBe(2)
+    expect(store.get(mem.id)).toMatchObject({ accessCount: 2, lastAccessedAt: 1710000000000 })
   })
 
   it('remove deletes the row', () => {

@@ -11,10 +11,12 @@ const props = defineProps<{
   entries: readonly DmaeActiveSetEntry[]
   density: DensityMode
   maxActive: number
+  hasMore?: boolean
 }>()
 
 const emit = defineEmits<{
   select: [memoryId: string]
+  loadMore: []
 }>()
 
 const hasEntries = computed(() => props.entries.length > 0)
@@ -62,7 +64,8 @@ function trendLabel(trend: 'rising' | 'falling' | 'stable'): string {
             <span v-if="entry.decayExempt" class="exempt-badge" title="重要度满级，不会自然淡忘"
               >🔒 不会淡忘</span
             >
-            <span v-if="entry.selectedLastTurn" class="selected-badge">上一轮送进思考</span>
+            <span v-if="entry.selectedLastTurn" class="selected-badge">上一轮选中</span>
+            <span v-if="entry.injectedLastTurn" class="injected-badge">最终注入</span>
             <span class="trend-badge" :class="'trend-' + entry.trend">
               {{ trendIcon(entry.trend) }} {{ trendLabel(entry.trend) }}
             </span>
@@ -101,6 +104,7 @@ function trendLabel(trend: 'rising' | 'falling' | 'stable'): string {
         </div>
       </li>
     </ul>
+    <button v-if="hasMore" type="button" class="load-more" @click="emit('loadMore')">加载更多有资格的记忆</button>
   </section>
 </template>
 
@@ -227,6 +231,7 @@ function trendLabel(trend: 'rising' | 'falling' | 'stable'): string {
 
 .exempt-badge,
 .selected-badge,
+.injected-badge,
 .trend-badge {
   min-height: 20px;
   padding: 2px 7px;
@@ -247,6 +252,27 @@ function trendLabel(trend: 'rising' | 'falling' | 'stable'): string {
   background: var(--color-accent-soft);
   color: var(--color-accent);
 }
+
+.injected-badge {
+  border-color: color-mix(in srgb, var(--color-state-active) 18%, transparent);
+  background: var(--color-state-active-bg);
+  color: var(--color-state-active);
+}
+
+.load-more {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-xs);
+}
+
+.load-more:hover { background: var(--color-surface); }
 
 .trend-badge {
   color: var(--color-text-muted);

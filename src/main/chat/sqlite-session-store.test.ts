@@ -65,6 +65,19 @@ describe('P2-43 SQLiteSessionStore：CRUD 与内存语义等价', () => {
     expect(store.getLastSessionId()).toBe(a)
   })
 
+  it('hasCompletedTurn 只承认同 turn 的 user + complete assistant，空 session 或中断轮不算历史', () => {
+    const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
+    const sid = store.createSession()
+    expect(store.hasCompletedTurn()).toBe(false)
+
+    store.appendMessage(sid, makeMessage({ id: 'u1', sessionId: sid, turnId: 't1' }))
+    store.appendMessage(sid, makeMessage({ id: 'a1', sessionId: sid, role: 'assistant', turnId: 't1', status: 'failed' }))
+    expect(store.hasCompletedTurn()).toBe(false)
+
+    store.updateMessage(sid, 'a1', { status: 'complete', content: '回复' })
+    expect(store.hasCompletedTurn()).toBe(true)
+  })
+
   it('getTurnMessages：assistant 非 complete 返回 null', () => {
     const store = createSQLiteSessionStore({ db: t.db, logger: testNoopLogger })
     const sid = 's-1'

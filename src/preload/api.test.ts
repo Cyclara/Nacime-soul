@@ -234,7 +234,7 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(typeof companionApi.window.onState).toBe('function')
   })
 
-  it('chat namespace 恰好 11 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession，P2-44 增 search）', () => {
+  it('chat namespace 恰好 12 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession，P2-44 增 search，P3C1-07 增 feedback）', () => {
     expect(Object.keys(companionApi.chat).sort()).toEqual(
       [
         'cancel',
@@ -243,6 +243,7 @@ describe('S-004 #35: API 只暴露固定通道', () => {
         'deleteMessage',
         'deleteSelected',
         'deleteTurn',
+        'feedback',
         'getLastSession',
         'list',
         'onStream',
@@ -251,6 +252,34 @@ describe('S-004 #35: API 只暴露固定通道', () => {
         'send'
       ].sort()
     )
+  })
+
+  it('chat.feedback 固定调用 companion:chat:feedback（P3C1-07）', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { ok: true } })
+    const result = await companionApi.chat.feedback({
+      sessionId: 's1',
+      turnId: 't1',
+      messageId: 'm1',
+      kind: 'dislike'
+    })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:feedback', {
+      sessionId: 's1',
+      turnId: 't1',
+      messageId: 'm1',
+      kind: 'dislike'
+    })
+    expect(result).toEqual({ ok: true, data: { ok: true } })
+  })
+
+  it('compliance namespace 恰好 1 invoke 方法（P3C1-08；无 event 通道--审查不可见原则）', () => {
+    expect(Object.keys(companionApi.compliance).sort()).toEqual(['getSnapshot'])
+  })
+
+  it('compliance.getSnapshot 固定调用 companion:compliance:get-snapshot（P3C1-08）', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { gateEnabled: true, gateScope: 'observe' } })
+    const result = await companionApi.compliance.getSnapshot()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:compliance:get-snapshot', undefined)
+    expect(result).toEqual({ ok: true, data: { gateEnabled: true, gateScope: 'observe' } })
   })
 
   it('chat.deleteSelected 固定调用 companion:chat:delete-selected', async () => {
@@ -301,7 +330,7 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:get-last-session', undefined)
   })
 
-  it('memory namespace 恰好 11 invoke 方法 + onUpdated（S-003-补充 §3.6 + M-44 编辑 2 方法）', () => {
+  it('memory namespace 含 P3G 回收站三通道与固定白名单方法', () => {
     const memoryKeys = Object.keys(companionApi.memory).sort()
     expect(memoryKeys).toEqual(
       [
@@ -311,8 +340,11 @@ describe('S-004 #35: API 只暴露固定通道', () => {
         'getL0',
         'getOverview',
         'listL2',
+        'listRecycleBin',
         'onUpdated',
         'restore',
+        'restoreFromRecycleBin',
+        'emptyRecycleBin',
         'setL0Field',
         'setPinned',
         'softDelete',

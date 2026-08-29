@@ -25,7 +25,13 @@ export default defineConfig({
     // 82 例 Golden harness 会互相争抢，造成断言未执行前的假超时。CI 串行文件并放宽
     // 单测上限；本地仍保持默认并行 + 5s fail-fast。
     ...(isCi ? { maxWorkers: 1, testTimeout: 120_000 } : {}),
-    include: ['src/**/*.test.ts', 'src/**/*.integration.test.ts', 'tests/evals/**/*.test.ts'],
+    include: [
+      'src/**/*.test.ts',
+      'src/**/*.integration.test.ts',
+      'tests/evals/**/*.test.ts',
+      // P3-00C：Phase 3 测试夹具的自测（helpers 本身不是测试，只收 *.test.ts）
+      'tests/helpers/**/*.test.ts'
+    ],
     exclude: ['node_modules', 'out', 'dist', 'tests/e2e'],
     coverage: {
       provider: 'istanbul',

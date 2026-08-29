@@ -1,0 +1,4 @@
+Live2D Cubism Core for Web
+Official source: https://cubism.live2d.com/sdk-web/core/live2dcubismcore.min.js
+License: https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html
+Bundled solely to render the licensed Mao/Hiyori Cubism model data.

@@ -36,9 +36,10 @@ function makeSnapshot(): PublicConfigSnapshot {
       theme: 'system',
       fontScale: 1,
       reduceMotion: false,
+      onboarding: { version: 1, stage: 'provider-setup' },
       window: { width: 900, height: 720, maximized: false },
       chat: { sendOnEnter: true, showTimestamps: false, showReasoning: true },
-      live2d: { enabled: false, zoom: 1, alwaysOnTop: true }
+      live2d: { enabled: false, zoom: 1, alwaysOnTop: true, offsetX: 0, offsetY: 0 }
     },
     tts: {
       enabled: false,
@@ -110,6 +111,27 @@ function makeSnapshot(): PublicConfigSnapshot {
       allowHttpLocalhostInDev: true,
       diagnostics: { logLevel: 'info', retentionDays: 7, maxTotalMb: 50 },
       privacy: { includeCrashDumpsInExport: false, monthlyGcDigest: false }
+    },
+    persona: {
+      compliance: {
+        gate: {
+          enabled: true,
+          scope: 'observe',
+          firstSegmentMinChars: 32,
+          segmentMaxChars: 512,
+          budgetMs: 30,
+          maxRegenerations: 1,
+          maxHoldMs: 400
+        },
+        audit: {
+          enabled: true,
+          sampleRate: 0.25,
+          timeoutMs: 20_000,
+          recentTurnWindow: 3
+        },
+        disabledRuleIds: [],
+        debugCaptureText: false
+      }
     }
   }
 }
@@ -321,5 +343,64 @@ describe('P2-31.5A CFG-DMAE-10: patchDmae 嵌套草稿 merge', () => {
     store.patchDmae({ presets: [preset] })
     expect(store.state.draft!.memory.dmae.presets).toHaveLength(1)
     expect(store.state.draft!.memory.dmae.presets[0].id).toBe('preset.user.test')
+  })
+})
+
+describe('CFG-PER-12: patchPersonaCompliance 嵌套草稿 merge', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    setupCompanionApi()
+  })
+
+  it('连续改 gate.enabled 与 audit.sampleRate，两个草稿值都保留', async () => {
+    const store = useConfigStore()
+    await store.load()
+
+    store.patchPersonaCompliance({ gate: { enabled: false } })
+    store.patchPersonaCompliance({ audit: { sampleRate: 0.5 } })
+
+    const compliance = store.state.draft!.persona.compliance
+    expect(compliance.gate.enabled).toBe(false)
+    expect(compliance.audit.sampleRate).toBe(0.5)
+    // 未改的键保留
+    expect(compliance.gate.scope).toBe('observe')
+    expect(compliance.gate.maxHoldMs).toBe(400)
+    expect(compliance.audit.recentTurnWindow).toBe(3)
+    // saved 不动
+    expect(store.state.saved!.persona.compliance.gate.enabled).toBe(true)
+    expect(store.isDirty).toBe(true)
+  })
+
+  it('gate 内连续改两键不互覆盖；disabledRuleIds 整体替换', async () => {
+    const store = useConfigStore()
+    await store.load()
+
+    store.patchPersonaCompliance({ gate: { maxHoldMs: 600 } })
+    store.patchPersonaCompliance({ gate: { budgetMs: 20 } })
+    store.patchPersonaCompliance({ disabledRuleIds: ['R-MR-01'] })
+
+    const compliance = store.state.draft!.persona.compliance
+    expect(compliance.gate.maxHoldMs).toBe(600)
+    expect(compliance.gate.budgetMs).toBe(20)
+    expect(compliance.disabledRuleIds).toEqual(['R-MR-01'])
+  })
+
+  it('save 的 domains 携带 persona 全量', async () => {
+    const { config, snapshot } = setupCompanionApi()
+    config.update.mockImplementation(async (request) => ({
+      ok: true,
+      data: { ...snapshot, persona: request.domains.persona }
+    }))
+
+    const store = useConfigStore()
+    await store.load()
+    store.patchPersonaCompliance({ gate: { enabled: false } })
+
+    await expect(store.save()).resolves.toBe(true)
+    expect(config.update).toHaveBeenCalledOnce()
+    const personaDomain = config.update.mock.calls[0][0].domains.persona
+    expect(personaDomain.compliance.gate.enabled).toBe(false)
+    expect(personaDomain.compliance.gate.scope).toBe('observe')
+    expect(personaDomain.compliance.audit.sampleRate).toBe(0.25)
   })
 })

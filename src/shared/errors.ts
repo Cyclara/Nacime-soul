@@ -37,6 +37,9 @@ export type ErrorCode =
   | 'CHAT_BUSY'
   | 'CHAT_CONTEXT_TOO_LARGE'
   | 'CHAT_INTERRUPTED'
+  | 'CMPL_GATE_DEGRADED'
+  | 'CMPL_PROVIDER_FAIL'
+  | 'CMPL_RULE_INVALID'
   | 'UNKNOWN'
 
 export type ErrorSeverity = 'fatal' | 'error' | 'warn'

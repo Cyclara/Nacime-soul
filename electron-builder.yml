@@ -10,6 +10,9 @@ files:
   - resources/prompts/**
   - resources/seeds/**
   - resources/growth/**
+  # P3A-11：内置 Mao/Hiyori 模型与随包许可；stage 仅经 nacime-live2d:// 安全读取。
+  - resources/live2d/**
+  - assets/tray/**
 asar: true
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'

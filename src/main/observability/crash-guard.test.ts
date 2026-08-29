@@ -23,6 +23,7 @@ vi.mock('electron', () => ({
   }
 }))
 
+import { app } from 'electron'
 import { createCrashGuard, type CrashGuardConfig } from './crash-guard'
 
 function makeLogger(overrides: Partial<Logger> = {}): Logger & { fatals: string[] } {
@@ -79,6 +80,7 @@ describe('M-37 crash-guard 致命崩溃退出路径', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crash-guard-'))
     appExit.mockClear()
+    vi.mocked(app.on).mockClear()
     vi.useFakeTimers()
   })
 
@@ -179,6 +181,23 @@ describe('M-37 crash-guard 致命崩溃退出路径', () => {
     } finally {
       guard.uninstall()
       processExit.mockRestore()
+    }
+  })
+
+  it('正常退出或非 chat renderer 关闭时不重建窗口', () => {
+    const createWindow = vi.fn()
+    const guard = createCrashGuard(makeConfig({
+      createWindow,
+      isQuitting: () => true,
+      shouldHandleRendererCrash: () => false
+    }))
+    guard.install()
+    try {
+      const handler = (vi.mocked(app.on).mock.calls as Array<[string, unknown]>).find(([event]) => event === 'render-process-gone')?.[1] as ((event: unknown, webContents: unknown, details: unknown) => void)
+      handler({}, { id: 2 }, { reason: 'crashed', exitCode: 1 })
+      expect(createWindow).not.toHaveBeenCalled()
+    } finally {
+      guard.uninstall()
     }
   })
 

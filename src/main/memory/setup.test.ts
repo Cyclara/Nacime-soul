@@ -108,7 +108,7 @@ describe('P2-10~15 memory infrastructure setup', () => {
     })
     // 无 API key -> extraction hook 不注册；但 DMAE hook + growth bridge + reference-tracker 仍注册
     expect(infra.hook).toBeNull()
-    expect(hookCount()).toBe(3) // reference-tracker（chat.message 150）+ growth-bridge（220）+ DMAE（300）；extraction 需 API key
+    expect(hookCount()).toBe(4) // reference-tracker（chat.message 150）+ growth-bridge（220）+ DMAE（300）；extraction 需 API key
     infra.cleanup()
   })
 
@@ -131,7 +131,7 @@ describe('P2-10~15 memory infrastructure setup', () => {
     // 有 API key -> extraction hook 注册；DMAE + growth bridge + reference-tracker 也注册
     expect(infra.hook).not.toBeNull()
     expect(infra.hook?.event).toBe('turn.end')
-    expect(hookCount()).toBe(4) // reference-tracker（chat.message 150）+ growth-bridge（220）+ extraction（250）+ dmae（300）
+    expect(hookCount()).toBe(5) // GC activity（199）+ reference-tracker（150）+ growth-bridge（220）+ extraction（250）+ dmae（300）
     // cleanup 不抛错（含 worker terminate + DB close）
     expect(() => infra.cleanup()).not.toThrow()
     // cleanup 后 hook 已注销（registry 清空）

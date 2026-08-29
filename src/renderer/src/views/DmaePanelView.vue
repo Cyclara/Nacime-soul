@@ -242,7 +242,9 @@ onUnmounted(() => {
           :entries="state.snapshot.activeSet"
           :density="state.densityMode"
           :max-active="state.snapshot.maxActive"
+          :has-more="state.nextEligibleCursor !== null"
           @select="dmaeStore.openEntry"
+          @load-more="dmaeStore.loadMoreEligible"
         />
 
         <!-- 参数编辑已迁移到设置抽屉；诊断页只保留观测与体检。 -->

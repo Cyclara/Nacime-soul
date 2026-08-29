@@ -29,6 +29,17 @@ import type {
   ChatSendAck
 } from '../shared/chat/types'
 import type {
+  ChatFeedbackRequest,
+  ChatFeedbackResponse,
+  ComplianceSnapshot
+} from '../shared/compliance/types'
+import type {
+  Live2dPublicSnapshot,
+  Live2dImportResult,
+  Live2dStateEvent,
+  Live2dFramingPreviewRequest
+} from '../shared/live2d/public-types'
+import type {
   ConfigUpdateRequest,
   ModelConnectionTestRequest,
   ConnectionTestResult,
@@ -39,6 +50,7 @@ import type { PublicAppError } from '../shared/errors'
 import type { DebugSnapshot } from '../shared/observability/types'
 import type {
   DmaeHistoryRequest,
+  DmaePanelRequest,
   DmaeHistoryResponse,
   DmaeSnapshotView,
   DmaeTrendRequest,
@@ -60,6 +72,10 @@ import type {
   MemoryOverview,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  RecycleBinEmptyRequest,
+  RecycleBinListRequest,
+  RecycleBinListResponse,
+  RecycleBinRestoreRequest,
   MemorySetL0FieldRequest,
   MemoryUpdateContentRequest,
   MemoryUpdatedEvent
@@ -248,8 +264,50 @@ export const companionApi: CompanionApi = Object.freeze({
         input as unknown as IpcInvokeMap['companion:chat:search']['req']
       )
     },
+    // P3C1-07：合规用户反馈（F5-001 §3.7）。幂等--重复上报只计一次；
+    // service 侧静默忽略无效关联，renderer 无需关心差异
+    feedback(input: ChatFeedbackRequest): Promise<IpcResult<ChatFeedbackResponse>> {
+      return typedInvoke(
+        'companion:chat:feedback',
+        input as unknown as IpcInvokeMap['companion:chat:feedback']['req']
+      )
+    },
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe {
       return typedSubscribe('companion:event:chat-stream', cb)
+    }
+  },
+
+  // ── P3C1-08：compliance（1 invoke，F5-001 §3.10；仅调试面板，无 event 通道）──
+  compliance: {
+    getSnapshot(): Promise<IpcResult<ComplianceSnapshot>> {
+      return typedInvoke('companion:compliance:get-snapshot', undefined)
+    }
+  },
+
+  live2d: {
+    getState(): Promise<IpcResult<Live2dPublicSnapshot>> {
+      return typedInvoke('companion:live2d:get-state', undefined)
+    },
+    chooseImportSource(): Promise<IpcResult<Live2dImportResult>> {
+      return typedInvoke('companion:live2d:choose-import-source', undefined)
+    },
+    selectModel(input: { modelId: string }): Promise<IpcResult<void>> {
+      return typedInvoke('companion:live2d:select-model', input)
+    },
+    setVisible(input: { visible: boolean }): Promise<IpcResult<void>> {
+      return typedInvoke('companion:live2d:set-visible', input)
+    },
+    resetWindowPlacement(): Promise<IpcResult<void>> {
+      return typedInvoke('companion:live2d:reset-window-placement', undefined)
+    },
+    previewFraming(input: Live2dFramingPreviewRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:live2d:preview-framing', input)
+    },
+    retryLoad(): Promise<IpcResult<void>> {
+      return typedInvoke('companion:live2d:retry-load', undefined)
+    },
+    onState(callback: (event: Live2dStateEvent) => void): Unsubscribe {
+      return typedSubscribe('companion:event:live2d-state', callback)
     }
   },
 
@@ -284,6 +342,15 @@ export const companionApi: CompanionApi = Object.freeze({
     },
     restore(input: MemoryRestoreRequest): Promise<IpcResult<void>> {
       return typedInvoke('companion:memory:restore', input)
+    },
+    listRecycleBin(input: RecycleBinListRequest): Promise<IpcResult<RecycleBinListResponse>> {
+      return typedInvoke('companion:memory:list-recycle-bin', input)
+    },
+    restoreFromRecycleBin(input: RecycleBinRestoreRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:memory:restore-from-recycle-bin', input)
+    },
+    emptyRecycleBin(input: RecycleBinEmptyRequest): Promise<IpcResult<{ purged: number }>> {
+      return typedInvoke('companion:memory:empty-recycle-bin', input)
     },
     // M-44：编辑 L2 记忆内容（走 store action → IPC → main；不乐观更新）
     updateContent(input: MemoryUpdateContentRequest): Promise<IpcResult<void>> {
@@ -320,8 +387,8 @@ export const companionApi: CompanionApi = Object.freeze({
 
   // ── Phase 2 P2-32：DMAE 面板（3 invoke，F5-002 §3.7）──
   dmae: {
-    getPanel(): Promise<IpcResult<DmaePanelSnapshot>> {
-      return typedInvoke('companion:dmae:get-panel', undefined)
+    getPanel(input?: DmaePanelRequest): Promise<IpcResult<DmaePanelSnapshot>> {
+      return typedInvoke('companion:dmae:get-panel', input)
     },
     getTrend(input: DmaeTrendRequest): Promise<IpcResult<readonly DmaeDailyAggregate[]>> {
       return typedInvoke('companion:dmae:get-trend', input)

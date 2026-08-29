@@ -20,9 +20,11 @@ export interface WindowHandlerDeps {
  */
 export function attachWindowStateListeners(win: BrowserWindow): void {
   win.on('maximize', () => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return
     sendEvent(win.webContents, 'companion:event:window-state', { maximized: true })
   })
   win.on('unmaximize', () => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return
     sendEvent(win.webContents, 'companion:event:window-state', { maximized: false })
   })
 }

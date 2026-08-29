@@ -1,0 +1,7 @@
+{
+  "Version": 3,
+  "Type": "Live2D Expression",
+  "Parameters": [
+    { "Id": "ParamMouthSmile", "Value": 1, "Blend": "Multiply" }
+  ]
+}

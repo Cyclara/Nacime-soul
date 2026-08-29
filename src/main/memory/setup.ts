@@ -37,7 +37,11 @@ import { createEmbeddingClient, verifyEmbeddingModel, type EmbeddingClient } fro
 import { createMemoryRevisionClock } from './revision-clock'
 import { createMemoryWriter } from './writer'
 import { backfillPendingMemories } from './backfill'
-import { purgeExpiredSoftDeleted } from './gc'
+import { createColdStore } from './cold-store'
+import { createGcService, type GcService } from './gc-service'
+import { DEFAULT_GC_POLICY } from './gc-policy'
+import { createIdleScheduler, type IdleScheduler } from '../scheduling/idle-scheduler'
+import { createGcActivityHook } from './gc-activity-hook'
 import {
   createOpenAIExtractionProvider,
   createFauxExtractionProvider,
@@ -90,6 +94,8 @@ export interface MemoryServices {
   dmaeService: DmaeEngineService | null
   /** P2-32：DMAE 诊断服务（dmae.enabled=false 时为 null） */
   dmaeDiagnostics: DmaeDiagnosticsService | null
+  /** P3G：GC/recycle-bin 真源；GC 与 DMAE 只共享 L2 读取边界。 */
+  gcService: GcService
   revisionClock: import('./revision-clock').MemoryRevisionClock
   broadcaster: MemoryEventBroadcaster
   conflictLogStore: import('./conflict/log').ConflictLogStore
@@ -733,18 +739,28 @@ export async function setupMemoryInfrastructure(
     logger: memLogger
   })
 
-  // S-06 修复：启动清扫超期 soft_deleted 记忆（物理删除 + 向量联动）。
-  //   只处理"用户已显式软删且超过保留期（默认 90 天，F5-004 softDeleteToPurgeDays）"的行；
-  //   dormant/archived 永不在此删除（DMAE floor revival 依赖其向量）。
-  //   有界（maxPurgePerRun=500）败而不崩；冷存储找回（F5-004 完整 GC）属后续阶段。
-  //   memory.enabled=false 或 services 为 null 时不会走到这里（setup 已提前返回）。
-  purgeExpiredSoftDeleted({
+  // P3G：GC 只在 idle 后运行，不进入首屏/启动热路径；先暴露 dry-run 可审计，再由调度器跑真实批次。
+  const gcPolicy = (): import('@shared/memory/gc-types').GcPolicy => configStore.get().memory.gc ?? DEFAULT_GC_POLICY
+  const gcService = createGcService({
     l2Store,
     vectorStore,
     revisionClock,
     broadcaster,
+    coldStore: createColdStore({ directory: join(dataDir, 'cold') }),
+    db,
+    getPolicy: gcPolicy,
     logger: memLogger
   })
+  let firstGcRun = true
+  const gcScheduler: IdleScheduler = createIdleScheduler({
+    idleMinutes: gcPolicy().schedule.idleMinutes,
+    minIntervalHours: gcPolicy().schedule.minIntervalHours,
+    run: () => {
+      gcService.run({ dryRun: firstGcRun })
+      firstGcRun = false
+    }
+  })
+  registerHook(createGcActivityHook(gcScheduler))
 
   return {
     hook: extractionHook?.hook ?? null,
@@ -755,6 +771,7 @@ export async function setupMemoryInfrastructure(
       l2Store,
       dmaeService,
       dmaeDiagnostics,
+      gcService,
       revisionClock,
       broadcaster,
       conflictLogStore,
@@ -763,6 +780,7 @@ export async function setupMemoryInfrastructure(
     cleanup: () => {
       broadcaster.flush() // flush 待发事件
       broadcaster.dispose()
+      gcScheduler.dispose()
       unsubConflictGrowth?.()
       unsubGrowthEvents()
       growthEventBus.removeAllListeners()

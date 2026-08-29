@@ -51,7 +51,8 @@ function toPublicSnapshot(
       hasApiKey: hasReadableSecret(secretStore, 'ttsApiKey')
     },
     memory: config.memory,
-    security: config.security
+    security: config.security,
+    persona: config.persona
   }
 }
 
