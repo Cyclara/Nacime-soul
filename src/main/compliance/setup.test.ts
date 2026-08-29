@@ -134,7 +134,8 @@ function makeSecretStore(key: string | null): SecretStore {
     get: () => key,
     set: () => {},
     delete: () => {},
-    has: () => key !== null
+    has: () => key !== null,
+    hasReadable: () => key !== null
   }
 }
 

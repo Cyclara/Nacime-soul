@@ -353,6 +353,32 @@ describe('P1-08 边界情况', () => {
     expect(store.get('modelApiKey')).toBe(null)
   })
 
+  // M-34 语义的单一真源。此前 config 快照用「has+get」、首次引导判定却只用 has()，
+  // 两处判据不一致 → 引导跳过配置页、聊天却报「未配置 API Key」，正是 M-34 要消灭的夹击。
+  // 2026-08-29 CI 上真实撞到：密文跨重启解不开，has() 仍为 true。
+  it('hasReadable：值存在但读不出来时为 false，而 has() 仍为 true', () => {
+    writeSecrets({
+      schemaVersion: 1,
+      xorKey: crypto.randomBytes(32).toString('base64'),
+      modelApiKey: 'enc:aW52YWxpZGNpcGhlcnRleHQ=' // 存在，但解密失败
+    })
+    const store = createSecretStore({ secretsPath, safeStorage: createFakeSafeStorage(true) })
+    store.setup()
+
+    expect(store.has('modelApiKey')).toBe(true)
+    expect(store.get('modelApiKey')).toBe(null)
+    expect(store.hasReadable('modelApiKey')).toBe(false)
+  })
+
+  it('hasReadable：值可读时为 true；键不存在时为 false', () => {
+    const store = createSecretStore({ secretsPath, safeStorage: createFakeSafeStorage(true) })
+    store.setup()
+    expect(store.hasReadable('modelApiKey')).toBe(false)
+
+    store.set('modelApiKey', 'sk-readable')
+    expect(store.hasReadable('modelApiKey')).toBe(true)
+  })
+
   it('未知前缀返回 null', () => {
     writeSecrets({
       schemaVersion: 1,

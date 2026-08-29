@@ -71,7 +71,8 @@ function createMemorySecretStore(): SecretStore {
     delete: (name) => {
       map.delete(name)
     },
-    has: (name) => map.has(name)
+    has: (name) => map.has(name),
+    hasReadable: (name) => map.has(name)
   }
 }
 

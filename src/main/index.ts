@@ -607,7 +607,7 @@ app.whenReady().then(async () => {
   // P3A-29：首次体验状态由 main 在 SessionStore 初始化后解析；不能让 renderer 以空 session
   // 猜老用户。只有真实 completed turn 才代表已有用户。
   const onboardingResolution = createOnboardingResolver().resolve({
-    hasApiKey: secretStore.has('modelApiKey'),
+    hasApiKey: secretStore.hasReadable('modelApiKey'),
     persisted: configStore.get().ui.onboarding,
     history: sessionStore
   })
