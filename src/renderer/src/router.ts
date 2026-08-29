@@ -17,6 +17,11 @@ const router = createRouter({
       component: () => import('./views/MemoryView.vue')
     },
     {
+      path: '/recycle-bin',
+      name: 'recycle-bin',
+      component: () => import('./views/RecycleBinView.vue')
+    },
+    {
       path: '/growth',
       name: 'growth',
       component: () => import('./views/GrowthView.vue')

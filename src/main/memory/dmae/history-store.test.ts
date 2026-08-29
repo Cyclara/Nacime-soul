@@ -17,6 +17,7 @@ import * as os from 'node:os'
 import { createDmaeHistoryStore, type RecordTurnInput } from './history-store'
 import { migration as migration003 } from '../../migrations/scripts/003_dmae_history'
 import { migration as migration005 } from '../../migrations/scripts/005_dmae_turn_stats'
+import { migration as migration010 } from '../../migrations/scripts/010_dmae_prompt_truth'
 import { computeParamsHash, type DmaeParamsSnapshot } from './history-types'
 import type { DmaeTurnDiagnostics, DmaeEntryDiagnostics } from './engine'
 import type { DmaeState } from './formulas'
@@ -54,6 +55,7 @@ beforeEach(() => {
   // 建表（用 003 + 005 迁移的 up；005 补 daily 聚合/采样/explain 所需列）
   migration003.up({ db, dataDir: tmpDir, log: noopLogger, dryRun: false })
   migration005.up({ db, dataDir: tmpDir, log: noopLogger, dryRun: false })
+  migration010.up({ db, dataDir: tmpDir, log: noopLogger, dryRun: false })
 })
 
 afterEach(() => {
@@ -224,6 +226,45 @@ describe('P2-31.5F: HistoryStore recordTurn', () => {
     const samples = store.querySamples('m1', 90)
     expect(samples).toHaveLength(5)
     expect(samples.map((s) => s.turn)).toEqual([0, 2, 4, 6, 8])
+  })
+
+  it('200 轮只批写 turns 与分层 samples，不会退化成全库 15k×轮的写放大', () => {
+    const store = createDmaeHistoryStore({ db, logger: noopLogger })
+    const activeEntries = Array.from({ length: 15 }, (_, index) =>
+      makeEntryDiag(`active-${index}`, 50)
+    )
+    for (let turn = 0; turn < 200; turn++) recordNthTurn(store, turn, activeEntries)
+    expect(store.queryTurns(90)).toHaveLength(200)
+    const rows = db.prepare(`SELECT COUNT(*) AS count FROM dmae_samples`).get() as { count: number }
+    expect(rows.count).toBe(3_000)
+  })
+
+  it('turn 与分层采样在同一事务中写入，采样失败不会留下孤立 turn 行', () => {
+    const store = createDmaeHistoryStore({ db, logger: noopLogger })
+    db.exec(`
+      CREATE TRIGGER reject_dmae_sample
+      BEFORE INSERT ON dmae_samples
+      BEGIN
+        SELECT RAISE(ABORT, 'sample rejected');
+      END;
+    `)
+    expect(() => recordNthTurn(store, 1, [makeEntryDiag('m1', 50)])).toThrow('sample rejected')
+    expect(store.queryTurns(90)).toEqual([])
+  })
+
+  it('PromptBudgeter 最终保留/裁掉真值落在 turns，不把 selectL2 selected 冒充 injected', () => {
+    const store = createDmaeHistoryStore({ db, logger: noopLogger })
+    recordNthTurn(store, 1, [makeEntryDiag('m1', 50)], {
+      promptIncludedIds: ['m1', 'm2'],
+      promptTrimmedIds: ['m3']
+    })
+    expect(store.queryTurns(90)[0]).toMatchObject({
+      promptSelected: 1,
+      promptIncluded: 2,
+      promptTrimmed: 1,
+      promptIncludedIds: ['m1', 'm2'],
+      promptTrimmedIds: ['m3']
+    })
   })
 
   it('turns 记录字段完整（retrievalHits/promptSelected/maxActive 等）', () => {

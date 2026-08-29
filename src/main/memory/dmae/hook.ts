@@ -86,7 +86,9 @@ export function createDmaeHook(deps: DmaeHookDeps): {
             l2Total: dmaeService.getL2Total(),
             params: snapshotFromDmaeConfig(config.dmae),
             sampleEveryTurns: config.dmae.historySampleEveryTurns,
-            watchedIds: watchedMemoryIds
+            watchedIds: watchedMemoryIds,
+            promptIncludedIds: turnEnd.promptIncludedMemoryIds,
+            promptTrimmedIds: turnEnd.promptTrimmedMemoryIds
           })
 
           // P1（2026-08-10 审计）：每轮幂等 upsert 当日聚合。

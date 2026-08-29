@@ -42,27 +42,18 @@ function toPublicSnapshot(
       timeoutMs: config.model.timeoutMs,
       reasoningEffort: config.model.reasoningEffort,
       supportsThinking: compat.thinkingFormat !== 'none',
-      hasApiKey: hasReadableSecret(secretStore, 'modelApiKey'),
+      hasApiKey: secretStore.hasReadable('modelApiKey'),
       validated: false
     },
     ui: config.ui,
     tts: {
       ...config.tts,
-      hasApiKey: hasReadableSecret(secretStore, 'ttsApiKey')
+      hasApiKey: secretStore.hasReadable('ttsApiKey')
     },
     memory: config.memory,
-    security: config.security
+    security: config.security,
+    persona: config.persona
   }
-}
-
-/**
- * hasApiKey 语义（M-34）："存在且可读"才算有。
- * 此前只查 secretStore.has()——历史遗留的无前缀/损坏值会让 UI 显示"已安全保存"，
- * 但 get() 读不出、聊天报"未配置"，两条信息自相矛盾。
- * 改为 has+get 双重判定后，不可读时设置页自然显示"输入 API Key"，引导用户重输。
- */
-function hasReadableSecret(secretStore: SecretStore, name: string): boolean {
-  return secretStore.has(name) && secretStore.get(name) !== null
 }
 
 /** 从 API Key 字段名映射到 SecretStore 中的 key 名 */

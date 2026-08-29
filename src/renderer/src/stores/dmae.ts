@@ -18,7 +18,11 @@ import type {
   DmaePanelSnapshot,
   DmaeTurnExplanation
 } from '@shared/memory/dmae-types'
-import type { DmaeBenchmarkRequest, DmaeQualitativeRequest } from '@shared/memory/types'
+import type {
+  DmaeBenchmarkRequest,
+  DmaeEligibleCursor,
+  DmaeQualitativeRequest
+} from '@shared/memory/types'
 
 /** IpcError -> PublicAppError */
 function toPublicAppError(e: IpcError): PublicAppError {
@@ -36,6 +40,8 @@ export type TimeRange = 7 | 30 | 90
 export interface DmaeState {
   /** 面板首屏快照（null = 未加载或 disabled） */
   snapshot: DmaePanelSnapshot | null
+  /** 有资格集合分页的下一页游标。 */
+  nextEligibleCursor: DmaeEligibleCursor | null
   /** 趋势图数据 */
   trend: DmaeDailyAggregate[]
   /** 工程档公式分解（单条记忆） */
@@ -62,6 +68,7 @@ export const useDmaeStore = defineStore('dmae', () => {
 
   const state = reactive<DmaeState>({
     snapshot: null,
+    nextEligibleCursor: null,
     trend: [],
     explanation: null,
     benchmark: null,
@@ -98,6 +105,7 @@ export const useDmaeStore = defineStore('dmae', () => {
       if (epoch !== requestEpoch) return // 旧响应丢弃
       if (panelRes.ok) {
         state.snapshot = panelRes.data
+        state.nextEligibleCursor = panelRes.data.nextEligibleCursor
       } else {
         state.lastError = toPublicAppError(panelRes.error)
       }
@@ -126,6 +134,7 @@ export const useDmaeStore = defineStore('dmae', () => {
       if (epoch !== requestEpoch) return
       if (res.ok) {
         state.snapshot = res.data
+        state.nextEligibleCursor = res.data.nextEligibleCursor
         state.lastError = null
       } else {
         state.lastError = toPublicAppError(res.error)
@@ -138,6 +147,27 @@ export const useDmaeStore = defineStore('dmae', () => {
         severity: 'error',
         retryable: false
       }
+    }
+  }
+
+  /** 加载 eligible 集合下一页。cursor 过期时 main 从头返回并显式标记 reset。 */
+  async function loadMoreEligible(): Promise<void> {
+    if (!window.companion || state.nextEligibleCursor === null || state.snapshot === null) return
+    const epoch = ++requestEpoch
+    try {
+      const res = await window.companion.dmae.getPanel({ eligibleCursor: state.nextEligibleCursor })
+      if (epoch !== requestEpoch || !res.ok) return
+      if (res.data.eligibleCursorReset) {
+        state.snapshot = res.data
+      } else {
+        state.snapshot = {
+          ...res.data,
+          activeSet: [...state.snapshot.activeSet, ...res.data.activeSet]
+        }
+      }
+      state.nextEligibleCursor = res.data.nextEligibleCursor
+    } catch {
+      /* current page remains usable; user can retry through refresh */
     }
   }
 
@@ -237,6 +267,7 @@ export const useDmaeStore = defineStore('dmae', () => {
     // M-17：递增 epoch，作废在途响应（避免导航离开后旧响应写入已 reset 的 store）
     requestEpoch++
     state.snapshot = null
+    state.nextEligibleCursor = null
     state.trend = []
     state.explanation = null
     state.benchmark = null
@@ -257,6 +288,7 @@ export const useDmaeStore = defineStore('dmae', () => {
     selection,
     hydrate,
     refresh,
+    loadMoreEligible,
     setTimeRange,
     setDensityMode,
     openEntry,

@@ -58,10 +58,16 @@ export interface DmaePanelSnapshot {
   /** 上一轮的真实占位（S-F03 裁定）。面板"用了几个位置"只能读这里。 */
   selection: DmaeSelectionSummary
   /**
-   * 当前**有资格进入**的集合（全局 `activation ≥ threshold` 的 top maxActive）。
+   * 当前**有资格进入**的集合页（全局 `activation ≥ threshold`，P3X-03 以 cursor 分页）。
    * ⚠ 这是"够格的"，**不是**"上一轮真的进了 Prompt 的"。
    */
   activeSet: DmaeActiveSetEntry[]
+  /** 下一页游标；null = 当前页已到末尾。 */
+  nextEligibleCursor: import('./types').DmaeEligibleCursor | null
+  /** 当前页是否因 15k 防护而分页。 */
+  activeSetPaginated: boolean
+  /** 上一次 cursor 对应旧 DMAE turn，当前页已从头重置。 */
+  eligibleCursorReset: boolean
   /** P2-33 实现规则引擎后填充。P2-32 恒为空数组。 */
   anomalies: DmaeAnomaly[]
   /** P2-34 实现基准体检后填充。null = 尚未运行体检。 */
@@ -78,8 +84,12 @@ export interface DmaeSelectionSummary {
   eligibleActiveCount: number
   /** 上一轮向量检索召回并通过 hydrate 的条数 */
   lastRetrievalHits: number
-  /** 上一轮 selectL2 实际返回的条数（"真正带进思考的"） */
+  /** 上一轮 selectL2 实际返回的条数（预算裁剪前的候选，不等同最终注入）。 */
   lastPromptSelectedCount: number
+  /** PromptBudgeter 最终保留的数量；旧历史缺此真值时为 null。 */
+  lastPromptIncludedCount: number | null
+  /** PromptBudgeter 最终裁掉的数量；旧历史缺此真值时为 null。 */
+  lastPromptTrimmedCount: number | null
   /** 上一轮被选中的 memoryId（≤ maxActive，面板高亮用） */
   lastPromptSelectedIds: string[]
   /** 当时的 maxActive。注意它同时是检索 k（C-F08） */
@@ -99,8 +109,10 @@ export interface DmaeActiveSetEntry {
   trend: 'rising' | 'falling' | 'stable'
   /** importance≥10 硬豁免标记 */
   decayExempt: boolean
-  /** 上一轮是否真的被 selectL2 选中 */
+  /** 上一轮是否被 selectL2 选中（预算裁剪前）。 */
   selectedLastTurn: boolean
+  /** 上一轮是否在 PromptBudgeter 裁剪后实际保留；旧历史未知时为 false。 */
+  injectedLastTurn: boolean
 }
 
 /** 状态文件健康度（F5-002 §3.7） */

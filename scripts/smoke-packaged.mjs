@@ -113,6 +113,37 @@ check('seed 记忆目录存在', () =>
 
 // --- 3. 图标 ---
 check('assets/icon.ico 存在', () => existsSync(join(root, 'assets', 'icon.ico')))
+check('assets/icon.ico 含 16/32/48/256 四种尺寸', () => {
+  const icoPath = join(root, 'assets', 'icon.ico')
+  if (!existsSync(icoPath)) return 'assets/icon.ico 不存在'
+  const content = readFileSync(icoPath)
+  if (content.length < 6 || content.readUInt16LE(0) !== 0 || content.readUInt16LE(2) !== 1) {
+    return 'assets/icon.ico 不是有效 ICO'
+  }
+  const count = content.readUInt16LE(4)
+  const sizes = new Set()
+  for (let index = 0; index < count; index++) {
+    const offset = 6 + index * 16
+    if (offset + 2 > content.length) return 'assets/icon.ico 目录不完整'
+    const width = content[offset] || 256
+    const height = content[offset + 1] || 256
+    if (width === height) sizes.add(width)
+  }
+  const missing = [16, 32, 48, 256].filter((size) => !sizes.has(size))
+  return missing.length === 0
+    ? { ok: true, detail: '16/32/48/256 均存在' }
+    : `缺少尺寸: ${missing.join('/')}`
+})
+check('托盘 idle/unread/attention 三态 16/20/24 资源齐全', () => {
+  const missing = []
+  for (const status of ['idle', 'unread', 'attention']) {
+    for (const size of [16, 20, 24]) {
+      const file = join(root, 'assets', 'tray', `tray-${status}-${size}.png`)
+      if (!existsSync(file)) missing.push(`tray-${status}-${size}.png`)
+    }
+  }
+  return missing.length === 0 ? { ok: true } : `缺少资源: ${missing.join(', ')}`
+})
 
 // --- 4. package.json 脚本 ---
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -193,7 +224,25 @@ check('electron-builder.yml files 含 resources/growth', () =>
     : 'resources/growth/** 不在 files 列表（打包版里程碑配置会是死配置）'
 )
 
-check('asar 内含 resources/prompts/seeds/growth（M-09）', () => {
+check('electron-builder.yml files 含 resources/live2d', () =>
+  builderYml.includes('resources/live2d')
+    ? { ok: true, detail: 'Live2D 模型/许可/runtime 将被打包' }
+    : 'resources/live2d/** 不在 files 列表（打包版 stage 无模型资源）'
+)
+
+check('源码 Live2D 资产与许可清单存在', () => {
+  const required = [
+    'resources/live2d/models/mao/Mao.model3.json',
+    'resources/live2d/models/hiyori/Hiyori.model3.json',
+    'resources/live2d/cubism/live2dcubismcore.min.js',
+    'resources/live2d/licenses/Live2D-Free-Material-License.txt',
+    'resources/live2d/licenses/Live2D-Sample-Model-Terms.txt'
+  ]
+  const missing = required.filter((file) => !existsSync(join(root, file)))
+  return missing.length === 0 ? { ok: true } : `缺少资源: ${missing.join(', ')}`
+})
+
+check('asar 内含 resources/prompts/seeds/growth/live2d（M-09/P3A-11）', () => {
   if (!existsSync(distDir)) return { skip: 'dist-electron/ 不存在' }
   const winUnpacked = join(distDir, 'win-unpacked')
   if (!existsSync(winUnpacked)) return { skip: 'win-unpacked/ 不存在' }
@@ -208,14 +257,20 @@ check('asar 内含 resources/prompts/seeds/growth（M-09）', () => {
   const files = asar.listPackage(asarPath)
   // asar 路径分隔符在 Windows 为反斜杠；统一归一化后匹配 resources/<seg>/
   const normalized = files.map((f) => f.replace(/\\/g, '/'))
-  const missing = []
-  for (const seg of ['prompts', 'seeds', 'growth']) {
-    if (!normalized.some((f) => f.includes(`resources/${seg}/`))) missing.push(`resources/${seg}`)
-  }
+  const requiredDirectories = [
+    'resources/prompts',
+    'resources/seeds',
+    'resources/growth',
+    'resources/live2d',
+    'assets/tray'
+  ]
+  const missing = requiredDirectories.filter(
+    (directory) => !normalized.some((f) => f.includes(`${directory}/`))
+  )
   if (missing.length > 0) {
     return `app.asar 中缺失运行时资源: ${missing.join(', ')}（请重新打包后再发布）`
   }
-  return { ok: true, detail: 'prompts/seeds/growth 均在 app.asar 内' }
+  return { ok: true, detail: 'prompts/seeds/growth/live2d/tray 均在 app.asar 内' }
 })
 
 // --- 7d. 自动更新打包闭环（M-50） ---

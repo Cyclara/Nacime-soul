@@ -9,13 +9,14 @@ export type StoreKind = 'db' | 'l0' | 'l1' | 'config' | 'dmae'
 
 /**
  * 当前代码期望的各存储版本。新迁移脚本合入时同步 +1。
- * db=8（001_init + 002_extraction_key + 003_dmae_history + 005_dmae_turn_stats
- *   + 006_l2_source + 007_l2_pin_edit + 008_search_fts）；
+ * db=12（001_init + 002_extraction_key + 003_dmae_history + 005_dmae_turn_stats
+ *   + 006_l2_source + 007_l2_pin_edit + 008_search_fts + 009_compliance_history
+ *   + 010_dmae_prompt_truth + 011_gc_retention_metadata + 012_gc_log）；
  * dmae=4（004 迁移：加 turn + everActivated）；
  * l0/l1/config 仍为 1。
  */
 export const EXPECTED_VERSIONS: Record<StoreKind, number> = {
-  db: 8,
+  db: 12,
   l0: 1,
   l1: 1,
   config: 1,

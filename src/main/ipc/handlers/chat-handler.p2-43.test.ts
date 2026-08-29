@@ -72,7 +72,9 @@ describe('P2-43 chat:get-last-session handler', () => {
     registerChatHandlers({
       chatService,
       logger: noopLogger(),
-      searchMessages: () => []
+      searchMessages: () => [],
+      // P3C1-07：feedback handler 在专属测试文件覆盖；此处仅需满足依赖形状
+      recordFeedback: () => ({ status: 'ignored', reason: 'turn-row-missing' })
     })
 
     const handler = getHandler('companion:chat:get-last-session')

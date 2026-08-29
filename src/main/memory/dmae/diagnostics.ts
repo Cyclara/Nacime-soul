@@ -18,6 +18,7 @@
 
 import type { Logger } from '@shared/observability/types'
 import type { MemoryConfig } from '@shared/config/types'
+import type { DmaeEligibleCursor } from '@shared/memory/types'
 import type { DmaeEngineService } from './service'
 import type { DmaeHistoryStore } from './history-store'
 import type { DmaeStateStore } from './state-file'
@@ -54,8 +55,17 @@ export type {
 
 /** 面板唯一数据来源。F5-002 §3.7 */
 export interface DmaeDiagnosticsService {
-  /** 面板首屏：概览 + 异常 + 建议，一次拉完 */
-  getPanelSnapshot(): DmaePanelSnapshot
+  /** 面板首屏：概览 + 异常 + 建议，一次拉完。eligible 集合按稳定 cursor 分页。 */
+  getPanelSnapshot(input?: {
+    eligibleCursor?: DmaeEligibleCursor
+    eligibleLimit?: number
+  }): DmaePanelSnapshot
+  /** 最近一轮的最终预算真值；旧历史行缺列时返回 unknown，不伪造为 0。 */
+  getPromptTruth(): {
+    readonly selected: number
+    readonly included: number | null
+    readonly trimmed: number | null
+  }
   /** 趋势图数据 */
   getDailyTrend(days: 7 | 30 | 90): readonly DmaeDailyAggregate[]
   /** 单条记忆的 activation 历史（get-dmae-history 的真实实现） */
@@ -98,7 +108,9 @@ export function createDmaeDiagnosticsService(
   let lastBenchmark: DmaeBenchmarkReport | null = null
   let lastQualitative: DmaeQualitativeScores | null = null
 
-  function getPanelSnapshot(): DmaePanelSnapshot {
+  function getPanelSnapshot(
+    input: { eligibleCursor?: DmaeEligibleCursor; eligibleLimit?: number } = {}
+  ): DmaePanelSnapshot {
     const cfg = getMemoryConfig()
     const params = snapshotFromDmaeConfig(cfg.dmae)
     const stats = dmaeService.getStats()
@@ -107,15 +119,32 @@ export function createDmaeDiagnosticsService(
     const l2Total = l2Store.count({})
     const currentTurn = dmaeService.turn
     const lastSelection = dmaeService.lastSelection
+    const latestTurn = historyStore.queryTurns(90).at(-1)
 
-    // 有资格进入集合：全局 activation ≥ threshold 的 top maxActive
-    const activeSet = buildActiveSet(threshold, maxActive, lastSelection?.selectedIds ?? [])
+    // P3X-03：15k 条时仅返回一个稳定 keyset page；不把全库列表塞进 IPC。
+    const eligibleCursorReset =
+      input.eligibleCursor !== undefined && input.eligibleCursor.turn !== currentTurn
+    const activePage = buildActiveSet({
+      threshold,
+      currentTurn,
+      selectedIds: lastSelection?.selectedIds ?? [],
+      includedIds: latestTurn?.promptIncludedIds ?? [],
+      cursor: eligibleCursorReset ? undefined : input.eligibleCursor,
+      limit: input.eligibleLimit
+    })
 
-    // 上一轮真实占位（S-F03：区分 eligibleActive 与 promptSelected）
+    // 上一轮真实占位（S-F03：区分 eligibleActive、selected 与 budget 后 injected）
+    const promptTruth = {
+      selected: latestTurn?.promptSelected ?? 0,
+      included: latestTurn?.promptIncluded ?? null,
+      trimmed: latestTurn?.promptTrimmed ?? null
+    }
     const selection: DmaeSelectionSummary = {
       eligibleActiveCount: stats.active,
       lastRetrievalHits: lastSelection?.retrievalHits ?? 0,
       lastPromptSelectedCount: lastSelection?.promptSelected ?? 0,
+      lastPromptIncludedCount: promptTruth.included,
+      lastPromptTrimmedCount: promptTruth.trimmed,
       lastPromptSelectedIds: [...(lastSelection?.selectedIds ?? [])],
       maxActive
     }
@@ -148,7 +177,10 @@ export function createDmaeDiagnosticsService(
         l2Total
       },
       selection,
-      activeSet,
+      activeSet: activePage.entries,
+      nextEligibleCursor: activePage.nextCursor,
+      activeSetPaginated: activePage.paginated,
+      eligibleCursorReset,
       anomalies,
       lastBenchmark, // P2-34 基准体检结果（runBenchmark 写入）
       lastQualitative, // P2-34 定性评分（recordQualitative 写入）
@@ -223,47 +255,78 @@ export function createDmaeDiagnosticsService(
     return evaluateAllRules(ctx, muted)
   }
 
-  /** 构建"有资格进入"集合（全局 activation ≥ threshold 的 top maxActive） */
-  function buildActiveSet(
-    threshold: number,
-    maxActive: number,
+  /** P3X-03：有资格集合按 activation desc / memoryId asc 做稳定 keyset pagination。 */
+  function buildActiveSet(input: {
+    threshold: number
+    currentTurn: number
     selectedIds: readonly string[]
-  ): DmaeActiveSetEntry[] {
-    const entries: Array<{
-      id: string
-      activation: number
-      userSilence: number
-    }> = []
+    includedIds: readonly string[]
+    cursor?: DmaeEligibleCursor
+    limit?: number
+  }): {
+    entries: DmaeActiveSetEntry[]
+    nextCursor: DmaeEligibleCursor | null
+    paginated: boolean
+  } {
+    const limit = Math.max(1, Math.min(input.limit ?? 100, 200))
+    const candidates: Array<{ id: string; activation: number; userSilence: number }> = []
     for (const [id, st] of dmaeService.states) {
-      if (st.activation >= threshold) {
-        entries.push({ id, activation: st.activation, userSilence: st.userSilence })
-      }
+      if (st.activation >= input.threshold)
+        candidates.push({ id, activation: st.activation, userSilence: st.userSilence })
     }
-    // activation 降序 + id 升序（稳定 tiebreak）
-    entries.sort((a, b) => b.activation - a.activation || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    const selectedSet = new Set(selectedIds)
-
-    return entries.slice(0, maxActive).map((e) => {
-      const mem = l2Store.get(e.id)
+    candidates.sort((a, b) => b.activation - a.activation || a.id.localeCompare(b.id))
+    const afterCursor =
+      input.cursor === undefined
+        ? candidates
+        : candidates.filter(
+            (entry) =>
+              entry.activation < input.cursor!.activation ||
+              (entry.activation === input.cursor!.activation && entry.id > input.cursor!.memoryId)
+          )
+    const page = afterCursor.slice(0, limit)
+    const selectedSet = new Set(input.selectedIds)
+    const includedSet = new Set(input.includedIds)
+    const entries = page.map((entry) => {
+      const mem = l2Store.get(entry.id)
       const contentPreview = mem ? truncateContent(mem.content, 60) : ''
       const importance = mem?.importance ?? 5
-      // 最近 7 个采样点（sparkline）
-      const samples = historyStore.querySamples(e.id, 30)
-      const spark = samples.slice(-7).map((s) => s.activation)
-      // 趋势：最近 2 点比较（>5% rising, <-5% falling, 否则 stable）
-      const trend = computeTrend(spark)
+      const samples = historyStore.querySamples(entry.id, 30)
+      const spark = samples.slice(-7).map((sample) => sample.activation)
       return {
-        memoryId: e.id,
+        memoryId: entry.id,
         contentPreview,
-        activation: e.activation,
+        activation: entry.activation,
         importance,
-        userSilence: e.userSilence,
+        userSilence: entry.userSilence,
         spark,
-        trend,
+        trend: computeTrend(spark),
         decayExempt: importance >= 10,
-        selectedLastTurn: selectedSet.has(e.id)
+        selectedLastTurn: selectedSet.has(entry.id),
+        injectedLastTurn: includedSet.has(entry.id)
       }
     })
+    const last = page.at(-1)
+    return {
+      entries,
+      nextCursor:
+        last !== undefined && afterCursor.length > page.length
+          ? { turn: input.currentTurn, activation: last.activation, memoryId: last.id }
+          : null,
+      paginated: candidates.length > limit
+    }
+  }
+
+  function getPromptTruth(): {
+    readonly selected: number
+    readonly included: number | null
+    readonly trimmed: number | null
+  } {
+    const latest = historyStore.queryTurns(90).at(-1)
+    return {
+      selected: latest?.promptSelected ?? 0,
+      included: latest?.promptIncluded ?? null,
+      trimmed: latest?.promptTrimmed ?? null
+    }
   }
 
   function getDailyTrend(days: 7 | 30 | 90): readonly DmaeDailyAggregate[] {
@@ -445,6 +508,7 @@ export function createDmaeDiagnosticsService(
 
   return {
     getPanelSnapshot,
+    getPromptTruth,
     getDailyTrend,
     getMemoryHistory,
     explainLastTurn,

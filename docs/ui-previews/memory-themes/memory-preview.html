@@ -1,500 +1,905 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MemoryView 主题预览</title>
-  <style>
-    /* 复制自 src/renderer/src/styles/base.css 的变量定义 */
-    :root {
-      color-scheme: dark;
-      --color-bg: #1e1f2b;
-      --color-bg-secondary: #272a3a;
-      --color-bg-tertiary: #31354a;
-      --color-surface: #2c3042;
-      --color-surface-elevated: #32374d;
-      --color-text: #d8dce8;
-      --color-text-secondary: #9aa3c2;
-      --color-text-muted: #5e6685;
-      --color-text-on-accent: #ffffff;
-      --color-accent: #8b9ef0;
-      --color-accent-hover: #a0b1f7;
-      --color-accent-soft: rgba(139, 158, 240, 0.15);
-      --color-accent-soft-hover: rgba(139, 158, 240, 0.22);
-      --color-error: #f08a8a;
-      --color-error-bg: rgba(240, 138, 138, 0.12);
-      --color-error-border: rgba(240, 138, 138, 0.35);
-      --color-success: #8bc48b;
-      --color-success-bg: rgba(139, 196, 139, 0.12);
-      --color-success-border: rgba(139, 196, 139, 0.35);
-      --color-warning: #e6c285;
-      --color-warning-bg: rgba(230, 194, 133, 0.12);
-      --color-warning-border: rgba(230, 194, 133, 0.35);
-      --color-info: #8bb8e6;
-      --color-state-active: #7fd47f;
-      --color-state-active-bg: rgba(127, 212, 127, 0.12);
-      --color-state-dormant: #e6c285;
-      --color-state-dormant-bg: rgba(230, 194, 133, 0.12);
-      --color-state-archived: #9aa3c2;
-      --color-state-archived-bg: rgba(154, 163, 194, 0.12);
-      --color-state-deleted: #f08a8a;
-      --color-state-deleted-bg: rgba(240, 138, 138, 0.12);
-      --color-user-bubble: #2f334d;
-      --color-assistant-bubble: #24283b;
-      --color-border: #373c55;
-      --color-border-subtle: rgba(255, 255, 255, 0.06);
-      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
-      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.22);
-      --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.3);
-      --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.32);
-      --radius: 10px;
-      --radius-sm: 6px;
-      --radius-lg: 14px;
-      --radius-xl: 20px;
-      --radius-full: 9999px;
-      --spacing-xs: 4px;
-      --spacing-sm: 8px;
-      --spacing-md: 16px;
-      --spacing-lg: 24px;
-      --spacing-xl: 32px;
-      --spacing-2xl: 48px;
-      --font-size-xs: 11px;
-      --font-size-sm: 13px;
-      --font-size-base: 14px;
-      --font-size-lg: 16px;
-      --font-size-xl: 18px;
-      --font-size-2xl: 22px;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MemoryView 主题预览</title>
+    <style>
+      /* 复制自 src/renderer/src/styles/base.css 的变量定义 */
+      :root {
+        color-scheme: dark;
+        --color-bg: #1e1f2b;
+        --color-bg-secondary: #272a3a;
+        --color-bg-tertiary: #31354a;
+        --color-surface: #2c3042;
+        --color-surface-elevated: #32374d;
+        --color-text: #d8dce8;
+        --color-text-secondary: #9aa3c2;
+        --color-text-muted: #5e6685;
+        --color-text-on-accent: #ffffff;
+        --color-accent: #8b9ef0;
+        --color-accent-hover: #a0b1f7;
+        --color-accent-soft: rgba(139, 158, 240, 0.15);
+        --color-accent-soft-hover: rgba(139, 158, 240, 0.22);
+        --color-error: #f08a8a;
+        --color-error-bg: rgba(240, 138, 138, 0.12);
+        --color-error-border: rgba(240, 138, 138, 0.35);
+        --color-success: #8bc48b;
+        --color-success-bg: rgba(139, 196, 139, 0.12);
+        --color-success-border: rgba(139, 196, 139, 0.35);
+        --color-warning: #e6c285;
+        --color-warning-bg: rgba(230, 194, 133, 0.12);
+        --color-warning-border: rgba(230, 194, 133, 0.35);
+        --color-info: #8bb8e6;
+        --color-state-active: #7fd47f;
+        --color-state-active-bg: rgba(127, 212, 127, 0.12);
+        --color-state-dormant: #e6c285;
+        --color-state-dormant-bg: rgba(230, 194, 133, 0.12);
+        --color-state-archived: #9aa3c2;
+        --color-state-archived-bg: rgba(154, 163, 194, 0.12);
+        --color-state-deleted: #f08a8a;
+        --color-state-deleted-bg: rgba(240, 138, 138, 0.12);
+        --color-user-bubble: #2f334d;
+        --color-assistant-bubble: #24283b;
+        --color-border: #373c55;
+        --color-border-subtle: rgba(255, 255, 255, 0.06);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.22);
+        --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.3);
+        --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.32);
+        --radius: 10px;
+        --radius-sm: 6px;
+        --radius-lg: 14px;
+        --radius-xl: 20px;
+        --radius-full: 9999px;
+        --spacing-xs: 4px;
+        --spacing-sm: 8px;
+        --spacing-md: 16px;
+        --spacing-lg: 24px;
+        --spacing-xl: 32px;
+        --spacing-2xl: 48px;
+        --font-size-xs: 11px;
+        --font-size-sm: 13px;
+        --font-size-base: 14px;
+        --font-size-lg: 16px;
+        --font-size-xl: 18px;
+        --font-size-2xl: 22px;
+      }
 
-    [data-theme="light"] {
-      color-scheme: light;
-      --color-bg: #f5f3ef;
-      --color-bg-secondary: #ffffff;
-      --color-bg-tertiary: #f0ede8;
-      --color-surface: #ebe7e0;
-      --color-surface-elevated: #ffffff;
-      --color-text: #3d3a36;
-      --color-text-secondary: #6e6a63;
-      --color-text-muted: #9e9a92;
-      --color-text-on-accent: #ffffff;
-      --color-accent: #6b7ed8;
-      --color-accent-hover: #5a6ec7;
-      --color-accent-soft: rgba(107, 126, 216, 0.12);
-      --color-accent-soft-hover: rgba(107, 126, 216, 0.18);
-      --color-error: #d65a5a;
-      --color-error-bg: rgba(214, 90, 90, 0.1);
-      --color-error-border: rgba(214, 90, 90, 0.3);
-      --color-success: #5a9a5a;
-      --color-success-bg: rgba(90, 154, 90, 0.1);
-      --color-success-border: rgba(90, 154, 90, 0.3);
-      --color-warning: #c89a3d;
-      --color-warning-bg: rgba(200, 154, 61, 0.1);
-      --color-warning-border: rgba(200, 154, 61, 0.3);
-      --color-info: #5a8ac8;
-      --color-state-active: #4a9a4a;
-      --color-state-active-bg: rgba(74, 154, 74, 0.1);
-      --color-state-dormant: #c89a3d;
-      --color-state-dormant-bg: rgba(200, 154, 61, 0.1);
-      --color-state-archived: #6e6a63;
-      --color-state-archived-bg: rgba(110, 106, 99, 0.1);
-      --color-state-deleted: #d65a5a;
-      --color-state-deleted-bg: rgba(214, 90, 90, 0.1);
-      --color-user-bubble: #e8e4dd;
-      --color-assistant-bubble: #ffffff;
-      --color-border: #e0dbd3;
-      --color-border-subtle: rgba(60, 50, 40, 0.05);
-      --shadow-sm: 0 1px 2px rgba(60, 50, 40, 0.06);
-      --shadow-md: 0 4px 12px rgba(60, 50, 40, 0.08);
-      --shadow-lg: 0 8px 28px rgba(60, 50, 40, 0.1);
-      --shadow-drawer: -4px 0 24px rgba(60, 50, 40, 0.12);
-    }
+      [data-theme='light'] {
+        color-scheme: light;
+        --color-bg: #f5f3ef;
+        --color-bg-secondary: #ffffff;
+        --color-bg-tertiary: #f0ede8;
+        --color-surface: #ebe7e0;
+        --color-surface-elevated: #ffffff;
+        --color-text: #3d3a36;
+        --color-text-secondary: #6e6a63;
+        --color-text-muted: #9e9a92;
+        --color-text-on-accent: #ffffff;
+        --color-accent: #6b7ed8;
+        --color-accent-hover: #5a6ec7;
+        --color-accent-soft: rgba(107, 126, 216, 0.12);
+        --color-accent-soft-hover: rgba(107, 126, 216, 0.18);
+        --color-error: #d65a5a;
+        --color-error-bg: rgba(214, 90, 90, 0.1);
+        --color-error-border: rgba(214, 90, 90, 0.3);
+        --color-success: #5a9a5a;
+        --color-success-bg: rgba(90, 154, 90, 0.1);
+        --color-success-border: rgba(90, 154, 90, 0.3);
+        --color-warning: #c89a3d;
+        --color-warning-bg: rgba(200, 154, 61, 0.1);
+        --color-warning-border: rgba(200, 154, 61, 0.3);
+        --color-info: #5a8ac8;
+        --color-state-active: #4a9a4a;
+        --color-state-active-bg: rgba(74, 154, 74, 0.1);
+        --color-state-dormant: #c89a3d;
+        --color-state-dormant-bg: rgba(200, 154, 61, 0.1);
+        --color-state-archived: #6e6a63;
+        --color-state-archived-bg: rgba(110, 106, 99, 0.1);
+        --color-state-deleted: #d65a5a;
+        --color-state-deleted-bg: rgba(214, 90, 90, 0.1);
+        --color-user-bubble: #e8e4dd;
+        --color-assistant-bubble: #ffffff;
+        --color-border: #e0dbd3;
+        --color-border-subtle: rgba(60, 50, 40, 0.05);
+        --shadow-sm: 0 1px 2px rgba(60, 50, 40, 0.06);
+        --shadow-md: 0 4px 12px rgba(60, 50, 40, 0.08);
+        --shadow-lg: 0 8px 28px rgba(60, 50, 40, 0.1);
+        --shadow-drawer: -4px 0 24px rgba(60, 50, 40, 0.12);
+      }
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-      font-size: var(--font-size-base);
-      color: var(--color-text);
-      background: var(--color-bg);
-    }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        font-size: var(--font-size-base);
+        color: var(--color-text);
+        background: var(--color-bg);
+      }
 
-    .preview-wrapper {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      padding: 24px;
-      min-height: 100vh;
-    }
+      .preview-wrapper {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        padding: 24px;
+        min-height: 100vh;
+      }
 
-    .theme-panel {
-      border: 2px dashed var(--color-border);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      height: 900px;
-    }
+      .theme-panel {
+        border: 2px dashed var(--color-border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        height: 900px;
+      }
 
-    .theme-label {
-      padding: 8px 16px;
-      background: var(--color-bg-secondary);
-      border-bottom: 1px solid var(--color-border);
-      font-weight: 600;
-      font-size: var(--font-size-sm);
-      color: var(--color-text-secondary);
-    }
+      .theme-label {
+        padding: 8px 16px;
+        background: var(--color-bg-secondary);
+        border-bottom: 1px solid var(--color-border);
+        font-weight: 600;
+        font-size: var(--font-size-sm);
+        color: var(--color-text-secondary);
+      }
 
-    .memory-view {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      background: var(--color-bg);
-      overflow: hidden;
-    }
+      .memory-view {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: var(--color-bg);
+        overflow: hidden;
+      }
 
-    /* Header */
-    .memory-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 16px 24px;
-      background: var(--color-bg-secondary);
-      border-bottom: 1px solid var(--color-border);
-      flex-shrink: 0;
-    }
-    .back-btn, .growth-btn {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 4px 8px; border-radius: var(--radius);
-      background: var(--color-surface); color: var(--color-text-secondary);
-      font-size: var(--font-size-sm); border: 1px solid var(--color-border);
-    }
-    .btn-icon { width: 16px; height: 16px; }
-    .header-center { flex: 1; display: flex; align-items: center; justify-content: center; gap: 16px; }
-    .header-title { font-size: var(--font-size-lg); font-weight: 600; }
-    .fill-badge {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 4px 8px; background: var(--color-accent-soft);
-      border: 1px solid var(--color-accent-soft-hover); border-radius: var(--radius-full);
-      font-size: var(--font-size-sm);
-    }
-    .fill-value { font-weight: 600; color: var(--color-accent); }
+      /* Header */
+      .memory-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px 24px;
+        background: var(--color-bg-secondary);
+        border-bottom: 1px solid var(--color-border);
+        flex-shrink: 0;
+      }
+      .back-btn,
+      .growth-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: var(--radius);
+        background: var(--color-surface);
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-sm);
+        border: 1px solid var(--color-border);
+      }
+      .btn-icon {
+        width: 16px;
+        height: 16px;
+      }
+      .header-center {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+      }
+      .header-title {
+        font-size: var(--font-size-lg);
+        font-weight: 600;
+      }
+      .fill-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        background: var(--color-accent-soft);
+        border: 1px solid var(--color-accent-soft-hover);
+        border-radius: var(--radius-full);
+        font-size: var(--font-size-sm);
+      }
+      .fill-value {
+        font-weight: 600;
+        color: var(--color-accent);
+      }
 
-    /* L0 Card */
-    .l0-card {
-      flex-shrink: 0;
-      padding: 16px 24px;
-      background: var(--color-bg-secondary);
-      border-bottom: 1px solid var(--color-border);
-    }
-    .card-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
-    .card-title {
-      font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-secondary);
-      text-transform: uppercase; letter-spacing: 0.04em;
-    }
-    .field-count { font-size: var(--font-size-sm); color: var(--color-text-muted); }
-    .l0-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 8px;
-    }
-    .l0-field {
-      display: flex; flex-direction: column; gap: 4px;
-      padding: 8px; border-radius: var(--radius);
-      background: var(--color-surface);
-    }
-    .l0-field.unknown { background: transparent; border: 1px dashed var(--color-border); }
-    .l0-field.pinned { background: var(--color-accent-soft); border: 1px solid var(--color-accent-soft-hover); }
-    .field-header { display: flex; justify-content: space-between; }
-    .field-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); text-transform: uppercase; }
-    .field-value { font-size: var(--font-size-base); color: var(--color-text); }
-    .value-placeholder { color: var(--color-text-muted); font-style: italic; }
+      /* L0 Card */
+      .l0-card {
+        flex-shrink: 0;
+        padding: 16px 24px;
+        background: var(--color-bg-secondary);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .card-title {
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .field-count {
+        font-size: var(--font-size-sm);
+        color: var(--color-text-muted);
+      }
+      .l0-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 8px;
+      }
+      .l0-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px;
+        border-radius: var(--radius);
+        background: var(--color-surface);
+      }
+      .l0-field.unknown {
+        background: transparent;
+        border: 1px dashed var(--color-border);
+      }
+      .l0-field.pinned {
+        background: var(--color-accent-soft);
+        border: 1px solid var(--color-accent-soft-hover);
+      }
+      .field-header {
+        display: flex;
+        justify-content: space-between;
+      }
+      .field-label {
+        font-size: var(--font-size-xs);
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+      }
+      .field-value {
+        font-size: var(--font-size-base);
+        color: var(--color-text);
+      }
+      .value-placeholder {
+        color: var(--color-text-muted);
+        font-style: italic;
+      }
 
-    /* L2 List */
-    .l2-list { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-    .list-controls {
-      display: flex; gap: 16px; padding: 12px 24px;
-      border-bottom: 1px solid var(--color-border);
-      background: var(--color-bg-secondary); flex-wrap: wrap;
-    }
-    .tabs {
-      display: inline-flex; gap: 4px; padding: 4px;
-      background: var(--color-surface); border-radius: var(--radius-full);
-      border: 1px solid var(--color-border);
-    }
-    .tab {
-      padding: 4px 12px; border-radius: var(--radius-full);
-      background: transparent; color: var(--color-text-secondary);
-      font-size: var(--font-size-sm); border: 1px solid transparent;
-    }
-    .tab.active { background: var(--color-accent); color: var(--color-text-on-accent); box-shadow: var(--shadow-sm); }
-    .search-box { flex: 1; min-width: 160px; position: relative; }
-    .search-icon {
-      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-      width: 16px; height: 16px; color: var(--color-text-muted);
-    }
-    .search-input {
-      width: 100%; padding: 6px 10px 6px 34px;
-      border-radius: var(--radius); border: 1px solid var(--color-border);
-      background: var(--color-bg); color: var(--color-text); font-size: var(--font-size-sm);
-    }
-    .item-list { list-style: none; overflow-y: auto; flex: 1; padding: 0; }
-    .l2-item {
-      display: flex; align-items: center; gap: 16px;
-      padding: 10px 24px; border-bottom: 1px solid var(--color-border-subtle);
-    }
-    .l2-item:hover { background: var(--color-bg-secondary); }
-    .item-main { flex: 1; min-width: 0; }
-    .item-content { font-size: var(--font-size-base); line-height: 1.55; color: var(--color-text); margin-bottom: 4px; }
-    .item-meta { display: flex; gap: 4px; font-size: var(--font-size-xs); }
-    .state-badge {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 2px 8px; border-radius: var(--radius-full); font-weight: 500;
-    }
-    .state-dot { width: 6px; height: 6px; border-radius: 50%; }
-    .type-tag {
-      color: var(--color-text-secondary); padding: 2px 8px;
-      border: 1px solid var(--color-border); border-radius: var(--radius-full);
-      background: var(--color-bg-tertiary);
-    }
-    .activation-bar { width: 64px; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .bar-track { flex: 1; height: 4px; background: var(--color-border); border-radius: var(--radius-full); overflow: hidden; }
-    .bar-fill { height: 100%; background: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover)); border-radius: var(--radius-full); }
-    .bar-value { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+      /* L2 List */
+      .l2-list {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .list-controls {
+        display: flex;
+        gap: 16px;
+        padding: 12px 24px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-secondary);
+        flex-wrap: wrap;
+      }
+      .tabs {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        background: var(--color-surface);
+        border-radius: var(--radius-full);
+        border: 1px solid var(--color-border);
+      }
+      .tab {
+        padding: 4px 12px;
+        border-radius: var(--radius-full);
+        background: transparent;
+        color: var(--color-text-secondary);
+        font-size: var(--font-size-sm);
+        border: 1px solid transparent;
+      }
+      .tab.active {
+        background: var(--color-accent);
+        color: var(--color-text-on-accent);
+        box-shadow: var(--shadow-sm);
+      }
+      .search-box {
+        flex: 1;
+        min-width: 160px;
+        position: relative;
+      }
+      .search-icon {
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 16px;
+        height: 16px;
+        color: var(--color-text-muted);
+      }
+      .search-input {
+        width: 100%;
+        padding: 6px 10px 6px 34px;
+        border-radius: var(--radius);
+        border: 1px solid var(--color-border);
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-size: var(--font-size-sm);
+      }
+      .item-list {
+        list-style: none;
+        overflow-y: auto;
+        flex: 1;
+        padding: 0;
+      }
+      .l2-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 24px;
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .l2-item:hover {
+        background: var(--color-bg-secondary);
+      }
+      .item-main {
+        flex: 1;
+        min-width: 0;
+      }
+      .item-content {
+        font-size: var(--font-size-base);
+        line-height: 1.55;
+        color: var(--color-text);
+        margin-bottom: 4px;
+      }
+      .item-meta {
+        display: flex;
+        gap: 4px;
+        font-size: var(--font-size-xs);
+      }
+      .state-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 8px;
+        border-radius: var(--radius-full);
+        font-weight: 500;
+      }
+      .state-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+      }
+      .type-tag {
+        color: var(--color-text-secondary);
+        padding: 2px 8px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-full);
+        background: var(--color-bg-tertiary);
+      }
+      .activation-bar {
+        width: 64px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .bar-track {
+        flex: 1;
+        height: 4px;
+        background: var(--color-border);
+        border-radius: var(--radius-full);
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover));
+        border-radius: var(--radius-full);
+      }
+      .bar-value {
+        font-size: var(--font-size-xs);
+        color: var(--color-text-muted);
+      }
 
-    /* Drawer */
-    .drawer-preview {
-      position: relative;
-      height: 220px;
-      background: var(--color-bg);
-      border-top: 1px solid var(--color-border);
-      overflow: hidden;
-    }
-    .drawer-overlay {
-      position: absolute; inset: 0;
-      background: rgba(0, 0, 0, 0.35);
-      display: flex; justify-content: flex-end;
-    }
-    .drawer {
-      width: 320px;
-      background: var(--color-bg-secondary);
-      box-shadow: var(--shadow-drawer);
-      display: flex; flex-direction: column;
-      padding: 16px;
-    }
-    .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .drawer-title { font-size: var(--font-size-lg); font-weight: 600; }
-    .close-btn { width: 28px; height: 28px; border-radius: var(--radius); background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-secondary); }
-    .detail-content { font-size: var(--font-size-base); line-height: 1.6; margin-bottom: 12px; }
-    .detail-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
-    .stat-item { display: flex; flex-direction: column; }
-    .stat-label { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-    .stat-value { font-size: var(--font-size-base); font-weight: 600; }
-    .evidence-item {
-      padding: 8px; background: var(--color-bg-tertiary); border: 1px solid var(--color-border);
-      border-radius: var(--radius); font-family: monospace; font-size: var(--font-size-sm); color: var(--color-text-secondary);
-      margin-bottom: 6px;
-    }
-    .drawer-footer { display: flex; gap: 8px; margin-top: auto; }
-    .action-btn { flex: 1; padding: 8px; border-radius: var(--radius); background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text); }
-    .action-btn.danger { color: var(--color-error); border-color: var(--color-error-border); background: var(--color-error-bg); }
-    .action-btn.active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent); }
-  </style>
-</head>
-<body>
-  <div class="preview-wrapper">
-    <!-- 暗色主题 -->
-    <div class="theme-panel" data-theme="dark">
-      <div class="theme-label">暗色主题</div>
-      <div class="memory-view">
-        <header class="memory-header">
-          <button class="back-btn"><svg class="btn-icon" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>返回</span></button>
-          <div class="header-center">
-            <h1 class="header-title">她的记忆</h1>
-            <div class="fill-badge"><span>了解程度</span><span class="fill-value">3/8</span></div>
-          </div>
-          <button class="growth-btn"><span>成长</span><svg class="btn-icon" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </header>
-
-        <section class="l0-card">
-          <div class="card-header"><h2 class="card-title">她了解的你</h2><span class="field-count">3/8</span></div>
-          <div class="l0-grid">
-            <div class="l0-field"><div class="field-header"><span class="field-label">称呼</span><span>📌</span></div><div class="field-value">小明</div></div>
-            <div class="l0-field"><div class="field-header"><span class="field-label">职业</span></div><div class="field-value">程序员</div></div>
-            <div class="l0-field pinned"><div class="field-header"><span class="field-label">喜好</span><span>📌</span></div><div class="field-value">猫、科幻小说</div></div>
-            <div class="l0-field unknown"><div class="field-header"><span class="field-label">家乡</span></div><div class="field-value value-placeholder">待发现</div></div>
-            <div class="l0-field unknown"><div class="field-header"><span class="field-label">生日</span></div><div class="field-value value-placeholder">待发现</div></div>
-          </div>
-        </section>
-
-        <section class="l2-list">
-          <div class="list-controls">
-            <div class="tabs">
-              <button class="tab active">活跃</button>
-              <button class="tab">休眠</button>
-              <button class="tab">归档</button>
-              <button class="tab">已删除</button>
+      /* Drawer */
+      .drawer-preview {
+        position: relative;
+        height: 220px;
+        background: var(--color-bg);
+        border-top: 1px solid var(--color-border);
+        overflow: hidden;
+      }
+      .drawer-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+        display: flex;
+        justify-content: flex-end;
+      }
+      .drawer {
+        width: 320px;
+        background: var(--color-bg-secondary);
+        box-shadow: var(--shadow-drawer);
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+      }
+      .drawer-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .drawer-title {
+        font-size: var(--font-size-lg);
+        font-weight: 600;
+      }
+      .close-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        color: var(--color-text-secondary);
+      }
+      .detail-content {
+        font-size: var(--font-size-base);
+        line-height: 1.6;
+        margin-bottom: 12px;
+      }
+      .detail-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .stat-item {
+        display: flex;
+        flex-direction: column;
+      }
+      .stat-label {
+        font-size: var(--font-size-xs);
+        color: var(--color-text-muted);
+      }
+      .stat-value {
+        font-size: var(--font-size-base);
+        font-weight: 600;
+      }
+      .evidence-item {
+        padding: 8px;
+        background: var(--color-bg-tertiary);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        font-family: monospace;
+        font-size: var(--font-size-sm);
+        color: var(--color-text-secondary);
+        margin-bottom: 6px;
+      }
+      .drawer-footer {
+        display: flex;
+        gap: 8px;
+        margin-top: auto;
+      }
+      .action-btn {
+        flex: 1;
+        padding: 8px;
+        border-radius: var(--radius);
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        color: var(--color-text);
+      }
+      .action-btn.danger {
+        color: var(--color-error);
+        border-color: var(--color-error-border);
+        background: var(--color-error-bg);
+      }
+      .action-btn.active {
+        background: var(--color-accent-soft);
+        border-color: var(--color-accent);
+        color: var(--color-accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-wrapper">
+      <!-- 暗色主题 -->
+      <div class="theme-panel" data-theme="dark">
+        <div class="theme-label">暗色主题</div>
+        <div class="memory-view">
+          <header class="memory-header">
+            <button class="back-btn">
+              <svg class="btn-icon" viewBox="0 0 24 24">
+                <path
+                  d="M15 19l-7-7 7-7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              ><span>返回</span>
+            </button>
+            <div class="header-center">
+              <h1 class="header-title">她的记忆</h1>
+              <div class="fill-badge"><span>了解程度</span><span class="fill-value">3/8</span></div>
             </div>
-            <div class="search-box">
-              <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-              <input class="search-input" placeholder="搜索记忆..." />
+            <button class="growth-btn">
+              <span>成长</span
+              ><svg class="btn-icon" viewBox="0 0 24 24">
+                <path
+                  d="M9 5l7 7-7 7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </header>
+
+          <section class="l0-card">
+            <div class="card-header">
+              <h2 class="card-title">她了解的你</h2>
+              <span class="field-count">3/8</span>
+            </div>
+            <div class="l0-grid">
+              <div class="l0-field">
+                <div class="field-header"><span class="field-label">称呼</span><span>📌</span></div>
+                <div class="field-value">小明</div>
+              </div>
+              <div class="l0-field">
+                <div class="field-header"><span class="field-label">职业</span></div>
+                <div class="field-value">程序员</div>
+              </div>
+              <div class="l0-field pinned">
+                <div class="field-header"><span class="field-label">喜好</span><span>📌</span></div>
+                <div class="field-value">猫、科幻小说</div>
+              </div>
+              <div class="l0-field unknown">
+                <div class="field-header"><span class="field-label">家乡</span></div>
+                <div class="field-value value-placeholder">待发现</div>
+              </div>
+              <div class="l0-field unknown">
+                <div class="field-header"><span class="field-label">生日</span></div>
+                <div class="field-value value-placeholder">待发现</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="l2-list">
+            <div class="list-controls">
+              <div class="tabs">
+                <button class="tab active">活跃</button>
+                <button class="tab">休眠</button>
+                <button class="tab">归档</button>
+                <button class="tab">已删除</button>
+              </div>
+              <div class="search-box">
+                <svg class="search-icon" viewBox="0 0 24 24">
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    fill="none"
+                  />
+                  <path
+                    d="M20 20l-4.3-4.3"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    fill="none"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <input class="search-input" placeholder="搜索记忆..." />
+              </div>
+            </div>
+            <ul class="item-list">
+              <li class="l2-item">
+                <div class="item-main">
+                  <p class="item-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
+                  <div class="item-meta">
+                    <span
+                      class="state-badge"
+                      style="
+                        color: var(--color-state-active);
+                        background: var(--color-state-active-bg);
+                      "
+                      ><span class="state-dot" style="background: var(--color-state-active)"></span
+                      >活跃</span
+                    >
+                    <span class="type-tag">情境</span>
+                    <span>📌</span>
+                  </div>
+                </div>
+                <div class="activation-bar">
+                  <div class="bar-track"><div class="bar-fill" style="width: 78%"></div></div>
+                  <span class="bar-value">78</span>
+                </div>
+              </li>
+              <li class="l2-item">
+                <div class="item-main">
+                  <p class="item-content">用户对日本动漫感兴趣，尤其是吉卜力工作室的作品。</p>
+                  <div class="item-meta">
+                    <span
+                      class="state-badge"
+                      style="
+                        color: var(--color-state-dormant);
+                        background: var(--color-state-dormant-bg);
+                      "
+                      ><span class="state-dot" style="background: var(--color-state-dormant)"></span
+                      >休眠</span
+                    >
+                    <span class="type-tag">稳定</span>
+                  </div>
+                </div>
+                <div class="activation-bar">
+                  <div class="bar-track"><div class="bar-fill" style="width: 32%"></div></div>
+                  <span class="bar-value">32</span>
+                </div>
+              </li>
+              <li class="l2-item">
+                <div class="item-main">
+                  <p class="item-content">用户不喜欢吃香菜，提到过一次。</p>
+                  <div class="item-meta">
+                    <span
+                      class="state-badge"
+                      style="
+                        color: var(--color-state-archived);
+                        background: var(--color-state-archived-bg);
+                      "
+                      ><span
+                        class="state-dot"
+                        style="background: var(--color-state-archived)"
+                      ></span
+                      >归档</span
+                    >
+                    <span class="type-tag">一次性</span>
+                  </div>
+                </div>
+                <div class="activation-bar">
+                  <div class="bar-track"><div class="bar-fill" style="width: 12%"></div></div>
+                  <span class="bar-value">12</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <div class="drawer-preview">
+            <div class="drawer-overlay">
+              <aside class="drawer">
+                <div class="drawer-header">
+                  <h2 class="drawer-title">记忆详情</h2>
+                  <button class="close-btn">✕</button>
+                </div>
+                <p class="detail-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
+                <div class="detail-stats">
+                  <div class="stat-item">
+                    <span class="stat-label">激活</span><span class="stat-value">78.0</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">重要度</span><span class="stat-value">7</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">置信度</span><span class="stat-value">92%</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">引用</span><span class="stat-value">3 次</span>
+                  </div>
+                </div>
+                <div class="evidence-item">evid_a1b2c3d4…</div>
+                <div class="drawer-footer">
+                  <button class="action-btn active">📌 取消固定</button>
+                  <button class="action-btn danger">🗑 删除</button>
+                </div>
+              </aside>
             </div>
           </div>
-          <ul class="item-list">
-            <li class="l2-item">
-              <div class="item-main">
-                <p class="item-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
-                <div class="item-meta">
-                  <span class="state-badge" style="color: var(--color-state-active); background: var(--color-state-active-bg);"><span class="state-dot" style="background: var(--color-state-active);"></span>活跃</span>
-                  <span class="type-tag">情境</span>
-                  <span>📌</span>
-                </div>
-              </div>
-              <div class="activation-bar"><div class="bar-track"><div class="bar-fill" style="width: 78%"></div></div><span class="bar-value">78</span></div>
-            </li>
-            <li class="l2-item">
-              <div class="item-main">
-                <p class="item-content">用户对日本动漫感兴趣，尤其是吉卜力工作室的作品。</p>
-                <div class="item-meta">
-                  <span class="state-badge" style="color: var(--color-state-dormant); background: var(--color-state-dormant-bg);"><span class="state-dot" style="background: var(--color-state-dormant);"></span>休眠</span>
-                  <span class="type-tag">稳定</span>
-                </div>
-              </div>
-              <div class="activation-bar"><div class="bar-track"><div class="bar-fill" style="width: 32%"></div></div><span class="bar-value">32</span></div>
-            </li>
-            <li class="l2-item">
-              <div class="item-main">
-                <p class="item-content">用户不喜欢吃香菜，提到过一次。</p>
-                <div class="item-meta">
-                  <span class="state-badge" style="color: var(--color-state-archived); background: var(--color-state-archived-bg);"><span class="state-dot" style="background: var(--color-state-archived);"></span>归档</span>
-                  <span class="type-tag">一次性</span>
-                </div>
-              </div>
-              <div class="activation-bar"><div class="bar-track"><div class="bar-fill" style="width: 12%"></div></div><span class="bar-value">12</span></div>
-            </li>
-          </ul>
-        </section>
+        </div>
+      </div>
 
-        <div class="drawer-preview">
-          <div class="drawer-overlay">
-            <aside class="drawer">
-              <div class="drawer-header">
-                <h2 class="drawer-title">记忆详情</h2>
-                <button class="close-btn">✕</button>
+      <!-- 浅色主题 -->
+      <div class="theme-panel" data-theme="light">
+        <div class="theme-label">浅色主题</div>
+        <div class="memory-view">
+          <header class="memory-header">
+            <button class="back-btn">
+              <svg class="btn-icon" viewBox="0 0 24 24">
+                <path
+                  d="M15 19l-7-7 7-7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                /></svg
+              ><span>返回</span>
+            </button>
+            <div class="header-center">
+              <h1 class="header-title">她的记忆</h1>
+              <div class="fill-badge"><span>了解程度</span><span class="fill-value">3/8</span></div>
+            </div>
+            <button class="growth-btn">
+              <span>成长</span
+              ><svg class="btn-icon" viewBox="0 0 24 24">
+                <path
+                  d="M9 5l7 7-7 7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </header>
+
+          <section class="l0-card">
+            <div class="card-header">
+              <h2 class="card-title">她了解的你</h2>
+              <span class="field-count">3/8</span>
+            </div>
+            <div class="l0-grid">
+              <div class="l0-field">
+                <div class="field-header"><span class="field-label">称呼</span><span>📌</span></div>
+                <div class="field-value">小明</div>
               </div>
-              <p class="detail-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
-              <div class="detail-stats">
-                <div class="stat-item"><span class="stat-label">激活</span><span class="stat-value">78.0</span></div>
-                <div class="stat-item"><span class="stat-label">重要度</span><span class="stat-value">7</span></div>
-                <div class="stat-item"><span class="stat-label">置信度</span><span class="stat-value">92%</span></div>
-                <div class="stat-item"><span class="stat-label">引用</span><span class="stat-value">3 次</span></div>
+              <div class="l0-field">
+                <div class="field-header"><span class="field-label">职业</span></div>
+                <div class="field-value">程序员</div>
               </div>
-              <div class="evidence-item">evid_a1b2c3d4…</div>
-              <div class="drawer-footer">
-                <button class="action-btn active">📌 取消固定</button>
-                <button class="action-btn danger">🗑 删除</button>
+              <div class="l0-field pinned">
+                <div class="field-header"><span class="field-label">喜好</span><span>📌</span></div>
+                <div class="field-value">猫、科幻小说</div>
               </div>
-            </aside>
+              <div class="l0-field unknown">
+                <div class="field-header"><span class="field-label">家乡</span></div>
+                <div class="field-value value-placeholder">待发现</div>
+              </div>
+              <div class="l0-field unknown">
+                <div class="field-header"><span class="field-label">生日</span></div>
+                <div class="field-value value-placeholder">待发现</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="l2-list">
+            <div class="list-controls">
+              <div class="tabs">
+                <button class="tab active">活跃</button>
+                <button class="tab">休眠</button>
+                <button class="tab">归档</button>
+                <button class="tab">已删除</button>
+              </div>
+              <div class="search-box">
+                <svg class="search-icon" viewBox="0 0 24 24">
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    fill="none"
+                  />
+                  <path
+                    d="M20 20l-4.3-4.3"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    fill="none"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <input class="search-input" placeholder="搜索记忆..." />
+              </div>
+            </div>
+            <ul class="item-list">
+              <li class="l2-item">
+                <div class="item-main">
+                  <p class="item-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
+                  <div class="item-meta">
+                    <span
+                      class="state-badge"
+                      style="
+                        color: var(--color-state-active);
+                        background: var(--color-state-active-bg);
+                      "
+                      ><span class="state-dot" style="background: var(--color-state-active)"></span
+                      >活跃</span
+                    >
+                    <span class="type-tag">情境</span>
+                    <span>📌</span>
+                  </div>
+                </div>
+                <div class="activation-bar">
+                  <div class="bar-track"><div class="bar-fill" style="width: 78%"></div></div>
+                  <span class="bar-value">78</span>
+                </div>
+              </li>
+              <li class="l2-item">
+                <div class="item-main">
+                  <p class="item-content">用户对日本动漫感兴趣，尤其是吉卜力工作室的作品。</p>
+                  <div class="item-meta">
+                    <span
+                      class="state-badge"
+                      style="
+                        color: var(--color-state-dormant);
+                        background: var(--color-state-dormant-bg);
+                      "
+                      ><span class="state-dot" style="background: var(--color-state-dormant)"></span
+                      >休眠</span
+                    >
+                    <span class="type-tag">稳定</span>
+                  </div>
+                </div>
+                <div class="activation-bar">
+                  <div class="bar-track"><div class="bar-fill" style="width: 32%"></div></div>
+                  <span class="bar-value">32</span>
+                </div>
+              </li>
+              <li class="l2-item">
+                <div class="item-main">
+                  <p class="item-content">用户不喜欢吃香菜，提到过一次。</p>
+                  <div class="item-meta">
+                    <span
+                      class="state-badge"
+                      style="
+                        color: var(--color-state-archived);
+                        background: var(--color-state-archived-bg);
+                      "
+                      ><span
+                        class="state-dot"
+                        style="background: var(--color-state-archived)"
+                      ></span
+                      >归档</span
+                    >
+                    <span class="type-tag">一次性</span>
+                  </div>
+                </div>
+                <div class="activation-bar">
+                  <div class="bar-track"><div class="bar-fill" style="width: 12%"></div></div>
+                  <span class="bar-value">12</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <div class="drawer-preview">
+            <div class="drawer-overlay">
+              <aside class="drawer">
+                <div class="drawer-header">
+                  <h2 class="drawer-title">记忆详情</h2>
+                  <button class="close-btn">✕</button>
+                </div>
+                <p class="detail-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
+                <div class="detail-stats">
+                  <div class="stat-item">
+                    <span class="stat-label">激活</span><span class="stat-value">78.0</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">重要度</span><span class="stat-value">7</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">置信度</span><span class="stat-value">92%</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">引用</span><span class="stat-value">3 次</span>
+                  </div>
+                </div>
+                <div class="evidence-item">evid_a1b2c3d4…</div>
+                <div class="drawer-footer">
+                  <button class="action-btn active">📌 取消固定</button>
+                  <button class="action-btn danger">🗑 删除</button>
+                </div>
+              </aside>
+            </div>
           </div>
         </div>
       </div>
     </div>
-
-    <!-- 浅色主题 -->
-    <div class="theme-panel" data-theme="light">
-      <div class="theme-label">浅色主题</div>
-      <div class="memory-view">
-        <header class="memory-header">
-          <button class="back-btn"><svg class="btn-icon" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>返回</span></button>
-          <div class="header-center">
-            <h1 class="header-title">她的记忆</h1>
-            <div class="fill-badge"><span>了解程度</span><span class="fill-value">3/8</span></div>
-          </div>
-          <button class="growth-btn"><span>成长</span><svg class="btn-icon" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        </header>
-
-        <section class="l0-card">
-          <div class="card-header"><h2 class="card-title">她了解的你</h2><span class="field-count">3/8</span></div>
-          <div class="l0-grid">
-            <div class="l0-field"><div class="field-header"><span class="field-label">称呼</span><span>📌</span></div><div class="field-value">小明</div></div>
-            <div class="l0-field"><div class="field-header"><span class="field-label">职业</span></div><div class="field-value">程序员</div></div>
-            <div class="l0-field pinned"><div class="field-header"><span class="field-label">喜好</span><span>📌</span></div><div class="field-value">猫、科幻小说</div></div>
-            <div class="l0-field unknown"><div class="field-header"><span class="field-label">家乡</span></div><div class="field-value value-placeholder">待发现</div></div>
-            <div class="l0-field unknown"><div class="field-header"><span class="field-label">生日</span></div><div class="field-value value-placeholder">待发现</div></div>
-          </div>
-        </section>
-
-        <section class="l2-list">
-          <div class="list-controls">
-            <div class="tabs">
-              <button class="tab active">活跃</button>
-              <button class="tab">休眠</button>
-              <button class="tab">归档</button>
-              <button class="tab">已删除</button>
-            </div>
-            <div class="search-box">
-              <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/><path d="M20 20l-4.3-4.3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-              <input class="search-input" placeholder="搜索记忆..." />
-            </div>
-          </div>
-          <ul class="item-list">
-            <li class="l2-item">
-              <div class="item-main">
-                <p class="item-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
-                <div class="item-meta">
-                  <span class="state-badge" style="color: var(--color-state-active); background: var(--color-state-active-bg);"><span class="state-dot" style="background: var(--color-state-active);"></span>活跃</span>
-                  <span class="type-tag">情境</span>
-                  <span>📌</span>
-                </div>
-              </div>
-              <div class="activation-bar"><div class="bar-track"><div class="bar-fill" style="width: 78%"></div></div><span class="bar-value">78</span></div>
-            </li>
-            <li class="l2-item">
-              <div class="item-main">
-                <p class="item-content">用户对日本动漫感兴趣，尤其是吉卜力工作室的作品。</p>
-                <div class="item-meta">
-                  <span class="state-badge" style="color: var(--color-state-dormant); background: var(--color-state-dormant-bg);"><span class="state-dot" style="background: var(--color-state-dormant);"></span>休眠</span>
-                  <span class="type-tag">稳定</span>
-                </div>
-              </div>
-              <div class="activation-bar"><div class="bar-track"><div class="bar-fill" style="width: 32%"></div></div><span class="bar-value">32</span></div>
-            </li>
-            <li class="l2-item">
-              <div class="item-main">
-                <p class="item-content">用户不喜欢吃香菜，提到过一次。</p>
-                <div class="item-meta">
-                  <span class="state-badge" style="color: var(--color-state-archived); background: var(--color-state-archived-bg);"><span class="state-dot" style="background: var(--color-state-archived);"></span>归档</span>
-                  <span class="type-tag">一次性</span>
-                </div>
-              </div>
-              <div class="activation-bar"><div class="bar-track"><div class="bar-fill" style="width: 12%"></div></div><span class="bar-value">12</span></div>
-            </li>
-          </ul>
-        </section>
-
-        <div class="drawer-preview">
-          <div class="drawer-overlay">
-            <aside class="drawer">
-              <div class="drawer-header">
-                <h2 class="drawer-title">记忆详情</h2>
-                <button class="close-btn">✕</button>
-              </div>
-              <p class="detail-content">用户提到自己喜欢在周末去咖啡馆写代码，享受安静的环境。</p>
-              <div class="detail-stats">
-                <div class="stat-item"><span class="stat-label">激活</span><span class="stat-value">78.0</span></div>
-                <div class="stat-item"><span class="stat-label">重要度</span><span class="stat-value">7</span></div>
-                <div class="stat-item"><span class="stat-label">置信度</span><span class="stat-value">92%</span></div>
-                <div class="stat-item"><span class="stat-label">引用</span><span class="stat-value">3 次</span></div>
-              </div>
-              <div class="evidence-item">evid_a1b2c3d4…</div>
-              <div class="drawer-footer">
-                <button class="action-btn active">📌 取消固定</button>
-                <button class="action-btn danger">🗑 删除</button>
-              </div>
-            </aside>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</body>
+  </body>
 </html>

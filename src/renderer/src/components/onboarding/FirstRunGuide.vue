@@ -10,13 +10,16 @@
 import { ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useConfigStore } from '../../stores/config'
+import FirstConversationGuide from './FirstConversationGuide.vue'
 
 const configStore = useConfigStore()
 const { state } = storeToRefs(configStore)
 
-type Step = 'form' | 'testing' | 'success'
+type Step = 'form' | 'testing' | 'first-conversation'
 
-const step = ref<Step>('form')
+const step = ref<Step>(
+  state.value.draft?.ui.onboarding.stage === 'first-conversation' ? 'first-conversation' : 'form'
+)
 const errorMessage = ref<string | null>(null)
 
 const hasApiKey = computed(() => state.value.draft?.model.hasApiKey ?? false)
@@ -84,7 +87,21 @@ async function onTestAndSave(): Promise<void> {
 
     const result = state.value.connectionResult
     if (result?.ok) {
-      step.value = 'success'
+      if (!state.value.draft) {
+        step.value = 'form'
+        errorMessage.value = '配置状态已过期，请重新保存后再试'
+        return
+      }
+      configStore.patch('ui', {
+        onboarding: { ...state.value.draft.ui.onboarding, stage: 'first-conversation' }
+      })
+      const progressSaved = await configStore.save()
+      if (!progressSaved) {
+        step.value = 'form'
+        errorMessage.value = '连接已通过，但引导进度没有保存，请重试'
+        return
+      }
+      step.value = 'first-conversation'
     } else {
       // 失败：返回表单步骤，保留输入（草稿保留，S-001 P1-24A 验收）
       step.value = 'form'
@@ -98,18 +115,25 @@ async function onTestAndSave(): Promise<void> {
   }
 }
 
-const exampleQuestions = [
-  '你好，请介绍一下你自己',
-  '今天天气怎么样？',
-  '帮我写一首短诗',
-  '推荐一本好书'
-]
-
 const emit = defineEmits<{
   startChat: [text: string]
 }>()
 
-function startWithExample(text: string): void {
+async function startFirstConversation(text: string): Promise<void> {
+  if (state.value.draft) {
+    configStore.patch('ui', {
+      onboarding: {
+        ...state.value.draft.ui.onboarding,
+        stage: 'complete',
+        completedAt: Date.now()
+      }
+    })
+    const saved = await configStore.save()
+    if (!saved) {
+      errorMessage.value = '第一次见面的进度没有保存，请重试'
+      return
+    }
+  }
   emit('startChat', text)
 }
 </script>
@@ -159,22 +183,11 @@ function startWithExample(text: string): void {
       <p>正在测试连接...</p>
     </div>
 
-    <!-- 步骤 3: 成功 -> 欢迎语 + 示例问题 -->
-    <div v-else-if="step === 'success'" class="step success-step">
-      <h2>连接成功！</h2>
-      <p class="welcome">你好！我是 Nacime，很高兴认识你。</p>
-      <p class="hint">试试这些问题开始对话：</p>
-      <div class="examples">
-        <button
-          v-for="q in exampleQuestions"
-          :key="q"
-          class="example-btn"
-          @click="startWithExample(q)"
-        >
-          {{ q }}
-        </button>
-      </div>
-    </div>
+    <!-- 步骤 3: 第一次见面；opening 是展示层，不写入 SessionStore -->
+    <FirstConversationGuide
+      v-else-if="step === 'first-conversation'"
+      @start-chat="startFirstConversation"
+    />
   </div>
 </template>
 

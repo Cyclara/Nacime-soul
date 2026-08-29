@@ -28,13 +28,18 @@ import type {
   ChatSearchRequest,
   ChatSendRequest
 } from '@shared/chat/types'
+import type { ChatFeedbackRequest } from '@shared/compliance/types'
+import type { Live2dStageReadyRequest, Live2dStageReport } from '@shared/live2d/stage-types'
+import type { Live2dFramingPreviewRequest } from '@shared/live2d/public-types'
 import type {
   ConfigResetRequest,
   ConfigUpdateRequest,
   ModelConnectionTestRequest
 } from '@shared/config/types'
+import { CONFIG_DOMAINS } from '@shared/config/types'
 import type {
   DmaeHistoryRequest,
+  DmaePanelRequest,
   DmaeTrendRequest,
   DmaeExplainRequest,
   DmaeBenchmarkRequest,
@@ -48,6 +53,9 @@ import type {
   MemoryListRequest,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  RecycleBinEmptyRequest,
+  RecycleBinListRequest,
+  RecycleBinRestoreRequest,
   MemorySetL0FieldRequest,
   MemoryUpdateContentRequest
 } from '@shared/memory/types'
@@ -159,6 +167,80 @@ function isChatSearchRequest(value: unknown): value is ChatSearchRequest {
   return true
 }
 
+// --- ChatFeedbackRequest（P3C1-07：合规用户反馈，F5-001 §3.7）---
+// kind 白名单两值；幂等语义在 compliance feedback service（重复/忽略均 ok）
+function isChatFeedbackRequest(value: unknown): value is ChatFeedbackRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['sessionId', 'turnId', 'messageId', 'kind'])) return false
+  if (!isId(value.sessionId)) return false
+  if (!isId(value.turnId)) return false
+  if (!isId(value.messageId)) return false
+  return value.kind === 'dislike' || value.kind === 'out-of-character'
+}
+
+// --- Live2D stage（P3A-05：只接受当前实例 ID 与无正文状态元数据） ---
+function isLive2dModelId(value: unknown): value is string {
+  return isId(value, { maxLen: 128 })
+}
+
+function isLive2dSelectModelRequest(value: unknown): value is { modelId: string } {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['modelId'])) return false
+  return isLive2dModelId(value.modelId)
+}
+
+function isLive2dVisibleRequest(value: unknown): value is { visible: boolean } {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['visible'])) return false
+  return isBoolean(value.visible)
+}
+
+/** 取景预览：framing=null 结束预览；非 null 时三个字段都必须在合同范围内。 */
+function isLive2dFramingPreviewRequest(value: unknown): value is Live2dFramingPreviewRequest {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['framing'])) return false
+  if (value.framing === null) return true
+  const framing = value.framing
+  if (!isPlainObject(framing) || !hasOnlyKeys(framing, ['zoom', 'offsetX', 'offsetY'])) return false
+  return (
+    isNumber(framing.zoom, { min: 0.25, max: 3 }) &&
+    isNumber(framing.offsetX, { min: -100, max: 100 }) &&
+    isNumber(framing.offsetY, { min: -100, max: 100 })
+  )
+}
+
+function isStageInstanceId(value: unknown): value is string {
+  return isId(value, { maxLen: 128 })
+}
+
+function isLive2dStageReadyRequest(value: unknown): value is Live2dStageReadyRequest {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['stageInstanceId'])) return false
+  return isStageInstanceId(value.stageInstanceId)
+}
+
+function isLive2dStageReport(value: unknown): value is Live2dStageReport {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['stageInstanceId', 'status', 'fps', 'modelLoadMs', 'errorCode']))
+    return false
+  if (!isStageInstanceId(value.stageInstanceId)) return false
+  if (!['starting', 'loading-model', 'ready', 'degraded', 'error'].includes(String(value.status)))
+    return false
+  if ('fps' in value && value.fps !== undefined && !isNumber(value.fps, { min: 0, max: 240 }))
+    return false
+  if (
+    'modelLoadMs' in value &&
+    value.modelLoadMs !== undefined &&
+    !isNumber(value.modelLoadMs, { min: 0, max: 120_000, integer: true })
+  ) {
+    return false
+  }
+  if (
+    'errorCode' in value &&
+    value.errorCode !== undefined &&
+    !isString(value.errorCode, { minLen: 1, maxLen: 64 })
+  ) {
+    return false
+  }
+  return true
+}
+
 // --- ModelConnectionTestRequest ---
 function isModelConnectionTestRequest(value: unknown): value is ModelConnectionTestRequest {
   if (!isPlainObject(value)) return false
@@ -178,18 +260,12 @@ function isModelConnectionTestRequest(value: unknown): value is ModelConnectionT
 }
 
 // --- ConfigResetRequest ---
+// 域白名单由 CONFIG_DOMAINS 派生（开工裁定 §2.2，禁止人工域数组）
 function isConfigResetRequest(value: unknown): value is ConfigResetRequest {
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['domain', 'confirm'])) return false
-  if (
-    value.domain !== 'model' &&
-    value.domain !== 'tts' &&
-    value.domain !== 'memory' &&
-    value.domain !== 'ui' &&
-    value.domain !== 'security'
-  ) {
-    return false
-  }
+  if (typeof value.domain !== 'string') return false
+  if (!(CONFIG_DOMAINS as readonly string[]).includes(value.domain)) return false
   if (value.confirm !== true) return false
   return true
 }
@@ -377,6 +453,77 @@ function isPartialDmaeConfig(value: unknown): boolean {
   })
 }
 
+function isPartialGcPolicy(value: unknown): boolean {
+  if (!isPlainObject(value)) return false
+  if (
+    !hasOnlyKeys(value, [
+      'archiveToSoftDeleteDays',
+      'softDeleteToPurgeDays',
+      'recentAccessGraceDays',
+      'anchorImportanceMin',
+      'maxPurgePerRun',
+      'schedule',
+      'monthlyDigest',
+      'coldStorage'
+    ])
+  )
+    return false
+  if ('archiveToSoftDeleteDays' in value && value.archiveToSoftDeleteDays !== undefined) {
+    const tiers = value.archiveToSoftDeleteDays
+    if (!isPlainObject(tiers) || !hasOnlyKeys(tiers, ['one_off', 'situational', 'stable']))
+      return false
+    if ('one_off' in tiers && !isNumber(tiers.one_off, { min: 7, max: 365, integer: true }))
+      return false
+    if (
+      'situational' in tiers &&
+      !isNumber(tiers.situational, { min: 14, max: 730, integer: true })
+    )
+      return false
+    if ('stable' in tiers && tiers.stable !== null) return false
+  }
+  if (
+    'softDeleteToPurgeDays' in value &&
+    !isNumber(value.softDeleteToPurgeDays, { min: 7, max: 365, integer: true })
+  )
+    return false
+  if (
+    'recentAccessGraceDays' in value &&
+    !isNumber(value.recentAccessGraceDays, { min: 7, max: 365, integer: true })
+  )
+    return false
+  if (
+    'anchorImportanceMin' in value &&
+    !isNumber(value.anchorImportanceMin, { min: 1, max: 10, integer: true })
+  )
+    return false
+  if (
+    'maxPurgePerRun' in value &&
+    !isNumber(value.maxPurgePerRun, { min: 1, max: 500, integer: true })
+  )
+    return false
+  if ('monthlyDigest' in value && !isBoolean(value.monthlyDigest)) return false
+  if ('schedule' in value && value.schedule !== undefined) {
+    if (
+      !validatePartialFields(value.schedule, {
+        idleMinutes: (v) => isNumber(v, { min: 1, max: 60, integer: true }),
+        minIntervalHours: (v) => isNumber(v, { min: 1, max: 168, integer: true }),
+        eagerCountThreshold: (v) => isNumber(v, { min: 100, max: 100_000, integer: true })
+      })
+    )
+      return false
+  }
+  if ('coldStorage' in value && value.coldStorage !== undefined) {
+    if (
+      !validatePartialFields(value.coldStorage, {
+        enabled: (v) => isBoolean(v),
+        dir: (v) => v === 'data/cold'
+      })
+    )
+      return false
+  }
+  return true
+}
+
 /** MemoryConfig.attributionGate 子对象验证（M-42，对齐 AttributionGateConfigSchema） */
 function isPartialAttributionGateConfig(value: unknown): boolean {
   return validatePartialFields(value, {
@@ -397,7 +544,8 @@ function isPartialMemoryConfig(value: unknown): boolean {
       maxActive: (v) => isNumber(v, { min: 1, max: 50, integer: true }),
       minRetrievalScore: (v) => isNumber(v, { min: -1, max: 1 }),
       attributionGate: (v) => isPartialAttributionGateConfig(v),
-      dmae: (v) => isPartialDmaeConfig(v)
+      dmae: (v) => isPartialDmaeConfig(v),
+      gc: (v) => isPartialGcPolicy(v)
     })
   ) {
     return false
@@ -430,7 +578,23 @@ function isPartialLive2dConfig(value: unknown): boolean {
   return validatePartialFields(value, {
     enabled: (v) => isBoolean(v),
     zoom: (v) => isNumber(v, { min: 0.25, max: 3 }),
-    alwaysOnTop: (v) => isBoolean(v)
+    alwaysOnTop: (v) => isBoolean(v),
+    offsetX: (v) => isNumber(v, { min: -100, max: 100 }),
+    offsetY: (v) => isNumber(v, { min: -100, max: 100 }),
+    selectedModelId: (v) => isId(v, { maxLen: 128 })
+  })
+}
+
+function isPartialOnboardingConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    version: (v) => v === 1,
+    stage: (v) =>
+      v === 'provider-setup' ||
+      v === 'connection-test' ||
+      v === 'first-conversation' ||
+      v === 'complete',
+    completedAt: (v) => isNumber(v, { min: 0, integer: true }),
+    voiceSendMode: (v) => v === 'draft' || v === 'send'
   })
 }
 
@@ -443,6 +607,7 @@ function isPartialUiConfig(value: unknown): boolean {
       'theme',
       'fontScale',
       'reduceMotion',
+      'onboarding',
       'window',
       'chat',
       'live2d'
@@ -463,6 +628,9 @@ function isPartialUiConfig(value: unknown): boolean {
   }
   if ('reduceMotion' in value && value.reduceMotion !== undefined) {
     if (!isBoolean(value.reduceMotion)) return false
+  }
+  if ('onboarding' in value && value.onboarding !== undefined) {
+    if (!isPartialOnboardingConfig(value.onboarding)) return false
   }
   if ('window' in value && value.window !== undefined) {
     if (!isPartialWindowConfig(value.window)) return false
@@ -509,13 +677,84 @@ function isPartialSecurityConfig(value: unknown): boolean {
   return true
 }
 
+// === F5-001 C0：persona 域深层局部 validator（S-005-补充 §1.5）===
+// 开工裁定 §2.5：IPC validator 保留显式深层字段白名单——以下逐字段列出，
+// 范围与 main/config/schema/persona.ts 的 Valibot schema 一一对应。
+
+/** ComplianceGateScope 四值（与 shared/compliance/types.ts 单真源一致） */
+function isComplianceGateScope(value: unknown): boolean {
+  return (
+    value === 'first-segment' || value === 'all-segments' || value === 'observe' || value === 'off'
+  )
+}
+
+const COMPLIANCE_RULE_ID_RE = /^R-[A-Z]{2}-\d{2}$/
+
+/** disabledRuleIds：数组 ≤256，元素形如 R-XX-00，不得重复 */
+function isDisabledRuleIds(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 256) return false
+  if (!value.every((id) => typeof id === 'string' && COMPLIANCE_RULE_ID_RE.test(id))) return false
+  return new Set(value).size === value.length
+}
+
+/** ComplianceGateConfig partial 验证（含开工裁定 1.2 增补的 maxHoldMs） */
+function isPartialComplianceGateConfig(value: unknown): boolean {
+  if (
+    !validatePartialFields(value, {
+      enabled: (v) => isBoolean(v),
+      scope: (v) => isComplianceGateScope(v),
+      firstSegmentMinChars: (v) => isNumber(v, { min: 1, max: 512, integer: true }),
+      segmentMaxChars: (v) => isNumber(v, { min: 64, max: 4096, integer: true }),
+      budgetMs: (v) => isNumber(v, { min: 1, max: 100, integer: true }),
+      maxRegenerations: (v) => v === 0 || v === 1,
+      maxHoldMs: (v) => isNumber(v, { min: 100, max: 2000, integer: true })
+    })
+  ) {
+    return false
+  }
+  // 跨字段关系：同一 patch 同时给两键时提前拒绝（单键场景的合并结果由 store 层 schema 把关）
+  const patch = value as Record<string, unknown>
+  if (patch.firstSegmentMinChars !== undefined && patch.segmentMaxChars !== undefined) {
+    if ((patch.firstSegmentMinChars as number) > (patch.segmentMaxChars as number)) return false
+  }
+  return true
+}
+
+/** ComplianceAuditConfig partial 验证 */
+function isPartialComplianceAuditConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    enabled: (v) => isBoolean(v),
+    sampleRate: (v) => isNumber(v, { min: 0, max: 1 }),
+    timeoutMs: (v) => isNumber(v, { min: 1_000, max: 120_000, integer: true }),
+    recentTurnWindow: (v) => isNumber(v, { min: 1, max: 20, integer: true })
+  })
+}
+
+/** ComplianceConfig partial 验证 */
+function isPartialComplianceConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    gate: (v) => isPartialComplianceGateConfig(v),
+    audit: (v) => isPartialComplianceAuditConfig(v),
+    disabledRuleIds: (v) => isDisabledRuleIds(v),
+    debugCaptureText: (v) => isBoolean(v)
+  })
+}
+
+/** PersonaConfig partial 验证 */
+function isPartialPersonaConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    compliance: (v) => isPartialComplianceConfig(v)
+  })
+}
+
 /** ConfigUpdateRequest 验证 */
 function isConfigUpdateRequest(value: unknown): value is ConfigUpdateRequest {
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['expectedSchemaVersion', 'domains'])) return false
   if (!isNumber(value.expectedSchemaVersion, { integer: true, min: 0 })) return false
   if (!isPlainObject(value.domains)) return false
-  if (!hasOnlyKeys(value.domains, ['model', 'tts', 'memory', 'ui', 'security'])) {
+  // 域 key 白名单由 CONFIG_DOMAINS 派生（开工裁定 §2.2）；各域深层字段仍显式白名单（§2.5）
+  if (!hasOnlyKeys(value.domains, [...CONFIG_DOMAINS])) {
     return false
   }
   if ('model' in value.domains && value.domains.model !== undefined) {
@@ -532,6 +771,9 @@ function isConfigUpdateRequest(value: unknown): value is ConfigUpdateRequest {
   }
   if ('security' in value.domains && value.domains.security !== undefined) {
     if (!isPartialSecurityConfig(value.domains.security)) return false
+  }
+  if ('persona' in value.domains && value.domains.persona !== undefined) {
+    if (!isPartialPersonaConfig(value.domains.persona)) return false
   }
   return true
 }
@@ -587,6 +829,22 @@ function isMemoryRestoreRequest(value: unknown): value is MemoryRestoreRequest {
   return isMemoryId(value.memoryId)
 }
 
+function isRecycleBinListRequest(value: unknown): value is RecycleBinListRequest {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['limit', 'offset'])) return false
+  return (
+    isNumber(value.limit, { min: 1, max: 200, integer: true }) &&
+    isNumber(value.offset, { min: 0, max: 100_000, integer: true })
+  )
+}
+
+function isRecycleBinRestoreRequest(value: unknown): value is RecycleBinRestoreRequest {
+  return isMemoryRestoreRequest(value)
+}
+
+function isRecycleBinEmptyRequest(value: unknown): value is RecycleBinEmptyRequest {
+  return isPlainObject(value) && hasOnlyKeys(value, ['confirm']) && value.confirm === true
+}
+
 /** M-44：编辑 L2 内容——trim 前 1..500 字符（上限与提取管线 judge.ts L2 一致） */
 function isMemoryUpdateContentRequest(value: unknown): value is MemoryUpdateContentRequest {
   if (!isPlainObject(value)) return false
@@ -631,6 +889,31 @@ function isGrowthTrendRequest(value: unknown): value is GrowthTrendRequest {
 }
 
 // === Phase 2 P2-32：DMAE 面板 invoke validator（F5-002 §3.7）===
+
+function isDmaePanelRequest(value: unknown): value is DmaePanelRequest | undefined {
+  if (value === undefined) return true
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['eligibleCursor', 'eligibleLimit']))
+    return false
+  if (
+    'eligibleLimit' in value &&
+    value.eligibleLimit !== undefined &&
+    !isNumber(value.eligibleLimit, { min: 1, max: 200, integer: true })
+  ) {
+    return false
+  }
+  if ('eligibleCursor' in value && value.eligibleCursor !== undefined) {
+    const cursor = value.eligibleCursor
+    if (!isPlainObject(cursor) || !hasOnlyKeys(cursor, ['turn', 'activation', 'memoryId']))
+      return false
+    if (
+      !isNumber(cursor.turn, { min: 0, integer: true }) ||
+      !isNumber(cursor.activation, { min: 0, max: 100 })
+    )
+      return false
+    if (!isMemoryId(cursor.memoryId)) return false
+  }
+  return true
+}
 
 function isDmaeTrendRequest(value: unknown): value is DmaeTrendRequest {
   if (!isPlainObject(value)) return false
@@ -703,6 +986,20 @@ export const IPC_VALIDATORS = {
   'companion:chat:delete-selected': isChatDeleteSelectedRequest,
   'companion:chat:clear-session': isChatClearSessionRequest,
   'companion:chat:search': isChatSearchRequest,
+  // P3C1-07：合规用户反馈（F5-001 §3.7）
+  'companion:chat:feedback': isChatFeedbackRequest,
+  // P3C1-08：合规调试快照（F5-001 §3.10；无载荷）
+  'companion:compliance:get-snapshot': (v: unknown): v is undefined => v === undefined,
+  // P3A-05：stage capability only，具体 sender 权限由 register.ts capability guard 执行。
+  'companion:stage:ready': isLive2dStageReadyRequest,
+  'companion:stage:report-state': isLive2dStageReport,
+  'companion:live2d:get-state': (v: unknown): v is undefined => v === undefined,
+  'companion:live2d:choose-import-source': (v: unknown): v is undefined => v === undefined,
+  'companion:live2d:select-model': isLive2dSelectModelRequest,
+  'companion:live2d:set-visible': isLive2dVisibleRequest,
+  'companion:live2d:reset-window-placement': (v: unknown): v is undefined => v === undefined,
+  'companion:live2d:preview-framing': isLive2dFramingPreviewRequest,
+  'companion:live2d:retry-load': (v: unknown): v is undefined => v === undefined,
   'companion:debug:get-snapshot': (v: unknown): v is undefined => v === undefined,
   'companion:debug:open-log-folder': (v: unknown): v is undefined => v === undefined,
   // ── Phase 2：memory（9 invoke）──
@@ -713,6 +1010,9 @@ export const IPC_VALIDATORS = {
   'companion:memory:set-pinned': isMemoryPinRequest,
   'companion:memory:soft-delete': isMemoryDeleteRequest,
   'companion:memory:restore': isMemoryRestoreRequest,
+  'companion:memory:list-recycle-bin': isRecycleBinListRequest,
+  'companion:memory:restore-from-recycle-bin': isRecycleBinRestoreRequest,
+  'companion:memory:empty-recycle-bin': isRecycleBinEmptyRequest,
   'companion:memory:update-content': isMemoryUpdateContentRequest,
   'companion:memory:set-l0-field': isMemorySetL0FieldRequest,
   'companion:memory:get-dmae-snapshot': (v: unknown): v is undefined => v === undefined,
@@ -722,7 +1022,7 @@ export const IPC_VALIDATORS = {
   'companion:growth:get-timeline': isGrowthTimelineRequest,
   'companion:growth:get-trend': isGrowthTrendRequest,
   // ── Phase 2 P2-32：DMAE 面板（F5-002 §3.7）──
-  'companion:dmae:get-panel': (v: unknown): v is undefined => v === undefined,
+  'companion:dmae:get-panel': isDmaePanelRequest,
   'companion:dmae:get-trend': isDmaeTrendRequest,
   'companion:dmae:explain': isDmaeExplainRequest,
   // ── Phase 2 P2-34：DMAE 基准体检（F5-002 §3.6）──

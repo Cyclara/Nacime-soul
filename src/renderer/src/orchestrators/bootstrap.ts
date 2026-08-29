@@ -8,6 +8,7 @@
 import { useAppStore } from '../stores/app'
 import { useChatStore } from '../stores/chat'
 import { useConfigStore } from '../stores/config'
+import { useLive2dStore } from '../stores/live2d'
 import type { Unsubscribe } from '@shared/ipc/contracts'
 
 function aggregateTeardown(unsubs: Unsubscribe[]): Unsubscribe {
@@ -35,6 +36,7 @@ export async function bootstrapApp(): Promise<Unsubscribe> {
   const appStore = useAppStore()
   const configStore = useConfigStore()
   const chatStore = useChatStore()
+  const live2dStore = useLive2dStore()
 
   const unsubs: Unsubscribe[] = []
   const teardown = aggregateTeardown(unsubs)
@@ -58,6 +60,12 @@ export async function bootstrapApp(): Promise<Unsubscribe> {
 
     // 3. 注册流式事件
     unsubs.push(chatStore.subscribe())
+    // P3A-23：Live2D 是 chat renderer 的公开投影；先订阅再 hydrate，避免 stage ready
+    // 事件在首个快照请求返回前被丢弃。
+    if (window.companion?.live2d) {
+      unsubs.push(live2dStore.subscribe())
+      await live2dStore.hydrate()
+    }
 
     // 4. 恢复当前会话；只有没有当前会话时才新建
     await chatStore.hydrate()

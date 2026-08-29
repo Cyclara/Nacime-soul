@@ -4,13 +4,22 @@
 
 import type { ErrorCode } from '../errors'
 import type { DmaeAnomalyConfig, UserDmaePreset } from '../memory/dmae-config'
+import type { ComplianceGateScope } from '../compliance/types'
+import type { GcPolicy } from '../memory/gc-types'
 import type { ThemeSetting } from './themes'
 
 // === 协议与枚举 ===
 
 export type Protocol = 'openai-compatible' | 'anthropic'
 export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high'
-export type ConfigDomain = 'model' | 'tts' | 'memory' | 'ui' | 'security'
+
+/**
+ * 配置域单真源（F5-勘误-2026-08-24-Phase3开工裁定 §2.1/§2.2 强制）。
+ * ConfigDomain 由本常量派生；detectChangedDomain、reset-domain 域白名单、
+ * renderer 侧域遍历一律从本常量派生，禁止再维护人工域数组。
+ */
+export const CONFIG_DOMAINS = ['model', 'tts', 'memory', 'ui', 'security', 'persona'] as const
+export type ConfigDomain = (typeof CONFIG_DOMAINS)[number]
 
 // === Model ===
 
@@ -83,15 +92,31 @@ export interface MemoryConfig {
     /** P2-31.5A：每 N 个全局 DMAE turn 采样一次。1..10，默认 1。 */
     historySampleEveryTurns: number
   }
+  /** P3G：GC 管保留权，DMAE 不得写入该策略或 L2 生命周期。 */
+  gc?: GcPolicy
 }
 
 // === UI ===
+
+export type OnboardingStage =
+  'provider-setup' | 'connection-test' | 'first-conversation' | 'complete'
+
+export interface OnboardingConfigV1 {
+  /** 引导内容版本；后续文案升级据此决定是否提示，不重跑首次见面。 */
+  version: 1
+  stage: OnboardingStage
+  /** 首次完成时间；未完成时省略。 */
+  completedAt?: number
+  /** Phase 3b 首次启用语音时才写；本阶段仅预留持久化合同。 */
+  voiceSendMode?: 'draft' | 'send'
+}
 
 export interface UiConfig {
   locale: 'zh-CN' | 'en-US'
   theme: ThemeSetting
   fontScale: number
   reduceMotion: boolean
+  onboarding: OnboardingConfigV1
   window: {
     width: number
     height: number
@@ -109,6 +134,14 @@ export interface UiConfig {
     enabled: boolean
     zoom: number
     alwaysOnTop: boolean
+    /**
+     * 取景偏移，单位为画布尺寸百分比（-100..100），与分辨率无关，窗口缩放后构图不变。
+     * offsetX 正数向右；offsetY 正数向上——上移会露出更多身体，配合较小 zoom 即为全身取景。
+     */
+    offsetX: number
+    offsetY: number
+    /** main-owned registry model ID；undefined 保持旧配置兼容，由 main 选择默认模型。 */
+    selectedModelId?: string
   }
 }
 
@@ -127,6 +160,46 @@ export interface SecurityConfig {
   }
 }
 
+// === Persona（F5-001 C0；S-005-补充 §1.2 + 开工裁定 §1.2/§1.8）===
+
+export interface ComplianceGateConfig {
+  /** 门控管线总开关（含遥测采集）。默认 true；false = kill switch（Null Object，不采集）。 */
+  enabled: boolean
+  /** 干预级别。默认 'observe'——"默认安装不干预"由 observe 单独承担（裁定 1.8）。 */
+  scope: ComplianceGateScope
+  /** 首段边界门的保留阈值下限。默认 32（待校准基线，C2 门前回放网格定稿）。 */
+  firstSegmentMinChars: number
+  /** 单个 segment 的硬上限。默认 512。 */
+  segmentMaxChars: number
+  /** 单轮同步正则 CPU 预算。默认 30。 */
+  budgetMs: number
+  /** 架构只允许不重生成或重生成一次。 */
+  maxRegenerations: 0 | 1
+  /** 首段时限门：自首个非空 delta 起的墙钟上限（裁定 1.2）。整数 100–2000，默认 400（待校准基线）。 */
+  maxHoldMs: number
+}
+
+export interface ComplianceAuditConfig {
+  enabled: boolean
+  /** 非强制轮的随机审计率；规则命中/用户反馈可由运行时策略强制送审。 */
+  sampleRate: number
+  timeoutMs: number
+  recentTurnWindow: number
+}
+
+export interface ComplianceConfig {
+  gate: ComplianceGateConfig
+  audit: ComplianceAuditConfig
+  /** 数组整体替换；默认 []。禁止改 Record（deepMergeWithDefaults 只遍历默认对象 key）。 */
+  disabledRuleIds: string[]
+  /** 默认 false；仅开发构建允许实际生效。 */
+  debugCaptureText: boolean
+}
+
+export interface PersonaConfig {
+  compliance: ComplianceConfig
+}
+
 // === 根配置 ===
 
 export interface AppConfigV1 {
@@ -136,7 +209,18 @@ export interface AppConfigV1 {
   memory: MemoryConfig
   ui: UiConfig
   security: SecurityConfig
+  persona: PersonaConfig
 }
+
+/**
+ * 编译期双向断言（开工裁定 §2.3）：ConfigDomain ≡ keyof AppConfigV1 去掉 schemaVersion。
+ * 任一侧加域不同步即 typecheck 失败——本行就是护栏，值永不使用。
+ */
+type AssertMutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never
+export const configDomainBidirectionalAssertion: AssertMutuallyAssignable<
+  ConfigDomain,
+  Exclude<keyof AppConfigV1, 'schemaVersion'>
+> = true
 
 // === 公开快照（给 renderer，不含 API Key）===
 
@@ -171,6 +255,7 @@ export interface PublicConfigSnapshot {
   tts: TtsConfig & { hasApiKey: boolean }
   memory: MemoryConfig
   security: PublicSecurityConfig
+  persona: PersonaConfig
 }
 
 // === IPC 请求/响应 ===
@@ -183,6 +268,8 @@ export interface ConfigUpdateRequest {
     memory: Partial<MemoryConfig>
     ui: Partial<UiConfig>
     security: Partial<SecurityConfig>
+    // persona 接受深层局部 patch（S-005-补充 §1.2）；既有五域顶层 Partial 合同不由 C0 改写
+    persona: DeepPartial<PersonaConfig>
   }>
 }
 

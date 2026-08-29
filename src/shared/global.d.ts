@@ -14,6 +14,11 @@ import type {
   ChatStreamEvent
 } from './chat/types'
 import type {
+  ChatFeedbackRequest,
+  ChatFeedbackResponse,
+  ComplianceSnapshot
+} from './compliance/types'
+import type {
   ConfigResetRequest,
   ConfigUpdateRequest,
   ConnectionTestResult,
@@ -21,9 +26,16 @@ import type {
   PublicConfigSnapshot
 } from './config/types'
 import type { DebugSnapshot } from './observability/types'
+import type {
+  Live2dPublicSnapshot,
+  Live2dImportResult,
+  Live2dStateEvent,
+  Live2dFramingPreviewRequest
+} from './live2d/public-types'
 import type { UpdateStatus } from './update/types'
 import type {
   DmaeBenchmarkRequest,
+  DmaePanelRequest,
   DmaeHistoryRequest,
   DmaeHistoryResponse,
   DmaeQualitativeRequest,
@@ -45,6 +57,10 @@ import type {
   MemoryOverview,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  RecycleBinEmptyRequest,
+  RecycleBinListRequest,
+  RecycleBinListResponse,
+  RecycleBinRestoreRequest,
   MemorySetL0FieldRequest,
   MemoryUpdateContentRequest,
   MemoryUpdatedEvent
@@ -110,7 +126,23 @@ export interface CompanionApi {
     }): Promise<IpcResult<{ deletedIds: string[] }>>
     clearSession(input: { sessionId: string }): Promise<IpcResult<{ removed: number }>>
     search(input: { query: string; limit?: number }): Promise<IpcResult<ChatSearchHit[]>>
+    // P3C1-07：合规用户反馈（F5-001 §3.7）。幂等--重复上报只计一次
+    feedback(input: ChatFeedbackRequest): Promise<IpcResult<ChatFeedbackResponse>>
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe
+  }
+  // P3C1-08：compliance（1 invoke；仅调试面板，无 event 通道——审查不可见原则）
+  compliance: {
+    getSnapshot(): Promise<IpcResult<ComplianceSnapshot>>
+  }
+  live2d: {
+    getState(): Promise<IpcResult<Live2dPublicSnapshot>>
+    chooseImportSource(): Promise<IpcResult<Live2dImportResult>>
+    selectModel(input: { modelId: string }): Promise<IpcResult<void>>
+    setVisible(input: { visible: boolean }): Promise<IpcResult<void>>
+    resetWindowPlacement(): Promise<IpcResult<void>>
+    previewFraming(input: Live2dFramingPreviewRequest): Promise<IpcResult<void>>
+    retryLoad(): Promise<IpcResult<void>>
+    onState(cb: (event: Live2dStateEvent) => void): Unsubscribe
   }
   debug: {
     getSnapshot(): Promise<IpcResult<DebugSnapshot>>
@@ -125,6 +157,9 @@ export interface CompanionApi {
     setPinned(input: MemoryPinRequest): Promise<IpcResult<void>>
     softDelete(input: MemoryDeleteRequest): Promise<IpcResult<void>>
     restore(input: MemoryRestoreRequest): Promise<IpcResult<void>>
+    listRecycleBin(input: RecycleBinListRequest): Promise<IpcResult<RecycleBinListResponse>>
+    restoreFromRecycleBin(input: RecycleBinRestoreRequest): Promise<IpcResult<void>>
+    emptyRecycleBin(input: RecycleBinEmptyRequest): Promise<IpcResult<{ purged: number }>>
     // M-44：编辑 L2 记忆内容 / 设定·清空 L0 画像字段
     updateContent(input: MemoryUpdateContentRequest): Promise<IpcResult<void>>
     setL0Field(input: MemorySetL0FieldRequest): Promise<IpcResult<void>>
@@ -140,7 +175,7 @@ export interface CompanionApi {
   }
   // Phase 2 P2-32/P2-34：DMAE 面板（F5-002 §3.7/§3.6）
   dmae: {
-    getPanel(): Promise<IpcResult<DmaePanelSnapshot>>
+    getPanel(input?: DmaePanelRequest): Promise<IpcResult<DmaePanelSnapshot>>
     getTrend(input: DmaeTrendRequest): Promise<IpcResult<readonly DmaeDailyAggregate[]>>
     explain(input: DmaeExplainRequest): Promise<IpcResult<DmaeTurnExplanation | null>>
     runBenchmark(input: DmaeBenchmarkRequest): Promise<IpcResult<DmaeBenchmarkReport>>

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // P2-46: settingsUi 只管理抽屉开关与 section，不承担配置持久化。
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useSettingsUiStore } from './settings-ui'
 
@@ -30,13 +30,23 @@ describe('settingsUi store', () => {
     expect(store.activeSection).toBe('security')
   })
 
-  it('冻结合同中的 advanced 在无真实页面时回退到 appearance', () => {
+  it('C0-5：开发构建 advanced 可进入；生产构建回退 appearance', () => {
+    // 测试环境 import.meta.env.DEV === true，等价开发构建：advanced 有真实页面（F5-001 C0-5）
     const store = useSettingsUiStore()
     store.open('advanced')
     expect(store.isOpen).toBe(true)
-    expect(store.activeSection).toBe('appearance')
+    expect(store.activeSection).toBe('advanced')
 
-    store.navigate('advanced')
-    expect(store.activeSection).toBe('appearance')
+    // 生产构建行为：DEV=false 时 advanced 仍回退 appearance（普通用户不可见合规审查入口）
+    vi.stubEnv('DEV', false)
+    try {
+      store.navigate('advanced')
+      expect(store.activeSection).toBe('appearance')
+      store.close()
+      store.open('advanced')
+      expect(store.activeSection).toBe('appearance')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

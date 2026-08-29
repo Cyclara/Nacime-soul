@@ -25,8 +25,17 @@ export interface SecretStore {
   set(name: string, value: string): void
   /** 删除指定 key */
   delete(name: string): void
-  /** 是否存在指定 key */
+  /** 是否存在指定 key（只看键在不在，**不保证读得出来**） */
   has(name: string): boolean
+  /**
+   * 「存在**且可读**」才算有（M-34 语义）。
+   *
+   * `has()` 对读不出来的值同样返回 true——历史遗留的无前缀值、换过钥匙串上下文的密文
+   * （M-47 的 app.name 漂移就是真实案例）都会命中。凡是要据此决定**「用户还需不需要填 Key」**
+   * 的地方都必须用这个：config 公开快照与首次引导阶段判定各用一套判据时，会出现
+   * 「引导跳过了配置页、聊天却报未配置」的自相矛盾，正是 M-34 要消灭的那种夹击。
+   */
+  hasReadable(name: string): boolean
 }
 
 const PREFIX_ENC = 'enc:'
@@ -212,6 +221,10 @@ class SecretStoreImpl implements SecretStore {
 
   has(name: string): boolean {
     return typeof this.secrets[name] === 'string'
+  }
+
+  hasReadable(name: string): boolean {
+    return this.has(name) && this.get(name) !== null
   }
 
   private persist(): void {

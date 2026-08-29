@@ -4,11 +4,9 @@
 //   DMAE 面板/基准 validator、DMAE 预设/异常 overrides 边界。
 import { describe, it, expect } from 'vitest'
 import { validateIpcPayload } from './validators'
+import type { ConfigDomain } from '@shared/config/types'
 
-function rejectDomain(
-  domain: 'model' | 'tts' | 'memory' | 'ui' | 'security',
-  patch: Record<string, unknown>
-): void {
+function rejectDomain(domain: ConfigDomain, patch: Record<string, unknown>): void {
   expect(
     validateIpcPayload('companion:config:update', {
       expectedSchemaVersion: 1,

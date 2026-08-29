@@ -65,6 +65,14 @@ export interface DmaeTurnRecord {
   promptSelected: number
   /** 当时的 maxActive（同时是检索 k） */
   maxActive: number
+  /** PromptBudgeter 最终保留的 L2 条数；null = 旧行或未进入预算路径。 */
+  promptIncluded?: number | null
+  /** 最终预算裁掉的 L2 条数；null = 旧行或未进入预算路径。 */
+  promptTrimmed?: number | null
+  /** PromptBudgeter 最终保留的 L2 ID；旧行/未进入预算路径为 null。 */
+  promptIncludedIds?: readonly string[] | null
+  /** PromptBudgeter 最终裁掉的 L2 ID；旧行/未进入预算路径为 null。 */
+  promptTrimmedIds?: readonly string[] | null
   userHits: number
   modelHits: number
   /** 模型命中但被 Active gating 拦下的条数 */

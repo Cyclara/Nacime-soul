@@ -15,6 +15,7 @@
 
 import type { Logger } from '@shared/observability/types'
 import type { MemoryConfig } from '@shared/config/types'
+import type { GcService } from '../../memory/gc-service'
 import { AppError } from '@shared/errors'
 import type { L0FieldKey, L0Store } from '../../memory/l0-store'
 import type { L2Store, MemoryLifecycleState } from '../../memory/l2-store'
@@ -48,6 +49,8 @@ export interface MemoryServices {
   dmaeDiagnostics: DmaeDiagnosticsService | null
   revisionClock: MemoryRevisionClock
   broadcaster: MemoryEventBroadcaster
+  /** P3G：GC/recycle-bin 单一服务；memory enabled 但 GC 未接线时为 null。 */
+  gcService?: GcService | null
 }
 
 export interface MemoryHandlerDeps {
@@ -189,9 +192,8 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
     const mem = l2Store.get(input.memoryId)
     if (!mem || mem.lifecycleState === 'purged') throw memNotFound()
     // 用户意志高于状态机建议；soft_deleted 由 GC（Phase 3+）或 user 写入（F5-004 TRANSITIONS）
-    // S-06 修复：软删时写入 archivedAt 作为删除时间戳，供 GC 判定保留期（F5-004 softDeleteToPurgeDays）。
-    // restore 路径同样写 archivedAt=Date.now()，语义一致。
-    l2Store.update(input.memoryId, { lifecycleState: 'soft_deleted', archivedAt: Date.now() })
+    // P3G：软删时间与 archivedAt 分离，GC 不会把用户删除时刻误当 DMAE/冲突归档时刻。
+    l2Store.update(input.memoryId, { lifecycleState: 'soft_deleted', softDeletedAt: Date.now() })
     revisionClock.next()
     broadcaster.notify('l2')
     logger.debug('memory soft-deleted', {
@@ -206,8 +208,8 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
     const { l2Store, revisionClock, broadcaster } = services!
     const mem = l2Store.get(input.memoryId)
     if (!mem || mem.lifecycleState === 'purged') throw memNotFound()
-    // F5-004 user 路径：soft_deleted -> archived（S-006 §1.3 恢复回 archived 态）
-    l2Store.update(input.memoryId, { lifecycleState: 'archived', archivedAt: Date.now() })
+    // F5-004 user 路径：soft_deleted -> archived；恢复不伪造新的 DMAE/冲突归档时间。
+    l2Store.update(input.memoryId, { lifecycleState: 'archived', softDeletedAt: null })
     revisionClock.next()
     broadcaster.notify('l2')
     logger.debug('memory restored', {
@@ -215,6 +217,44 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
       tags: { memoryId: input.memoryId }
     })
   })
+
+  // === P3G-04 recycle bin ===
+  registerValidatedHandler('companion:memory:list-recycle-bin', async (_ctx, input) => {
+    if (disabled()) return { items: [], total: 0, revision: 0 }
+    const gc = services!.gcService
+    if (gc === null || gc === undefined)
+      return { items: [], total: 0, revision: services!.revisionClock.current() }
+    const page = gc.listRecycleBin(input.limit, input.offset)
+    return {
+      items: page.items.map((memory) => ({
+        id: memory.id,
+        content: memory.content,
+        type: memory.type,
+        importance: memory.importance,
+        softDeletedAt: memory.softDeletedAt ?? 0
+      })),
+      total: page.total,
+      revision: services!.revisionClock.current()
+    }
+  })
+
+  registerValidatedHandler(
+    'companion:memory:restore-from-recycle-bin',
+    async (_ctx, input): Promise<void> => {
+      if (disabled()) throw memDisabled()
+      if (!services!.gcService?.restore(input.memoryId)) throw memNotFound()
+    }
+  )
+
+  registerValidatedHandler(
+    'companion:memory:empty-recycle-bin',
+    async (): Promise<{ purged: number }> => {
+      if (disabled()) throw memDisabled()
+      const gc = services!.gcService
+      if (gc === null || gc === undefined) return { purged: 0 }
+      return { purged: gc.emptyRecycleBin() }
+    }
+  )
 
   // === companion:memory:update-content（M-44）===
   // 用户编辑 L2 记忆内容：trim 非空 -> 落库 + syncStatus 打回 pending（改过的内容需重新向量化）

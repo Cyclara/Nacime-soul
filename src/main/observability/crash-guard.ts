@@ -36,6 +36,10 @@ export interface CrashGuardConfig {
   createWindow: () => BrowserWindow
   /** 显示崩溃对话框的回调（main 崩溃时调用） */
   showCrashDialog?: (reason: string) => void
+  /** 正常退出期间不把 renderer 关闭当 crash，更不能重建窗口。 */
+  isQuitting?: () => boolean
+  /** 仅负责 chat renderer；独立 Live2D stage 崩溃由自己的 manager 处理。 */
+  shouldHandleRendererCrash?: (webContents: Electron.WebContents) => boolean
   /**
    * M-07：向 renderer 推送 app-error 事件的可选回调。
    * 接线后 main 的未处理 rejection 等可让 UI 显示错误横幅（此前 app-error 通道从未发射）。
@@ -188,7 +192,13 @@ class CrashGuardImpl implements CrashGuard {
     _webContents: Electron.WebContents,
     details: Electron.RenderProcessGoneDetails
   ): void => {
-    const { logger, createWindow } = this.config
+    const { logger, createWindow, isQuitting, shouldHandleRendererCrash } = this.config
+    if (
+      isQuitting?.() ||
+      (shouldHandleRendererCrash !== undefined && !shouldHandleRendererCrash(_webContents))
+    ) {
+      return
+    }
 
     const reason = details.reason
     const exitCode = details.exitCode

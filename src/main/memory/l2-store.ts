@@ -38,6 +38,10 @@ export interface L2Memory {
   type: MemoryType
   importance: number
   archivedAt: number | null
+  /** P3G：进入回收站的时间；与 archivedAt 分开，避免用户删除与归档年龄混算。 */
+  softDeletedAt?: number | null
+  /** P3G：最近一次检索命中时间；GC recent-access grace 的唯一时间真源。 */
+  lastAccessedAt?: number | null
   /** 跨轮/重启幂等键（S-020 §1.6）。旧数据/未设置时为 null */
   extractionKey: string | null
   /** P2-37: 记忆来源（006 迁移增加；旧数据默认 'user_explicit'） */
@@ -117,6 +121,8 @@ interface Row {
   type: MemoryType
   importance: number
   archived_at: number | null
+  soft_deleted_at?: number | null
+  last_accessed_at?: number | null
   extraction_key: string | null
   source: MemorySource
   importance_before_pin: number | null
@@ -139,6 +145,8 @@ function rowToMemory(r: Row): L2Memory {
     type: r.type,
     importance: r.importance,
     archivedAt: r.archived_at,
+    softDeletedAt: r.soft_deleted_at ?? null,
+    lastAccessedAt: r.last_accessed_at ?? null,
     extractionKey: r.extraction_key,
     source: r.source,
     importanceBeforePin: r.importance_before_pin,
@@ -176,11 +184,11 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
   const insertStmt = db.prepare(
     `INSERT INTO l2_memories
        (id, evidence_ids, source_message_ids, trigger_text, content, confidence,
-        sync_status, lifecycle_state, is_pinned, access_count, weight, type, importance, archived_at, extraction_key, source,
+        sync_status, lifecycle_state, is_pinned, access_count, weight, type, importance, archived_at, soft_deleted_at, last_accessed_at, extraction_key, source,
         importance_before_pin, edited_at)
      VALUES
        (@id, @evidence_ids, @source_message_ids, @trigger_text, @content, @confidence,
-        @sync_status, @lifecycle_state, @is_pinned, @access_count, @weight, @type, @importance, @archived_at, @extraction_key, @source,
+        @sync_status, @lifecycle_state, @is_pinned, @access_count, @weight, @type, @importance, @archived_at, @soft_deleted_at, @last_accessed_at, @extraction_key, @source,
         @importance_before_pin, @edited_at)`
   )
   const getStmt = db.prepare(`SELECT * FROM l2_memories WHERE id = ?`)
@@ -201,6 +209,8 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
       type: m.type,
       importance: m.importance,
       archived_at: m.archivedAt,
+      soft_deleted_at: m.softDeletedAt ?? null,
+      last_accessed_at: m.lastAccessedAt ?? null,
       extraction_key: m.extractionKey,
       source: m.source,
       importance_before_pin: m.importanceBeforePin,
@@ -264,6 +274,8 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
         type: input.type ?? 'situational',
         importance: input.importance ?? 5,
         archivedAt: null,
+        softDeletedAt: null,
+        lastAccessedAt: null,
         extractionKey: input.extractionKey ?? null,
         source: input.source ?? 'user_explicit',
         importanceBeforePin: null,
@@ -300,7 +312,7 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
            evidence_ids=@evidence_ids, source_message_ids=@source_message_ids, trigger_text=@trigger_text,
            content=@content, confidence=@confidence, sync_status=@sync_status, lifecycle_state=@lifecycle_state,
            is_pinned=@is_pinned, access_count=@access_count, weight=@weight, type=@type,
-           importance=@importance, archived_at=@archived_at, extraction_key=@extraction_key, source=@source,
+           importance=@importance, archived_at=@archived_at, soft_deleted_at=@soft_deleted_at, last_accessed_at=@last_accessed_at, extraction_key=@extraction_key, source=@source,
            importance_before_pin=@importance_before_pin, edited_at=@edited_at
          WHERE id=@id`
       ).run(r)
@@ -340,7 +352,9 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
     },
 
     touch(id) {
-      db.prepare(`UPDATE l2_memories SET access_count = access_count + 1 WHERE id = ?`).run(id)
+      db.prepare(
+        `UPDATE l2_memories SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?`
+      ).run(now(), id)
     },
 
     on(_event, handler) {

@@ -1,5 +1,5 @@
 // src/main/config/schema.test.ts
-// P1-06 验收测试：五域 schema + 根 schema + 默认配置
+// P1-06 验收测试：六域 schema + 根 schema + 默认配置
 // 依据：S-005 §3.2-§3.7、S-001 P1-06 验收标准
 
 import { describe, it, expect } from 'vitest'
@@ -552,6 +552,24 @@ describe('P1-06 UiConfigSchema', () => {
       live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, zoom: 0.1 }
     }
     expectInvalid(UiConfigSchema, bad)
+  })
+
+  it('live2d.selectedModelId 可选且合法值通过', () => {
+    expectValid(UiConfigSchema, {
+      ...DEFAULT_CONFIG_V1.ui,
+      live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: 'mao' }
+    })
+  })
+
+  it('live2d.selectedModelId 非法路径/空值 -> 失败', () => {
+    expectInvalid(UiConfigSchema, {
+      ...DEFAULT_CONFIG_V1.ui,
+      live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: '' }
+    })
+    expectInvalid(UiConfigSchema, {
+      ...DEFAULT_CONFIG_V1.ui,
+      live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: 'C:\\secret.model3.json' }
+    })
   })
 
   it('window.x 可选，省略 -> 通过', () => {

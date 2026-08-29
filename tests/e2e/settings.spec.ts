@@ -11,6 +11,7 @@ import {
   writeMemoryConfig,
   writeFakeApiKey,
   cleanupTmpDir,
+  shutdownApp,
   createElectronEnv
 } from './helpers'
 
@@ -27,11 +28,15 @@ async function openSettings(page: Page): Promise<void> {
   await page.waitForSelector('.settings-drawer', { timeout: 10_000 })
 }
 
-async function openSection(page: Page, label: '模型' | '记忆' | '外观' | '安全'): Promise<void> {
+async function openSection(
+  page: Page,
+  label: '模型' | '记忆' | '外观' | '角色' | '安全'
+): Promise<void> {
   await page.getByRole('button', { name: new RegExp(`^\\d{2} ${label}`) }).click()
 }
 
-test('P2-46: 四个正式设置分区可达，高级分区不展示', async () => {
+// P3A-24 在外观与安全之间插入「04 角色」，其后分区编号整体后移一位。
+test('P2-46/P3A-24: 五个正式设置分区可达，高级分区不展示', async () => {
   const tmpDir = createTmpUserData()
   writeDefaultConfig(tmpDir)
   writeFakeApiKey(tmpDir)
@@ -44,7 +49,8 @@ test('P2-46: 四个正式设置分区可达，高级分区不展示', async () =
     await expect(page.getByRole('button', { name: /01 模型/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /02 记忆/ })).toBeVisible()
     await expect(page.getByRole('button', { name: /03 外观/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /04 安全/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /04 角色/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /05 安全/ })).toBeVisible()
     await expect(page.getByText('高级', { exact: true })).toHaveCount(0)
 
     await openSection(page, '模型')
@@ -53,10 +59,12 @@ test('P2-46: 四个正式设置分区可达，高级分区不展示', async () =
     await expect(page.getByRole('heading', { name: '决定她如何记住与淡忘' })).toBeVisible()
     await openSection(page, '外观')
     await expect(page.getByRole('heading', { name: '让光线顺着你的时间呼吸' })).toBeVisible()
+    await openSection(page, '角色')
+    await expect(page.getByRole('heading', { name: 'Live2D 形象' })).toBeVisible()
     await openSection(page, '安全')
     await expect(page.getByRole('heading', { name: '让边界清楚，也让诊断可控' })).toBeVisible()
   } finally {
-    await app.close()
+    await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })
@@ -92,7 +100,7 @@ test('P2-46: 模型设置经 UI 保存并跨重启持久化，API Key 不回填'
     expect(configText).toContain('星河模型')
     expect(configText).not.toContain('sk-e2e-settings-secret')
 
-    await app.close()
+    await shutdownApp(app)
     app = null
 
     app = await launch()
@@ -107,7 +115,7 @@ test('P2-46: 模型设置经 UI 保存并跨重启持久化，API Key 不回填'
       '已安全保存；输入可替换'
     )
   } finally {
-    if (app) await app.close()
+    if (app) await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })
@@ -166,7 +174,7 @@ test('P2-46: 空画像九个 chips、放弃草稿关闭、记忆重启提示与�
     expect(config.memory.enabled).toBe(false)
     expect(config.security.diagnostics.retentionDays).toBe(9)
   } finally {
-    await app.close()
+    await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })

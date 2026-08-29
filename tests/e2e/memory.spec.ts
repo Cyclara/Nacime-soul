@@ -14,6 +14,7 @@ import {
   writeMemoryConfig,
   writeFakeApiKey,
   cleanupTmpDir,
+  shutdownApp,
   createElectronEnv,
   FAUX_EXTRACTION_ENVELOPE,
   E2E_TEST_NAME
@@ -69,7 +70,7 @@ test('E-01: 对话写入 L0（Faux 提取）→ 重启 → 记忆面板显示该
       { timeout: 10_000 }
     )
   } finally {
-    await app1.close()
+    await shutdownApp(app1)
   }
 
   // ── 第二次启动（同 userData）：L0 持久化仍在 ──
@@ -86,7 +87,7 @@ test('E-01: 对话写入 L0（Faux 提取）→ 重启 → 记忆面板显示该
     const body = await win.textContent('body')
     expect(body).toContain(E2E_TEST_NAME)
   } finally {
-    await app2.close()
+    await shutdownApp(app2)
     cleanupTmpDir(tmpDir)
   }
 })
@@ -127,7 +128,7 @@ test('E-02: 记忆面板——L0 卡片 + L2 列表 + pin 后刷新仍固定', a
     const afterReload = await win.textContent('.drawer .action-btn:not(.danger)')
     expect(afterReload).toContain('取消固定')
   } finally {
-    await app.close()
+    await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })

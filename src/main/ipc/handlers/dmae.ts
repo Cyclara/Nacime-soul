@@ -16,6 +16,7 @@ import type { DmaeDiagnosticsService } from '../../memory/dmae/diagnostics'
 import { registerValidatedHandler } from '../register'
 import type { MemoryConfig } from '@shared/config/types'
 import type {
+  DmaePanelRequest,
   DmaeTrendRequest,
   DmaeExplainRequest,
   DmaeBenchmarkRequest,
@@ -53,47 +54,55 @@ export function registerDmaeHandlers(deps: DmaeHandlerDeps): void {
   }
 
   // === companion:dmae:get-panel ===
-  registerValidatedHandler('companion:dmae:get-panel', async (): Promise<DmaePanelSnapshot> => {
-    if (disabled()) {
-      // disabled 时返回 enabled=false 的空快照（面板显示引导态）
-      return {
-        enabled: false,
-        params: {
-          maxScore: 100,
-          promptThreshold: 30,
-          userRewardBase: 20,
-          wakeGamma: 0.5,
-          modelRewardBase: 8,
-          wakeLambda: 0.3,
-          decayAlpha: 1.5,
-          decayBeta: 0.3
-        },
-        maxActive: 15,
-        currentTurn: 0,
-        counts: { eligibleActive: 0, dormant: 0, archived: 0, l2Total: 0 },
-        selection: {
-          eligibleActiveCount: 0,
-          lastRetrievalHits: 0,
-          lastPromptSelectedCount: 0,
-          lastPromptSelectedIds: [],
-          maxActive: 15
-        },
-        activeSet: [],
-        anomalies: [],
-        lastBenchmark: null,
-        lastQualitative: null,
-        stateFile: {
-          path: '',
-          entries: 0,
-          lastSaveOk: true,
-          lastSaveAt: null,
-          lastLoadReset: 'none',
-          saveFailures7d: 0
+  registerValidatedHandler(
+    'companion:dmae:get-panel',
+    async (_ctx, input): Promise<DmaePanelSnapshot> => {
+      if (disabled()) {
+        // disabled 时返回 enabled=false 的空快照（面板显示引导态）
+        return {
+          enabled: false,
+          params: {
+            maxScore: 100,
+            promptThreshold: 30,
+            userRewardBase: 20,
+            wakeGamma: 0.5,
+            modelRewardBase: 8,
+            wakeLambda: 0.3,
+            decayAlpha: 1.5,
+            decayBeta: 0.3
+          },
+          maxActive: 15,
+          currentTurn: 0,
+          counts: { eligibleActive: 0, dormant: 0, archived: 0, l2Total: 0 },
+          selection: {
+            eligibleActiveCount: 0,
+            lastRetrievalHits: 0,
+            lastPromptSelectedCount: 0,
+            lastPromptIncludedCount: null,
+            lastPromptTrimmedCount: null,
+            lastPromptSelectedIds: [],
+            maxActive: 15
+          },
+          activeSet: [],
+          nextEligibleCursor: null,
+          activeSetPaginated: false,
+          eligibleCursorReset: false,
+          anomalies: [],
+          lastBenchmark: null,
+          lastQualitative: null,
+          stateFile: {
+            path: '',
+            entries: 0,
+            lastSaveOk: true,
+            lastSaveAt: null,
+            lastLoadReset: 'none',
+            saveFailures7d: 0
+          }
         }
       }
+      return diagnostics!.getPanelSnapshot((input ?? {}) as DmaePanelRequest)
     }
-    return diagnostics!.getPanelSnapshot()
-  })
+  )
 
   // === companion:dmae:get-trend ===
   registerValidatedHandler(

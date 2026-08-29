@@ -29,6 +29,23 @@ import type {
 import type { DebugSnapshot } from '../observability/types'
 import type { UpdateStatus } from '../update/types'
 import type {
+  ChatFeedbackRequest,
+  ChatFeedbackResponse,
+  ComplianceSnapshot
+} from '../compliance/types'
+import type {
+  Live2dStageBootstrap,
+  Live2dStageReadyRequest,
+  Live2dStageReport,
+  Live2dStageCommand
+} from '../live2d/stage-types'
+import type {
+  Live2dPublicSnapshot,
+  Live2dImportResult,
+  Live2dStateEvent,
+  Live2dFramingPreviewRequest
+} from '../live2d/public-types'
+import type {
   DmaeBenchmarkReport,
   DmaeDailyAggregate,
   DmaePanelSnapshot,
@@ -36,6 +53,7 @@ import type {
 } from '../memory/dmae-types'
 import type {
   DmaeBenchmarkRequest,
+  DmaePanelRequest,
   DmaeHistoryRequest,
   DmaeHistoryResponse,
   DmaeMuteRequest,
@@ -57,6 +75,10 @@ import type {
   MemoryOverview,
   MemoryPinRequest,
   MemoryRestoreRequest,
+  RecycleBinEmptyRequest,
+  RecycleBinListRequest,
+  RecycleBinListResponse,
+  RecycleBinRestoreRequest,
   MemorySetL0FieldRequest,
   MemoryUpdateContentRequest,
   MemoryUpdatedEvent
@@ -107,6 +129,22 @@ export interface IpcInvokeMap {
   'companion:chat:clear-session': { req: ChatClearSessionRequest; res: { removed: number } }
   // P2-44：聊天记录全文搜索（FTS5；scope=全部会话的消息正文）
   'companion:chat:search': { req: ChatSearchRequest; res: ChatSearchHit[] }
+  // P3C1-07：合规用户反馈（F5-001 §3.7；UNIQUE(message_id,kind) 幂等，只作复核优先级）
+  'companion:chat:feedback': { req: ChatFeedbackRequest; res: ChatFeedbackResponse }
+  // P3C1-08：合规调试快照（F5-001 §3.10；仅调试面板，聚合量无正文；无 event 通道）
+  'companion:compliance:get-snapshot': { req: undefined; res: ComplianceSnapshot }
+  // P3A-05：仅 stage preload 可见；capability guard 会拒绝 chat sender。
+  'companion:stage:ready': { req: Live2dStageReadyRequest; res: Live2dStageBootstrap }
+  'companion:stage:report-state': { req: Live2dStageReport; res: void }
+  // P3A-23：chat renderer Live2D 管理面；所有文件选择由 main dialog 完成。
+  'companion:live2d:get-state': { req: undefined; res: Live2dPublicSnapshot }
+  'companion:live2d:choose-import-source': { req: undefined; res: Live2dImportResult }
+  'companion:live2d:select-model': { req: { modelId: string }; res: void }
+  'companion:live2d:set-visible': { req: { visible: boolean }; res: void }
+  'companion:live2d:reset-window-placement': { req: undefined; res: void }
+  /** framing=null 结束预览，main 把 stage 归位到已保存的 config 构图。 */
+  'companion:live2d:preview-framing': { req: Live2dFramingPreviewRequest; res: void }
+  'companion:live2d:retry-load': { req: undefined; res: void }
   'companion:debug:get-snapshot': { req: undefined; res: DebugSnapshot }
   'companion:debug:open-log-folder': { req: undefined; res: void }
   // ── Phase 2：memory（9 invoke，S-003-补充 §3.1）──
@@ -117,6 +155,9 @@ export interface IpcInvokeMap {
   'companion:memory:set-pinned': { req: MemoryPinRequest; res: void }
   'companion:memory:soft-delete': { req: MemoryDeleteRequest; res: void }
   'companion:memory:restore': { req: MemoryRestoreRequest; res: void }
+  'companion:memory:list-recycle-bin': { req: RecycleBinListRequest; res: RecycleBinListResponse }
+  'companion:memory:restore-from-recycle-bin': { req: RecycleBinRestoreRequest; res: void }
+  'companion:memory:empty-recycle-bin': { req: RecycleBinEmptyRequest; res: { purged: number } }
   // ── M-44：记忆编辑（L2 内容 + L0 字段）──
   'companion:memory:update-content': { req: MemoryUpdateContentRequest; res: void }
   'companion:memory:set-l0-field': { req: MemorySetL0FieldRequest; res: void }
@@ -127,7 +168,7 @@ export interface IpcInvokeMap {
   'companion:growth:get-timeline': { req: GrowthTimelineRequest; res: GrowthTimelineEntryView[] }
   'companion:growth:get-trend': { req: GrowthTrendRequest; res: GrowthTrendPoint[] }
   // ── Phase 2 P2-32：DMAE 面板（F5-002 §3.7）──
-  'companion:dmae:get-panel': { req: undefined; res: DmaePanelSnapshot }
+  'companion:dmae:get-panel': { req: DmaePanelRequest | undefined; res: DmaePanelSnapshot }
   'companion:dmae:get-trend': { req: DmaeTrendRequest; res: readonly DmaeDailyAggregate[] }
   'companion:dmae:explain': { req: DmaeExplainRequest; res: DmaeTurnExplanation | null }
   // ── Phase 2 P2-34：DMAE 基准体检（F5-002 §3.6）──
@@ -149,6 +190,9 @@ export interface IpcEventMap {
   'companion:event:memory-updated': MemoryUpdatedEvent
   // ── M-50：更新状态推送 ──
   'companion:event:update-status': UpdateStatus
+  // ── P3A-05/06：main → Live2D stage 独占命令 ──
+  'companion:event:stage-command': Live2dStageCommand
+  'companion:event:live2d-state': Live2dStateEvent
 }
 
 // re-export 通道类型，供外部使用

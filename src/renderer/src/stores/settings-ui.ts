@@ -6,13 +6,18 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
-export type SettingsSection = 'model' | 'memory' | 'appearance' | 'security' | 'about' | 'advanced'
+export type SettingsSection =
+  'model' | 'memory' | 'appearance' | 'live2d' | 'security' | 'about' | 'advanced'
 
-type VisibleSettingsSection = Exclude<SettingsSection, 'advanced'>
+type VisibleSettingsSection = SettingsSection
 
 function visibleSection(section: SettingsSection): VisibleSettingsSection {
-  // advanced 保留在冻结类型合同中，但在没有真实功能前不进入产品界面。
-  return section === 'advanced' ? 'appearance' : section
+  // advanced 保留在冻结类型合同中；C0-5 起仅开发构建可见（F5-001 dev-only 高级分区，
+  // S-005-补充 §1.6），生产构建一律回落 appearance。
+  if (section === 'advanced' && !import.meta.env.DEV) {
+    return 'appearance'
+  }
+  return section
 }
 
 export const useSettingsUiStore = defineStore('settings-ui', () => {

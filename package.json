@@ -8,7 +8,7 @@
   "scripts": {
     "format": "prettier --write .",
     "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
-    "lint": "eslint --cache .",
+    "lint": "eslint --cache --max-warnings=0 .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json --composite false",
@@ -30,9 +30,11 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@pixi/unsafe-eval": "^7.4.3",
     "better-sqlite3": "^12.0.0",
     "electron-log": "^5.4.0",
     "electron-updater": "^6.8.9",
+    "jszip": "^3.10.1",
     "pinia": "^3.0.0",
     "pixi-live2d-display-lipsyncpatch": "0.5.0-ls-8",
     "pixi.js": "^7.4.0",

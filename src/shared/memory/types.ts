@@ -139,6 +139,34 @@ export interface MemoryRestoreRequest {
   memoryId: MemoryId
 }
 
+/** P3G-04：回收站稳定 offset 分页。 */
+export interface RecycleBinListRequest {
+  limit: number
+  offset: number
+}
+
+export interface RecycleBinItem {
+  id: MemoryId
+  content: string
+  type: MemoryType
+  importance: number
+  softDeletedAt: number
+}
+
+export interface RecycleBinListResponse {
+  items: RecycleBinItem[]
+  total: number
+  revision: number
+}
+
+export interface RecycleBinRestoreRequest {
+  memoryId: MemoryId
+}
+
+export interface RecycleBinEmptyRequest {
+  confirm: true
+}
+
 // === MemoryOverview（首屏一次拉取）===
 
 export interface MemoryOverview {
@@ -200,6 +228,18 @@ export interface MemoryQuery {
 }
 
 // === P2-32：DMAE 面板 IPC 请求类型（F5-002 §3.7）===
+
+/** P3X-03：有资格集合的 stable keyset cursor，避免 15k 条全量走 IPC。 */
+export interface DmaeEligibleCursor {
+  turn: number
+  activation: number
+  memoryId: MemoryId
+}
+
+export interface DmaePanelRequest {
+  eligibleCursor?: DmaeEligibleCursor
+  eligibleLimit?: number
+}
 
 export interface DmaeTrendRequest {
   days: 7 | 30 | 90

@@ -12,6 +12,8 @@ import {
 } from './validators'
 import { IPC_INVOKE_CHANNELS } from '@shared/ipc/channels'
 import type { IpcInvokeChannel } from '@shared/ipc/channels'
+import { CONFIG_DOMAINS } from '@shared/config/types'
+import type { ConfigDomain } from '@shared/config/types'
 import { DEFAULT_CONFIG_V1 } from '../config/defaults'
 
 // === S-004 #5：每个 invoke channel 都存在 validator ===
@@ -24,9 +26,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（43 + M-50 更新 3 通道 = 46）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(46)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(46)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（P3A-25 取景预览通道后 = 60）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(60)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(60)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -383,6 +385,71 @@ describe('验收反馈⑦ ChatDeleteSelectedRequest / ChatClearSessionRequest va
   })
 })
 
+describe('P3C1-07 ChatFeedbackRequest validator', () => {
+  const valid = {
+    sessionId: 'sess_01JG',
+    turnId: 'turn-1',
+    messageId: 'msg-a1',
+    kind: 'dislike'
+  }
+
+  it('合法 dislike / out-of-character payload 通过', () => {
+    expect(validateIpcPayload('companion:chat:feedback', valid)).toBe(true)
+    expect(
+      validateIpcPayload('companion:chat:feedback', { ...valid, kind: 'out-of-character' })
+    ).toBe(true)
+  })
+
+  it('非法 kind 被拒绝（白名单外字符串/数字/缺失）', () => {
+    expect(validateIpcPayload('companion:chat:feedback', { ...valid, kind: 'like' })).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', { ...valid, kind: 42 })).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:feedback', {
+        sessionId: 'sess_01JG',
+        turnId: 'turn-1',
+        messageId: 'msg-a1'
+      })
+    ).toBe(false)
+  })
+
+  it('缺字段 / 多余字段被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:chat:feedback', {
+        turnId: 'turn-1',
+        messageId: 'msg-a1',
+        kind: 'dislike'
+      })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', { ...valid, reason: '太长' })).toBe(false)
+  })
+
+  it('坏 id（空串/数字/非法字符/超长）与非对象被拒绝', () => {
+    expect(validateIpcPayload('companion:chat:feedback', { ...valid, sessionId: '' })).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', { ...valid, turnId: 7 })).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', { ...valid, messageId: 'msg a' })).toBe(
+      false
+    )
+    expect(
+      validateIpcPayload('companion:chat:feedback', {
+        ...valid,
+        messageId: `msg_${'x'.repeat(200)}`
+      })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', null)).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', [valid])).toBe(false)
+    expect(validateIpcPayload('companion:chat:feedback', 'dislike')).toBe(false)
+  })
+})
+
+describe('P3C1-08 ComplianceSnapshot IPC validator', () => {
+  it('companion:compliance:get-snapshot 只接受 undefined（无载荷）', () => {
+    expect(validateIpcPayload('companion:compliance:get-snapshot', undefined)).toBe(true)
+    expect(validateIpcPayload('companion:compliance:get-snapshot', null)).toBe(false)
+    expect(validateIpcPayload('companion:compliance:get-snapshot', {})).toBe(false)
+    expect(validateIpcPayload('companion:compliance:get-snapshot', 'snapshot')).toBe(false)
+  })
+})
+
 describe('P1-11 ModelConnectionTestRequest validator', () => {
   const validPayload = {
     provider: 'deepseek',
@@ -462,8 +529,8 @@ describe('P1-11 ConfigResetRequest validator', () => {
     ).toBe(true)
   })
 
-  it('五个域都通过', () => {
-    for (const domain of ['model', 'tts', 'memory', 'ui', 'security'] as const) {
+  it('全部域都通过（域列表由 CONFIG_DOMAINS 派生，开工裁定 §2.2）', () => {
+    for (const domain of CONFIG_DOMAINS) {
       expect(validateIpcPayload('companion:config:reset-domain', { domain, confirm: true })).toBe(
         true
       )
@@ -537,23 +604,19 @@ describe('P1-11 ConfigUpdateRequest validator', () => {
     ).toBe(true)
   })
 
-  it('全量五域默认配置 payload 通过（防配置/schema/validator 三方漂移——M-42 attributionGate 漏加曾致全部设置保存被拒）', () => {
-    // 复刻 renderer configStore.save() 的载荷构造：五个域全量深拷贝
-    // （PublicModelConfig 扩展字段已在 renderer 侧删除，DEFAULT_CONFIG_V1 本就不含）
+  it('全量六域默认配置 payload 通过（防配置/schema/validator 三方漂移——M-42 attributionGate 漏加曾致全部设置保存被拒）', () => {
+    // 复刻 renderer configStore.save() 的载荷构造：全部域全量深拷贝
+    // （PublicModelConfig 扩展字段已在 renderer 侧删除，DEFAULT_CONFIG_V1 本就不含；
+    //   域列表由 CONFIG_DOMAINS 派生，新增域自动纳入本测试——开工裁定 §2.2）
     const plain = JSON.parse(JSON.stringify(DEFAULT_CONFIG_V1)) as Record<
       string,
       Record<string, unknown>
     >
+    const domains = Object.fromEntries(CONFIG_DOMAINS.map((d) => [d, { ...plain[d] }]))
     expect(
       validateIpcPayload('companion:config:update', {
         expectedSchemaVersion: 1,
-        domains: {
-          model: { ...plain.model },
-          tts: { ...plain.tts },
-          memory: { ...plain.memory },
-          ui: { ...plain.ui },
-          security: { ...plain.security }
-        }
+        domains
       })
     ).toBe(true)
   })
@@ -740,6 +803,43 @@ describe('P1-11 ConfigUpdateRequest validator', () => {
         domains: {}
       })
     ).toBe(false)
+  })
+})
+
+describe('P3G recycle-bin validators', () => {
+  it('accepts bounded paging and confirmed destructive empty, rejects malformed input', () => {
+    expect(validateIpcPayload('companion:memory:list-recycle-bin', { limit: 50, offset: 0 })).toBe(
+      true
+    )
+    expect(validateIpcPayload('companion:memory:list-recycle-bin', { limit: 201, offset: 0 })).toBe(
+      false
+    )
+    expect(
+      validateIpcPayload('companion:memory:restore-from-recycle-bin', {
+        memoryId: 'l2_1710000000000_a1'
+      })
+    ).toBe(true)
+    expect(validateIpcPayload('companion:memory:empty-recycle-bin', { confirm: true })).toBe(true)
+    expect(validateIpcPayload('companion:memory:empty-recycle-bin', { confirm: false })).toBe(false)
+  })
+})
+
+describe('P3X-03 DMAE panel pagination validator', () => {
+  it('接受空载荷与有界 stable cursor，拒绝超限/畸形 cursor', () => {
+    expect(validateIpcPayload('companion:dmae:get-panel', undefined)).toBe(true)
+    expect(
+      validateIpcPayload('companion:dmae:get-panel', {
+        eligibleLimit: 100,
+        eligibleCursor: { turn: 10, activation: 50, memoryId: 'l2_1700000000000_abc' }
+      })
+    ).toBe(true)
+    expect(validateIpcPayload('companion:dmae:get-panel', { eligibleLimit: 201 })).toBe(false)
+    expect(
+      validateIpcPayload('companion:dmae:get-panel', {
+        eligibleCursor: { turn: -1, activation: 50, memoryId: 'l2_1700000000000_abc' }
+      })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:dmae:get-panel', { unexpected: true })).toBe(false)
   })
 })
 
@@ -1103,10 +1203,7 @@ describe('P1-11 ConfigUpdateRequest security.diagnostics/privacy 验证', () => 
 
 describe('P1-11 ConfigUpdateRequest 子对象非法值拒绝（100% branch 补全）', () => {
   // 辅助：验证某个域的某个字段传非法值时被拒绝
-  function reject(
-    domain: 'model' | 'tts' | 'memory' | 'ui' | 'security',
-    patch: Record<string, unknown>
-  ): void {
+  function reject(domain: ConfigDomain, patch: Record<string, unknown>): void {
     expect(
       validateIpcPayload('companion:config:update', {
         expectedSchemaVersion: 1,
@@ -1448,6 +1545,25 @@ describe('P1-11 ConfigUpdateRequest 子对象非法值拒绝（100% branch 补�
   it('ui.live2d.alwaysOnTop 非布尔被拒绝', () => {
     reject('ui', { live2d: { alwaysOnTop: 'yes' } })
   })
+  it('ui.live2d 取景偏移接受 -100..100，越界被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { ui: { live2d: { offsetX: -100, offsetY: 100 } } }
+      })
+    ).toBe(true)
+    reject('ui', { live2d: { offsetX: -101 } })
+    reject('ui', { live2d: { offsetY: 100.5 } })
+  })
+  it('ui.live2d.selectedModelId 只接受短 ID，不接受绝对路径', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { ui: { live2d: { selectedModelId: 'mao' } } }
+      })
+    ).toBe(true)
+    reject('ui', { live2d: { selectedModelId: 'C:\\secret.model3.json' } })
+  })
   it('ui 有多余字段被拒绝', () => {
     reject('ui', { injection: 'bad' })
   })
@@ -1470,6 +1586,219 @@ describe('P1-11 ConfigUpdateRequest 子对象非法值拒绝（100% branch 补�
         expectedSchemaVersion: 1,
         domains: {},
         injection: 'bad'
+      })
+    ).toBe(false)
+  })
+})
+
+// === P3A-05: Live2D stage invoke validator ===
+
+describe('P3A-05 Live2D stage invoke validator', () => {
+  it('stage:ready 只接受 stageInstanceId', () => {
+    expect(validateIpcPayload('companion:stage:ready', { stageInstanceId: 'stage-1' })).toBe(true)
+    expect(
+      validateIpcPayload('companion:stage:ready', { stageInstanceId: 'stage-1', extra: true })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:stage:ready', { stageInstanceId: '' })).toBe(false)
+  })
+
+  it('stage:report-state 接受固定状态和有界数值，拒绝正文/多余字段', () => {
+    expect(
+      validateIpcPayload('companion:stage:report-state', {
+        stageInstanceId: 'stage-1',
+        status: 'ready',
+        fps: 60,
+        modelLoadMs: 120
+      })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:stage:report-state', {
+        stageInstanceId: 'stage-1',
+        status: 'error',
+        errorCode: 'L2D_MODEL_LOAD',
+        detail: 'untrusted free text'
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:stage:report-state', {
+        stageInstanceId: 'stage-1',
+        status: 'unknown'
+      })
+    ).toBe(false)
+  })
+
+  it('stage-command event 是穷举载荷，任意命令、越界尺寸与缩放均被拒绝', () => {
+    expect(validateEventPayload('companion:event:stage-command', { type: 'pause' })).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', { type: 'set-zoom', zoom: 1.5 })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'resize',
+        width: 640,
+        height: 480
+      })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'set-offset',
+        offsetX: -100,
+        offsetY: 50
+      })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', { type: 'shell', command: 'x' })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', { type: 'set-zoom', zoom: 3.01 })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'set-offset',
+        offsetX: -100.5,
+        offsetY: 0
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', { type: 'set-offset', offsetX: 0 })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'resize',
+        width: 99999,
+        height: 1
+      })
+    ).toBe(false)
+    // load-model 的 expressionNames 是可选增量（2026-08-29）：名单来自模型作者，数量与
+    // 单条长度都必须有界，且不接受非字符串成员。
+    const url = 'nacime-live2d://model/mao/Mao.model3.json'
+    expect(
+      validateEventPayload('companion:event:stage-command', { type: 'load-model', modelUrl: url })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: []
+      })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: ['exp_01', 'exp_02']
+      })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: Array.from({ length: 65 }, (_, i) => `exp_${i}`)
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: ['a'.repeat(65)]
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: ['']
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: [1]
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        expressionNames: 'exp_01'
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:stage-command', {
+        type: 'load-model',
+        modelUrl: url,
+        extra: 1
+      })
+    ).toBe(false)
+  })
+
+  it('preview-framing 只接受合同内构图或 null，拒绝多余键与越界值', () => {
+    expect(validateIpcPayload('companion:live2d:preview-framing', { framing: null })).toBe(true)
+    expect(
+      validateIpcPayload('companion:live2d:preview-framing', {
+        framing: { zoom: 0.5, offsetX: -100, offsetY: 100 }
+      })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:live2d:preview-framing', {
+        framing: { zoom: 3.5, offsetX: 0, offsetY: 0 }
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:live2d:preview-framing', {
+        framing: { zoom: 1, offsetX: 0, offsetY: 101 }
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:live2d:preview-framing', { framing: { zoom: 1, offsetX: 0 } })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:live2d:preview-framing', {
+        framing: { zoom: 1, offsetX: 0, offsetY: 0, modelPath: 'C:/secret' }
+      })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:live2d:preview-framing', undefined)).toBe(false)
+  })
+
+  it('live2d-state event 验证完整 DTO，并拒绝 runtime rationale/content 注入', () => {
+    const valid = {
+      models: [],
+      selectedModelId: null,
+      loadedModelId: null,
+      window: {
+        visible: false,
+        alwaysOnTop: true,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+        stageStatus: 'closed'
+      },
+      loading: false,
+      lastError: null,
+      revision: 1,
+      lastEventSequence: 2,
+      sequence: 2
+    }
+    expect(validateEventPayload('companion:event:live2d-state', valid)).toBe(true)
+    expect(
+      validateEventPayload('companion:event:live2d-state', {
+        ...valid,
+        window: { ...valid.window, offsetY: 101 }
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:live2d-state', { ...valid, rationale: 'secret' })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:live2d-state', {
+        ...valid,
+        lastError: {
+          code: 'MODEL_JSON_INVALID',
+          retryable: true,
+          suggestedAction: 'retry',
+          rationale: 'secret'
+        }
       })
     ).toBe(false)
   })

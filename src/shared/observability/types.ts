@@ -130,8 +130,28 @@ export type MetricName =
   | 'dmae.archived'
   | 'live2d.fps'
   | 'live2d.modelLoadMs'
+  | 'live2d.firstFrameMs'
+  | 'live2d.renderMemoryMb'
+  | 'live2d.idleCpuPercent'
   | 'ipc.errors'
   | 'app.uptimeSec'
+  // F5-001 §3.9 合规审查 12 条（P3C1-03 枚举落地；打点随 gate/circuit/auditor/feedback 各任务）
+  | 'compliance.gate.checks'
+  | 'compliance.gate.blocks'
+  | 'compliance.gate.strips'
+  | 'compliance.gate.flags'
+  | 'compliance.gate.regenerations'
+  | 'compliance.gate.degradedPass'
+  | 'compliance.gate.degraded'
+  | 'compliance.gate.circuitOpen'
+  | 'compliance.gate.latencyMs'
+  | 'compliance.audit.runs'
+  | 'compliance.audit.violations'
+  | 'compliance.userDislike'
+  // P3C1-06 审计侧补充：§3.6 失败表/交叉校验显式命名的两条（§3.9 枚举未列）+ §3.9「审计耗时进 histogram」
+  | 'compliance.audit.dropped'
+  | 'compliance.audit.disagreement'
+  | 'compliance.audit.latencyMs'
 
 export interface MetricsRegistry {
   counter(name: MetricName): { inc(n?: number): void; value(): number }

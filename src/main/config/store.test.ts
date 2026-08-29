@@ -214,6 +214,37 @@ describe('P1-07 update - 合法更新', () => {
     expect(store.get().ui.window.x).toBeUndefined()
     expect(store.get().ui.window.y).toBeUndefined()
   })
+
+  it('P3G GC policy 默认完整落盘且不会被 deep merge 静默剔除', () => {
+    const store = createConfigStore({ configPath })
+    store.setup()
+    expect(store.get().memory.gc).toMatchObject({
+      archiveToSoftDeleteDays: { one_off: 30, situational: 60, stable: null },
+      softDeleteToPurgeDays: 90,
+      recentAccessGraceDays: 90,
+      anchorImportanceMin: 8,
+      maxPurgePerRun: 500,
+      schedule: { idleMinutes: 5, minIntervalHours: 20, eagerCountThreshold: 5000 }
+    })
+  })
+
+  it('onboarding 可选 completedAt/voiceSendMode 占位键会跨重启保留，不被 deep merge 静默剔除', async () => {
+    const store = createConfigStore({ configPath })
+    store.setup()
+    await store.update({
+      ui: { onboarding: { stage: 'complete', completedAt: 123, voiceSendMode: 'draft' } }
+    })
+    expect(store.get().ui.onboarding).toEqual({
+      version: 1,
+      stage: 'complete',
+      completedAt: 123,
+      voiceSendMode: 'draft'
+    })
+
+    const restarted = createConfigStore({ configPath })
+    restarted.setup()
+    expect(restarted.get().ui.onboarding).toEqual(store.get().ui.onboarding)
+  })
 })
 
 describe('P1-07 update - 非法更新', () => {

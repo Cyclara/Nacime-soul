@@ -13,6 +13,7 @@ import {
   writeDefaultConfig,
   writeFakeApiKey,
   cleanupTmpDir,
+  shutdownApp,
   createElectronEnv
 } from './helpers'
 
@@ -55,7 +56,7 @@ test('V-01: file:// 下 CSP meta 存在且真实拦截跨域请求', async () =>
     expect(cspViolations.length).toBeGreaterThan(0)
     expect(cspViolations[0]).toContain('connect-src')
   } finally {
-    await app.close()
+    await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })

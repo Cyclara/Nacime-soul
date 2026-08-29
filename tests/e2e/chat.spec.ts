@@ -11,6 +11,7 @@ import {
   writeDefaultConfig,
   writeFakeApiKey,
   cleanupTmpDir,
+  shutdownApp,
   createElectronEnv
 } from './helpers'
 
@@ -59,7 +60,7 @@ test('S-004 #36: 启动->输入->Faux 流式回复->完成', async () => {
     const userMsg = await window.textContent('.message-row.user .content')
     expect(userMsg).toContain('你好')
   } finally {
-    await app.close()
+    await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })
@@ -95,7 +96,7 @@ test('P2-43: 关闭并重启 Electron 后恢复最近会话与历史消息', asy
     await expect(window.locator('button.stop-btn')).toHaveCount(0)
 
     // 真正关闭 main 进程，再用同一 userData 启动（不是刷新 renderer）
-    await app.close()
+    await shutdownApp(app)
     app = null
 
     // 第二次进程：renderer 没有 state.sessionId，必须走 getLastSession -> SQLite list
@@ -108,7 +109,7 @@ test('P2-43: 关闭并重启 Electron 后恢复最近会话与历史消息', asy
     await expect(window.locator('.message-row.user')).toHaveCount(1)
     await expect(window.locator('.message-row.assistant')).toHaveCount(1)
   } finally {
-    if (app) await app.close()
+    if (app) await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })
@@ -181,7 +182,7 @@ test('P2-43: 完成态 clientRequestId 跨 Electron 重启重放原 ACK 且不�
     expect(ledgerText).toContain(clientRequestId)
     expect(ledgerText).not.toContain(text)
 
-    await app.close()
+    await shutdownApp(app)
     app = null
 
     app = await launch()
@@ -214,7 +215,7 @@ test('P2-43: 完成态 clientRequestId 跨 Electron 重启重放原 ACK 且不�
     ).toHaveLength(1)
     expect(replay.messages.filter((message) => message.role === 'assistant')).toHaveLength(1)
   } finally {
-    if (app) await app.close()
+    if (app) await shutdownApp(app)
     cleanupTmpDir(tmpDir)
   }
 })

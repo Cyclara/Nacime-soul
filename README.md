@@ -15,14 +15,14 @@ Electron + Vue 3 + Pinia + better-sqlite3 + TypeScript 的桌面 AI 伴侣应用
 
 ## 技术栈
 
-| 层 | 技术 |
-|---|---|
-| 框架 | Electron 43 + electron-vite 5 + Vue 3 + Pinia + vue-router |
-| 更新 | electron-updater + GitHub Releases（Windows x64 / NSIS 稳定通道） |
-| 存储 | better-sqlite3（WAL）+ JSON 原子写（config/secrets/l0/l1/dmae-state） |
-| 校验 | valibot（配置 schema / IPC 入参） |
+| 层   | 技术                                                                        |
+| ---- | --------------------------------------------------------------------------- |
+| 框架 | Electron 43 + electron-vite 5 + Vue 3 + Pinia + vue-router                  |
+| 更新 | electron-updater + GitHub Releases（Windows x64 / NSIS 稳定通道）           |
+| 存储 | better-sqlite3（WAL）+ JSON 原子写（config/secrets/l0/l1/dmae-state）       |
+| 校验 | valibot（配置 schema / IPC 入参）                                           |
 | 安全 | contextIsolation + sandbox、CSP、网络出口两层策略、OS 密钥库（safeStorage） |
-| 测试 | Vitest（Electron Node 环境）+ Playwright E2E + Golden Eval |
+| 测试 | Vitest（Electron Node 环境）+ Playwright E2E + Golden Eval                  |
 
 ## 目录结构
 

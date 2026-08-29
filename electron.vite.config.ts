@@ -54,6 +54,14 @@ export default defineConfig({
       alias: {
         '@shared': resolve('src/shared')
       }
+    },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          'live2d-stage': resolve('src/preload/live2d-stage.ts')
+        }
+      }
     }
   },
   renderer: {
@@ -63,6 +71,14 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [vue(), injectCspMeta()]
+    plugins: [vue(), injectCspMeta()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          live2d: resolve('src/renderer/live2d.html')
+        }
+      }
+    }
   }
 })

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "mao",
+      "displayName": "Mao",
+      "sourceDirectory": "mao"
+    },
+    {
+      "id": "hiyori",
+      "displayName": "Hiyori",
+      "sourceDirectory": "hiyori"
+    }
+  ]
+}

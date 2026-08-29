@@ -12,7 +12,17 @@
 //   7. IPC handler 注册（app/window/config/chat/debug）
 //   8. 窗口创建 + IPC guard
 
-import { app, BrowserWindow, safeStorage, dialog } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  safeStorage,
+  dialog,
+  protocol,
+  screen,
+  session,
+  type WebContents
+} from 'electron'
+import { mkdirSync } from 'node:fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
@@ -25,7 +35,7 @@ import { configureLogger, getLogger, createElectronLogSink } from './observabili
 import { createErrorBuffer } from './observability/error-buffer'
 import { createCrashGuard } from './observability/crash-guard'
 import { installStreamErrorTolerance } from './observability/stream-error-tolerance'
-import { createMetrics, configureMetrics } from './observability/metrics'
+import { createMetrics, configureMetrics, getMetrics } from './observability/metrics'
 import { createTracer, configureTracer } from './observability/tracer'
 import { setHookRunnerLogger } from './hooks/runner'
 
@@ -52,20 +62,39 @@ import { searchMessages as searchChatMessages } from './chat/search'
 import { createIdempotencyLedger } from './chat/idempotency-ledger'
 import { openMemoryDb } from './memory/db'
 
+// 合规（P3C1-07 用户反馈 + P3C1-08 基础设施接线：gate/审计/持久化/快照）
+import { createComplianceFeedbackService } from './compliance/feedback'
+import { setupCompliance, type ComplianceInfrastructure } from './compliance/setup'
+
 // Memory 基础设施（Phase 2：P2-10~15 接线）
 import { setupMemoryInfrastructure } from './memory/setup'
 import type { PromptContextAssembler } from './prompts/context-assembler'
 
 // 窗口
 import { createChatWindow } from './windows/create-chat-window'
+import { createLive2dWindow } from './windows/create-live2d-window'
+import { Live2dWindowManager } from './windows/live2d-window-manager'
 import { trackWindowState, type WindowState } from './windows/window-state'
+import { createLive2dModelRegistry } from './live2d/model-registry'
+import { createLive2dModelService } from './live2d/model-service'
+import { registerLive2dAssetProtocol, LIVE2D_ASSET_SCHEME } from './live2d/asset-protocol'
+import {
+  CUBISM_CORE_FILE_NAME,
+  createCubism2Url,
+  createCubismCoreUrl
+} from './live2d/cubism-runtime'
+import {
+  evaluateLive2dPerformance,
+  failedLive2dPerformanceChecks
+} from '@shared/live2d/performance'
+import { createLive2dEmotionHook } from './live2d/emotion-hook'
 
 // 迁移（F5-013：启动链第一个数据触碰者）
 import { createMigrationRunner } from './migrations/runner'
 import { MIGRATIONS } from './migrations/registry'
 
 // IPC
-import { configureIpcGuard } from './ipc/register'
+import { configureIpcGuard, sendEvent, type IpcSenderCapability } from './ipc/register'
 import { registerAppHandlers } from './ipc/handlers/app'
 import { registerWindowHandlers, attachWindowStateListeners } from './ipc/handlers/window'
 import { registerConfigHandlers } from './ipc/handlers/config'
@@ -74,12 +103,34 @@ import { registerDebugHandlers } from './ipc/handlers/debug'
 import { registerMemoryHandlers } from './ipc/handlers/memory'
 import { registerGrowthHandlers } from './ipc/handlers/growth'
 import { registerDmaeHandlers } from './ipc/handlers/dmae'
+import { registerComplianceHandlers } from './ipc/handlers/compliance'
+import { registerLive2dStageHandlers } from './ipc/handlers/live2d-stage'
+import { registerLive2dHandlers } from './ipc/handlers/live2d'
+import { createLive2dModelImporter } from './live2d/model-import'
+import { createLive2dPublicState } from './live2d/public-state'
+import { createOnboardingResolver } from './onboarding/resolver'
+import { createNacimeTray } from './tray/create-tray'
 
 // M-50：自动更新（updater 状态机；enabled 门控打包环境，dev/E2E 不加载 electron-updater）
 import { createUpdater } from './updater'
 
 // 应用启动时间（CrashGuard 的 uptime 计算需要，在一切初始化前捕获）
 const appStartTime = Date.now()
+
+// P3A-11：必须在 app.whenReady() 前注册为标准/安全 scheme，才能让 stage 的 XHR/纹理
+// 请求保持同源语义；实际 file handler 在模型注册表就绪后才绑定 defaultSession。
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: LIVE2D_ASSET_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true
+    }
+  }
+])
 
 // M-47（2026-08-20 根因修复）：开发模式下立即钉死 app 身份，必须在任何
 // safeStorage/getPath/singleInstanceLock 使用之前。
@@ -111,10 +162,53 @@ installStreamErrorTolerance([process.stdout, process.stderr], (errorCode) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+let appIsQuitting = false
+// P3A-04：独立 stage 生命周期；不复用 chat CrashGuard，也不把 Pixi 状态塞进 chat window。
+let live2dWindowManagerRef: Live2dWindowManager | null = null
+
+let live2dConfigCleanupRef: (() => void) | null = null
+let trayRef: { destroy(): void } | null = null
 // P2-43：SessionStore 独立 WAL 连接，before-quit 显式关闭（Windows 文件锁）。
 let sessionDb: ReturnType<typeof openMemoryDb> | null = null
 // M-28：幂等账本防抖写盘的退出前 flush（避免最后一批记录因 quit 丢失）
 let idempotencyLedgerRef: { flushNow(): void } | null = null
+/**
+ * 取聊天窗口的 webContents；窗口不存在或已销毁时返回 null。
+ *
+ * 必须先 `isDestroyed()` 再读 `.webContents`：BrowserWindow 销毁之后**读取该属性本身**就抛
+ * `TypeError: Object has been destroyed`，`?.` 只挡 `null`，挡不住这个。抛出的代价是 main 收到
+ * uncaughtException → CrashGuard 弹同步模态框 → 事件循环阻塞、连它自己排的退出定时器都执行
+ * 不了，关窗直接变成卡死（2026-08-29 实测复现，栈顶正是 `emitLive2dState`）。
+ * `Live2dWindowManager` 早已按同一教训改用建窗时记下的 id；聊天侧这几处是同类漏网。
+ */
+function chatWebContents(): WebContents | null {
+  const window = mainWindow
+  if (window === null || window.isDestroyed()) return null
+  const contents = window.webContents
+  return contents.isDestroyed() ? null : contents
+}
+
+/**
+ * 聊天窗口是应用的所有者窗口：它退场时，透明 stage 窗口不能独自留在桌面上。
+ *
+ * Live2D 关闭时，关掉聊天窗口会触发 `window-all-closed` → `app.quit()`；开启时 stage 窗口还在，
+ * `window-all-closed` 便永远不会触发，于是桌面上留下一个没有主人的透明窗口——而托盘的
+ * 「打开 Nacime」在 mainWindow 已销毁时是 no-op，聊天再也回不来。S-Phase3 §1.9 完成定义第 1 条
+ * 明确禁止这种孤儿窗口。让 stage 随最后一个聊天窗口一起退场，既恢复 Live2D 出现之前的行为，
+ * 也让「关窗即退出」不再取决于一个渲染开关。
+ *
+ * 只在**没有存活的聊天窗口**时动手：CrashGuard 重建窗口后 `mainWindow` 指向新窗口，此时旧的
+ * 崩溃窗口若被关闭，不能连累 stage（完成定义第 1 条同时点名了「关闭/重建」两种情形）。
+ */
+function attachChatWindowOwnership(window: BrowserWindow): void {
+  window.on('closed', () => {
+    const current = mainWindow
+    const chatStillAlive = current !== null && current !== window && !current.isDestroyed()
+    if (chatStillAlive) return
+    live2dWindowManagerRef?.destroy()
+  })
+}
+
 // memoryInfra 在 whenReady 内创建，before-quit 时清理（需提升到模块作用域）
 let memoryInfra: {
   cleanup: () => void
@@ -283,15 +377,43 @@ app.whenReady().then(async () => {
     trustedOrigins.add('file://')
   }
 
-  /** 为窗口配置 IPC guard（初始创建和 CrashGuard 重建时都要调用） */
-  function setupWindowIpcGuard(win: BrowserWindow): void {
+  /**
+   * P3A-05：所有可信窗口重建单一 capability map。
+   * chat 除 stage-only 通道外可调用既有 API；stage 只可 ready/report-state。窗口关闭必须
+   * 删除对应 ID，因此 renderer/HMR 不会继承前一实例权限。
+   */
+  const senderCapabilities = new Map<number, IpcSenderCapability>()
+  function refreshIpcGuard(): void {
     configureIpcGuard(
       {
         trustedOrigins,
-        trustedWebContentsIds: new Set([win.webContents.id])
+        trustedWebContentsIds: new Set(senderCapabilities.keys()),
+        senderCapabilities
       },
       getLogger('ipc')
     )
+  }
+
+  function registerSenderCapability(webContentsId: number, capability: IpcSenderCapability): void {
+    senderCapabilities.set(webContentsId, capability)
+    refreshIpcGuard()
+  }
+
+  function unregisterSenderCapability(webContentsId: number): void {
+    senderCapabilities.delete(webContentsId)
+    refreshIpcGuard()
+  }
+
+  /** 为 chat window 配置 chat capability（初始创建与 CrashGuard 重建同样调用）。 */
+  function setupWindowIpcGuard(win: BrowserWindow): void {
+    // `closed` 触发时 BrowserWindow 已销毁，此刻再读 `win.webContents` 会抛
+    // "Object has been destroyed"。这一抛的代价有三层：① main 收到 uncaughtException，
+    // CrashGuard 弹阻塞式错误框，关窗变成卡死；② 同一事件上**排在后面的监听器全部不再执行**；
+    // ③ capability 没删干净，销毁窗口的 webContents id 继续留在 chat 白名单里（P3A-05 要求
+    // 「窗口销毁即移除 ID 与能力」）。因此和 Live2dWindowManager 一样，建窗时就把 id 记下来。
+    const webContentsId = win.webContents.id
+    registerSenderCapability(webContentsId, 'chat')
+    win.once('closed', () => unregisterSenderCapability(webContentsId))
   }
 
   // S-005 §3.7 落地：窗口尺寸/位置持久化（schema/默认值早已就位，此前只建不存）。
@@ -313,12 +435,164 @@ app.whenReady().then(async () => {
     return win
   }
 
+  // P3A-08/11：registry 放 userData/data（用户导入模型），内置模型和许可随 app resources。
+  // 打包 out/main/index.js 的资源根与开发源码根同为 __dirname 向上两级。
+  const bundledLive2dRoot = join(__dirname, '../../resources/live2d')
+  const userLive2dRoot = join(dataDir, 'live2d/models')
+  mkdirSync(userLive2dRoot, { recursive: true })
+  const live2dRegistry = createLive2dModelRegistry({
+    registryPath: join(dataDir, 'live2d/registry.json'),
+    builtinModelsRoot: join(bundledLive2dRoot, 'models'),
+    userModelsRoot: userLive2dRoot
+  })
+  const live2dModelService = createLive2dModelService({
+    builtinModelsRoot: join(bundledLive2dRoot, 'models'),
+    licenseDirectory: join(bundledLive2dRoot, 'licenses'),
+    registry: live2dRegistry
+  })
+  const live2dImporter = createLive2dModelImporter({
+    userModelsRoot: userLive2dRoot,
+    registry: live2dRegistry
+  })
+  let emitLive2dState: () => void = () => {}
+  const live2dPublicState = createLive2dPublicState({
+    listModels: () => live2dModelService.list(),
+    selectedModelId: () => {
+      const configured = configStore.get().ui.live2d.selectedModelId
+      return configured !== undefined && live2dModelService.getRegistered(configured) !== null
+        ? configured
+        : live2dModelService.selectedModelId()
+    },
+    loadedModelId: () => live2dWindowManagerRef?.getSnapshot().loadedModelId ?? null,
+    window: () =>
+      live2dWindowManagerRef?.getSnapshot() ?? {
+        stageInstanceId: null,
+        status: 'closed',
+        visible: false,
+        alwaysOnTop: true,
+        webContentsId: null,
+        loadedModelId: null
+      },
+    loading: () => false,
+    lastError: () => null,
+    zoom: () => configStore.get().ui.live2d.zoom,
+    offset: () => ({
+      x: configStore.get().ui.live2d.offsetX,
+      y: configStore.get().ui.live2d.offsetY
+    })
+  })
+  emitLive2dState = (): void => {
+    const wc = chatWebContents()
+    if (wc === null) return
+    sendEvent(wc, 'companion:event:live2d-state', live2dPublicState.bump())
+  }
+  const bundledCorePath = join(bundledLive2dRoot, 'cubism', CUBISM_CORE_FILE_NAME)
+  registerLive2dAssetProtocol(session.defaultSession, {
+    service: live2dModelService,
+    cubismCorePath: bundledCorePath,
+    cubism2Path: join(bundledLive2dRoot, 'cubism', 'live2d.min.js')
+  })
+  const builtinSetup = live2dModelService.initializeBuiltins()
+  const configuredLive2dModelId = configStore.get().ui.live2d.selectedModelId
+  if (
+    configuredLive2dModelId !== undefined &&
+    live2dRegistry.get(configuredLive2dModelId) !== null
+  ) {
+    live2dRegistry.select(configuredLive2dModelId)
+  } else if (configuredLive2dModelId === undefined && live2dRegistry.getSelected() !== null) {
+    // Additive config key: persist the chosen default once, with undefined placeholder already
+    // present in defaults so legacy config files cannot silently lose it.
+    void configStore.update({
+      ui: { live2d: { selectedModelId: live2dRegistry.getSelected()!.id } }
+    })
+  }
+  if (builtinSetup.errors.length > 0) {
+    getLogger('live2d').warn('some built-in Live2D models were unavailable', {
+      scope: 'live2d',
+      metrics: { unavailableModels: builtinSetup.errors.length }
+    })
+  }
+
+  const live2dWindowManager = new Live2dWindowManager({
+    createWindow: createLive2dWindow,
+    onStageCreated: (webContentsId) => registerSenderCapability(webContentsId, 'live2d-stage'),
+    onStageDestroyed: unregisterSenderCapability,
+    getModelLoadPlan: () => live2dModelService.getLoadPlan(),
+    getStageModelUrl: (modelId) => live2dModelService.getStageModelUrl(modelId),
+    getModelExpressionNames: (modelId) =>
+      live2dModelService.getRegistered(modelId)?.manifest.expressionNames ?? [],
+    getLoadAttemptUrl: (attemptIndex) => live2dModelService.getLoadAttemptUrl(attemptIndex),
+    getCubismCoreUrl: () => createCubismCoreUrl(join(bundledLive2dRoot, 'cubism')),
+    getCubism2Url: () => createCubism2Url(join(bundledLive2dRoot, 'cubism')),
+    getZoom: () => configStore.get().ui.live2d.zoom,
+    getOffset: () => ({
+      x: configStore.get().ui.live2d.offsetX,
+      y: configStore.get().ui.live2d.offsetY
+    }),
+    getDisplayWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea,
+    onPerformanceReport: (sender, report) => {
+      const metrics = getMetrics()
+      if (report.fps !== undefined) metrics.gauge('live2d.fps').set(report.fps)
+      if (report.modelLoadMs !== undefined) {
+        metrics.histogram('live2d.modelLoadMs').observe(report.modelLoadMs)
+        metrics.histogram('live2d.firstFrameMs').observe(report.modelLoadMs)
+      }
+      // Electron 官方 ProcessMetric：workingSetSize 是 KiB，percentCPUUsage 是两次采样间的百分比。
+      const pid = sender.getOSProcessId()
+      const processMetric = app.getAppMetrics().find((metric) => metric.pid === pid)
+      const renderMemoryMb =
+        processMetric?.memory?.workingSetSize === undefined
+          ? null
+          : processMetric.memory.workingSetSize / 1024
+      const idleCpuPercent = processMetric?.cpu?.percentCPUUsage ?? null
+      if (renderMemoryMb !== null) metrics.gauge('live2d.renderMemoryMb').set(renderMemoryMb)
+      if (idleCpuPercent !== null) metrics.gauge('live2d.idleCpuPercent').set(idleCpuPercent)
+
+      // P3A-28：采集不等于有门。超预算时落一条只含数字的 warn，否则回归只能靠人盯 gauge。
+      const breached = failedLive2dPerformanceChecks(
+        evaluateLive2dPerformance({
+          fps: report.fps ?? 0,
+          idleCpuPercent,
+          renderMemoryMb,
+          firstFrameMs: report.modelLoadMs ?? null,
+          visible: live2dWindowManager.getSnapshot().visible,
+          modelsLoadedThisSession: live2dWindowManager.getModelsLoadedThisSession()
+        })
+      )
+      if (breached.length > 0) {
+        getLogger('live2d').warn('Live2D performance budget exceeded', {
+          scope: 'live2d',
+          tags: { checks: breached.join(',') },
+          metrics: {
+            fps: report.fps ?? 0,
+            ...(renderMemoryMb === null ? {} : { renderMemoryMb: Math.round(renderMemoryMb) }),
+            ...(idleCpuPercent === null ? {} : { idleCpuPercent: Math.round(idleCpuPercent) }),
+            ...(report.modelLoadMs === undefined ? {} : { firstFrameMs: report.modelLoadMs })
+          }
+        })
+      }
+    },
+    onStateChange: emitLive2dState
+  })
+  live2dWindowManagerRef = live2dWindowManager
+  emitLive2dState()
+  const unsubscribeLive2dConfig = configStore.subscribe((event) => {
+    if (event.domain !== 'ui') return
+    const live2dConfig = configStore.get().ui.live2d
+    live2dWindowManager.setAlwaysOnTop(live2dConfig.alwaysOnTop)
+    live2dWindowManager.setZoom(live2dConfig.zoom)
+    live2dWindowManager.setOffset(live2dConfig.offsetX, live2dConfig.offsetY)
+    if (!live2dConfig.enabled) live2dWindowManager.destroy()
+    emitLive2dState()
+  })
+  live2dConfigCleanupRef = unsubscribeLive2dConfig
+
   // M-07：向 renderer 推送 app-error 事件（companion:event:app-error）。
   // 此前该通道在 main 侧无任何发射点，主进程内部错误永远到不了 UI。
   function sendAppError(error: PublicAppError): void {
-    const wc = mainWindow?.webContents
-    if (!wc || wc.isDestroyed()) return
-    wc.send('companion:event:app-error', error)
+    const wc = chatWebContents()
+    if (wc === null) return
+    sendEvent(wc, 'companion:event:app-error', error)
   }
 
   const crashGuard = createCrashGuard({
@@ -334,8 +608,11 @@ app.whenReady().then(async () => {
       setupWindowIpcGuard(mainWindow)
       // 重建窗口后重新挂载 maximize/unmaximize 监听（修复前只挂初始窗口，重建后事件失效）
       attachWindowStateListeners(mainWindow)
+      attachChatWindowOwnership(mainWindow)
       return mainWindow
     },
+    isQuitting: () => appIsQuitting,
+    shouldHandleRendererCrash: (webContents) => chatWebContents()?.id === webContents.id,
     showCrashDialog: (reason: string) => {
       dialog.showErrorBox(
         '应用遇到严重错误',
@@ -362,6 +639,16 @@ app.whenReady().then(async () => {
     db: sessionDb,
     logger: getLogger('chat')
   })
+  // P3A-29：首次体验状态由 main 在 SessionStore 初始化后解析；不能让 renderer 以空 session
+  // 猜老用户。只有真实 completed turn 才代表已有用户。
+  const onboardingResolution = createOnboardingResolver().resolve({
+    hasApiKey: secretStore.hasReadable('modelApiKey'),
+    persisted: configStore.get().ui.onboarding,
+    history: sessionStore
+  })
+  if (onboardingResolution.persisted) {
+    await configStore.update({ ui: { onboarding: { stage: onboardingResolution.stage } } })
+  }
   // P2-44：全文搜索直接绑 sessionDb（handler 依赖注入用；const 捕获保持非空类型收窄）
   const chatSearchDb = sessionDb
   // P2-43：clientRequestId 跨重启幂等账本（缓存定性：损坏/缺失不拦启动）
@@ -448,7 +735,49 @@ app.whenReady().then(async () => {
     sessionStore,
     logger: getLogger('memory'),
     isDev: is.dev,
-    getWebContents: () => mainWindow?.webContents ?? null
+    getWebContents: () => chatWebContents()
+  })
+
+  // === 6.55 合规基础设施（P3C1-08：F5-001 C1 观测接线）===
+  // setupCompliance 是统一 composition root：编译规则 + 熔断器 + persistence +
+  // ChatService 集成对象（gate 工厂）+ 独立审计 provider + turn.end 审计 hook（350）。
+  // 必须真实调用（F5-001 §5 反模式「测试绿但根本没启用采集」）。
+  // L0 键名来自 memory infra（memory.enabled=false 时无 L0，空列表降级）。
+  const complianceInfra = setupCompliance({
+    db: sessionDb,
+    configStore,
+    secretStore,
+    sessionStore,
+    promptLoader,
+    logger: getLogger('compliance'),
+    metrics: getMetrics(),
+    isDev: is.dev,
+    getKnownFactKeys: () =>
+      memoryInfra.services ? Object.keys(memoryInfra.services.l0Store.get().fields) : []
+  })
+  complianceInfraRef = complianceInfra
+
+  // S-006-补充 §1.7.4：最终可见回复 → 语义情绪 → stage。本地启发式分类，不进流循环、
+  // 不改一个字节、不发网络请求，因此与 C1「observe 下 releaseText 逐字节等于 delta」正交。
+  // priority 370 排在审计(350)之后：表情是最外层表现，永不抢在记忆/DMAE/审计之前。
+  registerHook(
+    createLive2dEmotionHook({
+      logger: getLogger('live2d'),
+      sessionStore,
+      setEmotion: (emotion) => live2dWindowManager.setEmotion(emotion),
+      isStageLive: () => live2dWindowManager.getSnapshot().status !== 'closed'
+    })
+  )
+
+  // P3C1-07：合规用户反馈服务（F5-001 §3.7）。三表与 SessionStore 同库（迁移 009）。
+  // onDislike 补审回调在此接线（P3C1-08）：dislike -> 审计队列 reason='dislike' 强制补审；
+  // 无审计轨道（无 API key）时回调内部跳过，反馈落库 + 计数不受影响。
+  const complianceFeedback = createComplianceFeedbackService({
+    db: sessionDb,
+    sessionStore,
+    logger: getLogger('compliance'),
+    metrics: getMetrics(),
+    onDislike: complianceInfra.onDislike
   })
 
   // === 6.6 ChatService（providerFactory 注入 createSecureFetch - P1-09B Layer 2）===
@@ -462,6 +791,8 @@ app.whenReady().then(async () => {
     providerFactory,
     getMemoryConfig: () => configStore.get().memory,
     idempotencyLedger,
+    // P3C1-08：合规观测集成（gate 工厂 + TURN_END 落库；未注入时全旁路）
+    compliance: complianceInfra.chatIntegration,
     ...(memoryInfra.contextAssembler
       ? { dynamicPrompt: { contextAssembler: memoryInfra.contextAssembler } }
       : {})
@@ -472,7 +803,7 @@ app.whenReady().then(async () => {
   // start() 推迟到窗口创建之后（步骤 8 末尾），dev/E2E 下 enabled=false 不调度不加载。
   const updater = createUpdater({
     logger: getLogger('updater'),
-    getWebContents: () => mainWindow?.webContents ?? null,
+    getWebContents: () => chatWebContents(),
     enabled: app.isPackaged && !is.dev
   })
   updaterRef = updater
@@ -495,7 +826,52 @@ app.whenReady().then(async () => {
   registerChatHandlers({
     chatService,
     logger: getLogger('chat'),
-    searchMessages: (query, limit) => searchChatMessages(chatSearchDb, query, limit)
+    searchMessages: (query, limit) => searchChatMessages(chatSearchDb, query, limit),
+    // P3C1-07：合规用户反馈（F5-001 §3.7）。onDislike 补审已在
+    // 6.55 接线（dislike -> 审计队列 reason='dislike' 强制补审，P3C1-08）。
+    recordFeedback: complianceFeedback.recordFeedback
+  })
+  // P3A-23：Live2D chat 管理面（main 负责 dialog/ID/URL，renderer 只见 DTO）。
+  registerLive2dHandlers({
+    logger: getLogger('live2d'),
+    getMainWindow: () => mainWindow,
+    service: live2dModelService,
+    importer: live2dImporter,
+    manager: live2dWindowManager,
+    getSnapshot: live2dPublicState.snapshot,
+    setSelectedModel: async (modelId) => {
+      const previousModelId = live2dModelService.selectedModelId()
+      if (!live2dModelService.setSelectedModelId(modelId)) return false
+      try {
+        await configStore.update({ ui: { live2d: { selectedModelId: modelId } } })
+        return true
+      } catch {
+        live2dModelService.setSelectedModelId(previousModelId)
+        return false
+      }
+    },
+    getAlwaysOnTop: () => configStore.get().ui.live2d.alwaysOnTop,
+    setEnabled: async (enabled) => {
+      try {
+        await configStore.update({ ui: { live2d: { enabled } } } as Parameters<
+          typeof configStore.update
+        >[0])
+        return true
+      } catch {
+        return false
+      }
+    },
+    onStateChange: emitLive2dState
+  })
+  // P3C1-08：合规调试快照（F5-001 §3.10：仅调试面板，聚合量无正文，无 event 通道）
+  registerComplianceHandlers({
+    logger: getLogger('compliance'),
+    getSnapshot: complianceInfra.getSnapshot
+  })
+  // P3A-05：这两个 handler 必须在 stage 窗口可能加载 live2d.html 前注册。
+  registerLive2dStageHandlers({
+    logger: getLogger('live2d'),
+    manager: live2dWindowManager
   })
   registerDebugHandlers({
     logger: getLogger('debug'),
@@ -533,6 +909,24 @@ app.whenReady().then(async () => {
 
   mainWindow = createMainWindow()
   setupWindowIpcGuard(mainWindow)
+  attachChatWindowOwnership(mainWindow)
+  // Playwright faux mode verifies the main/stage boundary and needs app.close() to own process teardown;
+  // tray semantics are covered by the dedicated main-process unit test instead.
+  if (process.env['COMPANION_TEST_MODE'] !== 'faux') {
+    trayRef = createNacimeTray({
+      assetsDirectory: join(__dirname, '../../assets'),
+      showMainWindow: () => {
+        const window = mainWindow
+        if (window === null || window.isDestroyed()) return
+        if (window.isMinimized()) window.restore()
+        window.show()
+        window.focus()
+      }
+    })
+  }
+  if (configStore.get().ui.live2d.enabled) {
+    live2dWindowManager.show({ alwaysOnTop: configStore.get().ui.live2d.alwaysOnTop })
+  }
 
   // window handler 需要 getMainWindow（窗口可能被 CrashGuard 重建）
   registerWindowHandlers({
@@ -551,6 +945,7 @@ app.whenReady().then(async () => {
       setupWindowIpcGuard(mainWindow)
       // macOS 关窗重开（activate）后同样需要重新挂载状态监听
       attachWindowStateListeners(mainWindow)
+      attachChatWindowOwnership(mainWindow)
     }
   })
 })
@@ -563,10 +958,20 @@ app.on('window-all-closed', () => {
 
 // M-50：updater 引用提升到模块作用域，before-quit 清理定时器
 let updaterRef: { dispose(): void } | null = null
+// P3C1-08：合规基础设施引用（before-quit 停审计消费者）
+let complianceInfraRef: ComplianceInfrastructure | null = null
 
 // app 退出前清理记忆基础设施（关闭 DB、停止队列消费者、terminate worker）
 app.on('before-quit', () => {
+  appIsQuitting = true
   updaterRef?.dispose()
+  trayRef?.destroy()
+  trayRef = null
+  live2dConfigCleanupRef?.()
+  live2dConfigCleanupRef = null
+  live2dWindowManagerRef?.destroy()
+  live2dWindowManagerRef = null
+  complianceInfraRef?.cleanup() // P3C1-08：停审计消费者（中止 in-flight，结果不再投递）
   memoryInfra.cleanup()
   idempotencyLedgerRef?.flushNow() // M-28：防抖写盘的最后一批落盘
   if (sessionDb?.open) sessionDb.close()
