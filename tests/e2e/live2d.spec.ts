@@ -100,299 +100,333 @@ test('P3A-04 / 完成定义1：关闭聊天窗口不留下孤儿 stage 窗口', 
 
 for (const modelId of ['mao', 'hiyori'] as const) {
   test(`P3A-27：enabled Live2D stage loads bundled ${modelId} and reports continuous FPS`, async () => {
-  const tmpDir = createTmpUserData()
-  writeDefaultConfig(tmpDir)
-  writeFakeApiKey(tmpDir)
-  const configPath = `${tmpDir}/config.json`
-  const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
-    ui: { live2d: { enabled: boolean; selectedModelId?: string } }
-  }
-  config.ui.live2d.enabled = true
-  config.ui.live2d.selectedModelId = modelId
-  writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8')
+    const tmpDir = createTmpUserData()
+    writeDefaultConfig(tmpDir)
+    writeFakeApiKey(tmpDir)
+    const configPath = `${tmpDir}/config.json`
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+      ui: { live2d: { enabled: boolean; selectedModelId?: string } }
+    }
+    config.ui.live2d.enabled = true
+    config.ui.live2d.selectedModelId = modelId
+    writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8')
 
-  const app = await electron.launch({
-    args: ['out/main/index.js'],
-    env: createElectronEnv({ COMPANION_TEST_MODE: 'faux', COMPANION_USER_DATA: tmpDir })
-  })
-  let mainOutput = ''
-  const captureMainOutput = (chunk: Buffer): void => {
-    mainOutput += chunk.toString()
-  }
-  app.process().stdout?.on('data', captureMainOutput)
-  app.process().stderr?.on('data', captureMainOutput)
-
-  try {
-    await expect.poll(() => app.windows().length, { timeout: 30_000 }).toBeGreaterThan(1)
-    const chat = app.windows().find((page) => !page.url().includes('/live2d.html'))
-    if (!chat) throw new Error('Chat window did not open')
-    await chat.waitForLoadState('domcontentloaded', { timeout: 30_000 })
-    await expect(chat.locator('body')).toBeAttached({ timeout: 30_000 })
-    await expect(chat.locator('canvas')).toHaveCount(0)
-
-    const stage = app.windows().find((page) => page.url().includes('/live2d.html'))
-    expect(stage).toBeDefined()
-    if (!stage) throw new Error('Live2D stage window did not open')
-    const stageRuntimeErrors: string[] = []
-    stage.on('pageerror', (error) => stageRuntimeErrors.push(error.stack ?? error.message))
-    stage.on('console', (message) => {
-      if (message.type() === 'error') stageRuntimeErrors.push(message.text())
+    const app = await electron.launch({
+      args: ['out/main/index.js'],
+      env: createElectronEnv({ COMPANION_TEST_MODE: 'faux', COMPANION_USER_DATA: tmpDir })
     })
+    let mainOutput = ''
+    const captureMainOutput = (chunk: Buffer): void => {
+      mainOutput += chunk.toString()
+    }
+    app.process().stdout?.on('data', captureMainOutput)
+    app.process().stderr?.on('data', captureMainOutput)
 
-    await stage.waitForSelector('canvas', { timeout: 30_000 })
-    await expect(stage.locator('.stage-status--error')).toHaveCount(0)
-    await expect.poll(async () => stage.locator('main').getAttribute('aria-busy'), { timeout: 30_000 }).toBe('false')
-    await expect(stage.locator('main')).not.toContainText('她暂时没能出现')
-    const firstAnimationFrame = await stage.screenshot()
-    await stage.waitForTimeout(750)
-    const secondAnimationFrame = await stage.screenshot()
-    expect(secondAnimationFrame.equals(firstAnimationFrame)).toBe(false)
+    try {
+      await expect.poll(() => app.windows().length, { timeout: 30_000 }).toBeGreaterThan(1)
+      const chat = app.windows().find((page) => !page.url().includes('/live2d.html'))
+      if (!chat) throw new Error('Chat window did not open')
+      await chat.waitForLoadState('domcontentloaded', { timeout: 30_000 })
+      await expect(chat.locator('body')).toBeAttached({ timeout: 30_000 })
+      await expect(chat.locator('canvas')).toHaveCount(0)
 
-    const stageGlobals = await stage.evaluate(() => ({
-      hasStageApi: typeof window.live2dStage !== 'undefined',
-      hasCompanion: 'companion' in window,
-      hasCanvas: document.querySelector('canvas') !== null,
-      dragRegion: getComputedStyle(document.querySelector('main')!).getPropertyValue('-webkit-app-region')
-    }))
-    expect(stageGlobals).toEqual({
-      hasStageApi: true,
-      hasCompanion: false,
-      hasCanvas: true,
-      dragRegion: 'drag'
-    })
+      const stage = app.windows().find((page) => page.url().includes('/live2d.html'))
+      expect(stage).toBeDefined()
+      if (!stage) throw new Error('Live2D stage window did not open')
+      const stageRuntimeErrors: string[] = []
+      stage.on('pageerror', (error) => stageRuntimeErrors.push(error.stack ?? error.message))
+      stage.on('console', (message) => {
+        if (message.type() === 'error') stageRuntimeErrors.push(message.text())
+      })
 
-    const centeredPlacement = await app.evaluate(({ BrowserWindow, screen }) => {
-      const stageWindow = BrowserWindow.getAllWindows().find((window) =>
-        window.webContents.getURL().includes('/live2d.html')
-      )
-      if (!stageWindow) throw new Error('Live2D BrowserWindow did not open')
-      const currentDisplay = screen.getDisplayMatching(stageWindow.getBounds())
-      stageWindow.setPosition(currentDisplay.workArea.x + 10, currentDisplay.workArea.y + 10)
-      const bounds = stageWindow.getBounds()
-      return {
-        x: Math.round(currentDisplay.workArea.x + (currentDisplay.workArea.width - bounds.width) / 2),
-        y: Math.round(currentDisplay.workArea.y + (currentDisplay.workArea.height - bounds.height) / 2)
-      }
-    })
-    const placementReset = await chat.evaluate(() => window.companion.live2d.resetWindowPlacement())
-    expect(placementReset.ok).toBe(true)
-    await expect
-      .poll(() => app.evaluate(({ BrowserWindow }) => {
+      await stage.waitForSelector('canvas', { timeout: 30_000 })
+      await expect(stage.locator('.stage-status--error')).toHaveCount(0)
+      await expect
+        .poll(async () => stage.locator('main').getAttribute('aria-busy'), { timeout: 30_000 })
+        .toBe('false')
+      await expect(stage.locator('main')).not.toContainText('她暂时没能出现')
+      const firstAnimationFrame = await stage.screenshot()
+      await stage.waitForTimeout(750)
+      const secondAnimationFrame = await stage.screenshot()
+      expect(secondAnimationFrame.equals(firstAnimationFrame)).toBe(false)
+
+      const stageGlobals = await stage.evaluate(() => ({
+        hasStageApi: typeof window.live2dStage !== 'undefined',
+        hasCompanion: 'companion' in window,
+        hasCanvas: document.querySelector('canvas') !== null,
+        dragRegion: getComputedStyle(document.querySelector('main')!).getPropertyValue(
+          '-webkit-app-region'
+        )
+      }))
+      expect(stageGlobals).toEqual({
+        hasStageApi: true,
+        hasCompanion: false,
+        hasCanvas: true,
+        dragRegion: 'drag'
+      })
+
+      const centeredPlacement = await app.evaluate(({ BrowserWindow, screen }) => {
         const stageWindow = BrowserWindow.getAllWindows().find((window) =>
           window.webContents.getURL().includes('/live2d.html')
         )
-        if (!stageWindow) return null
+        if (!stageWindow) throw new Error('Live2D BrowserWindow did not open')
+        const currentDisplay = screen.getDisplayMatching(stageWindow.getBounds())
+        stageWindow.setPosition(currentDisplay.workArea.x + 10, currentDisplay.workArea.y + 10)
         const bounds = stageWindow.getBounds()
-        return { x: bounds.x, y: bounds.y }
-      }))
-      .toEqual(centeredPlacement)
-
-    await stage.evaluate(() => {
-      const host = window as typeof window & {
-        __nacimeZoomCommands?: number[]
-        __nacimeOffsetCommands?: Array<{ x: number; y: number }>
-        __nacimeEmotionCommands?: string[]
-      }
-      host.__nacimeZoomCommands = []
-      host.__nacimeOffsetCommands = []
-      host.__nacimeEmotionCommands = []
-      window.live2dStage.onCommand((command) => {
-        if (command.type === 'set-zoom') host.__nacimeZoomCommands?.push(command.zoom)
-        if (command.type === 'set-offset') {
-          host.__nacimeOffsetCommands?.push({ x: command.offsetX, y: command.offsetY })
+        return {
+          x: Math.round(
+            currentDisplay.workArea.x + (currentDisplay.workArea.width - bounds.width) / 2
+          ),
+          y: Math.round(
+            currentDisplay.workArea.y + (currentDisplay.workArea.height - bounds.height) / 2
+          )
         }
-        if (command.type === 'set-emotion') host.__nacimeEmotionCommands?.push(command.emotion)
       })
-    })
-    const updateFraming = async (
-      framing: { zoom?: number; offsetX?: number; offsetY?: number }
-    ): Promise<{ ok: boolean }> =>
-      chat.evaluate(async (value): Promise<{ ok: boolean }> => {
-        const current = await window.companion.config.get()
-        if (!current.ok) return current
-        return window.companion.config.update({
-          expectedSchemaVersion: current.data.schemaVersion,
-          domains: { ui: { live2d: { ...current.data.ui.live2d, ...value } } }
+      const placementReset = await chat.evaluate(() =>
+        window.companion.live2d.resetWindowPlacement()
+      )
+      expect(placementReset.ok).toBe(true)
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) => {
+            const stageWindow = BrowserWindow.getAllWindows().find((window) =>
+              window.webContents.getURL().includes('/live2d.html')
+            )
+            if (!stageWindow) return null
+            const bounds = stageWindow.getBounds()
+            return { x: bounds.x, y: bounds.y }
+          })
+        )
+        .toEqual(centeredPlacement)
+
+      await stage.evaluate(() => {
+        const host = window as typeof window & {
+          __nacimeZoomCommands?: number[]
+          __nacimeOffsetCommands?: Array<{ x: number; y: number }>
+          __nacimeEmotionCommands?: string[]
+        }
+        host.__nacimeZoomCommands = []
+        host.__nacimeOffsetCommands = []
+        host.__nacimeEmotionCommands = []
+        window.live2dStage.onCommand((command) => {
+          if (command.type === 'set-zoom') host.__nacimeZoomCommands?.push(command.zoom)
+          if (command.type === 'set-offset') {
+            host.__nacimeOffsetCommands?.push({ x: command.offsetX, y: command.offsetY })
+          }
+          if (command.type === 'set-emotion') host.__nacimeEmotionCommands?.push(command.emotion)
         })
-      }, framing)
-    const updateZoom = async (zoom: number): Promise<{ ok: boolean }> => updateFraming({ zoom })
-    const lastOffsetCommand = (): Promise<{ x: number; y: number } | null> => stage.evaluate(() => {
-      const host = window as typeof window & { __nacimeOffsetCommands?: Array<{ x: number; y: number }> }
-      return host.__nacimeOffsetCommands?.at(-1) ?? null
-    })
-    const captureRenderedBounds = async (): Promise<RenderedBounds | null> =>
-      app.evaluate(async ({ BrowserWindow }): Promise<RenderedBounds | null> => {
-      const stageWindow = BrowserWindow.getAllWindows().find((window) =>
-        window.webContents.getURL().includes('/live2d.html')
+      })
+      const updateFraming = async (framing: {
+        zoom?: number
+        offsetX?: number
+        offsetY?: number
+      }): Promise<{ ok: boolean }> =>
+        chat.evaluate(async (value): Promise<{ ok: boolean }> => {
+          const current = await window.companion.config.get()
+          if (!current.ok) return current
+          return window.companion.config.update({
+            expectedSchemaVersion: current.data.schemaVersion,
+            domains: { ui: { live2d: { ...current.data.ui.live2d, ...value } } }
+          })
+        }, framing)
+      const updateZoom = async (zoom: number): Promise<{ ok: boolean }> => updateFraming({ zoom })
+      const lastOffsetCommand = (): Promise<{ x: number; y: number } | null> =>
+        stage.evaluate(() => {
+          const host = window as typeof window & {
+            __nacimeOffsetCommands?: Array<{ x: number; y: number }>
+          }
+          return host.__nacimeOffsetCommands?.at(-1) ?? null
+        })
+      const captureRenderedBounds = async (): Promise<RenderedBounds | null> =>
+        app.evaluate(async ({ BrowserWindow }): Promise<RenderedBounds | null> => {
+          const stageWindow = BrowserWindow.getAllWindows().find((window) =>
+            window.webContents.getURL().includes('/live2d.html')
+          )
+          if (!stageWindow) throw new Error('Live2D BrowserWindow did not open')
+          const image = await stageWindow.webContents.capturePage()
+          const { width, height } = image.getSize()
+          const bitmap = image.toBitmap()
+          let left = width
+          let top = height
+          let right = -1
+          let bottom = -1
+          let pixels = 0
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              const offset = (y * width + x) * 4
+              if (bitmap[offset]! <= 4 && bitmap[offset + 1]! <= 4 && bitmap[offset + 2]! <= 4)
+                continue
+              left = Math.min(left, x)
+              top = Math.min(top, y)
+              right = Math.max(right, x)
+              bottom = Math.max(bottom, y)
+              pixels++
+            }
+          }
+          if (right < left || bottom < top) return null
+          return {
+            width: right - left + 1,
+            height: bottom - top + 1,
+            top,
+            bottom,
+            pixels,
+            canvasHeight: height
+          }
+        })
+
+      expect((await updateZoom(0.5)).ok).toBe(true)
+      await expect
+        .poll(() =>
+          stage.evaluate(() => {
+            const host = window as typeof window & { __nacimeZoomCommands?: number[] }
+            return host.__nacimeZoomCommands?.at(-1) ?? 0
+          })
+        )
+        .toBe(0.5)
+      await stage.waitForTimeout(200)
+      const smallModelBounds = await captureRenderedBounds()
+
+      expect((await updateZoom(1.5)).ok).toBe(true)
+      await expect
+        .poll(() =>
+          stage.evaluate(() => {
+            const host = window as typeof window & { __nacimeZoomCommands?: number[] }
+            return host.__nacimeZoomCommands?.at(-1) ?? 0
+          })
+        )
+        .toBe(1.5)
+      await stage.waitForTimeout(200)
+      const largeModelBounds = await captureRenderedBounds()
+      expect(smallModelBounds).not.toBeNull()
+      expect(largeModelBounds).not.toBeNull()
+      // 两个官方模型的透明画布边距不同：放大后 Mao 会裁掉宽袖，Hiyori 则扩大外接框，
+      // 因此不假定外接框变化方向，只要求真实像素覆盖发生足够大的可见变化。
+      expect(Math.abs(largeModelBounds!.width - smallModelBounds!.width)).toBeGreaterThan(40)
+      expect(
+        Math.max(largeModelBounds!.pixels, smallModelBounds!.pixels) /
+          Math.min(largeModelBounds!.pixels, smallModelBounds!.pixels)
+      ).toBeGreaterThan(1.2)
+      await expect
+        .poll(async () => {
+          const state = await chat.evaluate(() => window.companion.live2d.getState())
+          return state.ok ? state.data.window.zoom : 0
+        })
+        .toBe(1.5)
+
+      // 取景偏移：缩到约一屏高后模型只占下半屏，抬到中线（offsetY=50，即「全身」预设）
+      // 必须把人物顶部推到画面上部——这是「看上半身 vs 看全身」的可测量差别。
+      expect((await updateFraming({ zoom: 0.5, offsetX: 0, offsetY: 0 })).ok).toBe(true)
+      await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: 0 })
+      await stage.waitForTimeout(200)
+      const bottomAnchored = await captureRenderedBounds()
+
+      expect((await updateFraming({ zoom: 0.5, offsetX: 0, offsetY: 50 })).ok).toBe(true)
+      await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: 50 })
+      await stage.waitForTimeout(200)
+      const raisedFraming = await captureRenderedBounds()
+
+      expect(bottomAnchored).not.toBeNull()
+      expect(raisedFraming).not.toBeNull()
+      expect(bottomAnchored!.top).toBeGreaterThan(bottomAnchored!.canvasHeight * 0.25)
+      expect(raisedFraming!.top).toBeLessThan(
+        bottomAnchored!.top - bottomAnchored!.canvasHeight * 0.2
       )
-      if (!stageWindow) throw new Error('Live2D BrowserWindow did not open')
-      const image = await stageWindow.webContents.capturePage()
-      const { width, height } = image.getSize()
-      const bitmap = image.toBitmap()
-      let left = width
-      let top = height
-      let right = -1
-      let bottom = -1
-      let pixels = 0
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const offset = (y * width + x) * 4
-          if (bitmap[offset]! <= 4 && bitmap[offset + 1]! <= 4 && bitmap[offset + 2]! <= 4) continue
-          left = Math.min(left, x)
-          top = Math.min(top, y)
-          right = Math.max(right, x)
-          bottom = Math.max(bottom, y)
-          pixels++
+      // 越界值由 main 钳制，stage 永远只收到合同内偏移。
+      expect((await updateFraming({ offsetX: 0, offsetY: 100 })).ok).toBe(true)
+      await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: 100 })
+      expect((await updateFraming({ offsetX: 0, offsetY: 101 })).ok).toBe(false)
+      await expect
+        .poll(async () => {
+          const state = await chat.evaluate(() => window.companion.live2d.getState())
+          return state.ok ? state.data.window.offsetY : -1
+        })
+        .toBe(100)
+
+      // 实时预览：拖动时 stage 立刻跟着变，但 config 与公开投影仍是已保存值；
+      // 结束预览后 stage 归位，不会把没保存的构图留在桌面上。
+      const savedFraming = await chat.evaluate(async () => {
+        const current = await window.companion.config.get()
+        if (!current.ok) throw new Error('config unavailable')
+        return { zoom: current.data.ui.live2d.zoom, offsetY: current.data.ui.live2d.offsetY }
+      })
+      const previewed = await chat.evaluate(() =>
+        window.companion.live2d.previewFraming({
+          framing: { zoom: 2.25, offsetX: 30, offsetY: -40 }
+        })
+      )
+      expect(previewed.ok).toBe(true)
+      await expect.poll(lastOffsetCommand).toEqual({ x: 30, y: -40 })
+      const duringPreview = await chat.evaluate(async () => {
+        const current = await window.companion.config.get()
+        const state = await window.companion.live2d.getState()
+        if (!current.ok || !state.ok) throw new Error('preview readback failed')
+        return {
+          configZoom: current.data.ui.live2d.zoom,
+          configOffsetY: current.data.ui.live2d.offsetY,
+          projectedZoom: state.data.window.zoom
         }
-      }
-      if (right < left || bottom < top) return null
-      return { width: right - left + 1, height: bottom - top + 1, top, bottom, pixels, canvasHeight: height }
-    })
-
-    expect((await updateZoom(0.5)).ok).toBe(true)
-    await expect
-      .poll(() => stage.evaluate(() => {
-        const host = window as typeof window & { __nacimeZoomCommands?: number[] }
-        return host.__nacimeZoomCommands?.at(-1) ?? 0
-      }))
-      .toBe(0.5)
-    await stage.waitForTimeout(200)
-    const smallModelBounds = await captureRenderedBounds()
-
-    expect((await updateZoom(1.5)).ok).toBe(true)
-    await expect
-      .poll(() => stage.evaluate(() => {
-        const host = window as typeof window & { __nacimeZoomCommands?: number[] }
-        return host.__nacimeZoomCommands?.at(-1) ?? 0
-      }))
-      .toBe(1.5)
-    await stage.waitForTimeout(200)
-    const largeModelBounds = await captureRenderedBounds()
-    expect(smallModelBounds).not.toBeNull()
-    expect(largeModelBounds).not.toBeNull()
-    // 两个官方模型的透明画布边距不同：放大后 Mao 会裁掉宽袖，Hiyori 则扩大外接框，
-    // 因此不假定外接框变化方向，只要求真实像素覆盖发生足够大的可见变化。
-    expect(Math.abs(largeModelBounds!.width - smallModelBounds!.width)).toBeGreaterThan(40)
-    expect(
-      Math.max(largeModelBounds!.pixels, smallModelBounds!.pixels) /
-      Math.min(largeModelBounds!.pixels, smallModelBounds!.pixels)
-    ).toBeGreaterThan(1.2)
-    await expect
-      .poll(async () => {
-        const state = await chat.evaluate(() => window.companion.live2d.getState())
-        return state.ok ? state.data.window.zoom : 0
       })
-      .toBe(1.5)
-
-    // 取景偏移：缩到约一屏高后模型只占下半屏，抬到中线（offsetY=50，即「全身」预设）
-    // 必须把人物顶部推到画面上部——这是「看上半身 vs 看全身」的可测量差别。
-    expect((await updateFraming({ zoom: 0.5, offsetX: 0, offsetY: 0 })).ok).toBe(true)
-    await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: 0 })
-    await stage.waitForTimeout(200)
-    const bottomAnchored = await captureRenderedBounds()
-
-    expect((await updateFraming({ zoom: 0.5, offsetX: 0, offsetY: 50 })).ok).toBe(true)
-    await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: 50 })
-    await stage.waitForTimeout(200)
-    const raisedFraming = await captureRenderedBounds()
-
-    expect(bottomAnchored).not.toBeNull()
-    expect(raisedFraming).not.toBeNull()
-    expect(bottomAnchored!.top).toBeGreaterThan(bottomAnchored!.canvasHeight * 0.25)
-    expect(raisedFraming!.top).toBeLessThan(bottomAnchored!.top - bottomAnchored!.canvasHeight * 0.2)
-    // 越界值由 main 钳制，stage 永远只收到合同内偏移。
-    expect((await updateFraming({ offsetX: 0, offsetY: 100 })).ok).toBe(true)
-    await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: 100 })
-    expect((await updateFraming({ offsetX: 0, offsetY: 101 })).ok).toBe(false)
-    await expect
-      .poll(async () => {
-        const state = await chat.evaluate(() => window.companion.live2d.getState())
-        return state.ok ? state.data.window.offsetY : -1
+      expect(duringPreview).toEqual({
+        configZoom: savedFraming.zoom,
+        configOffsetY: savedFraming.offsetY,
+        projectedZoom: savedFraming.zoom
       })
-      .toBe(100)
 
-    // 实时预览：拖动时 stage 立刻跟着变，但 config 与公开投影仍是已保存值；
-    // 结束预览后 stage 归位，不会把没保存的构图留在桌面上。
-    const savedFraming = await chat.evaluate(async () => {
-      const current = await window.companion.config.get()
-      if (!current.ok) throw new Error('config unavailable')
-      return { zoom: current.data.ui.live2d.zoom, offsetY: current.data.ui.live2d.offsetY }
-    })
-    const previewed = await chat.evaluate(() =>
-      window.companion.live2d.previewFraming({ framing: { zoom: 2.25, offsetX: 30, offsetY: -40 } })
-    )
-    expect(previewed.ok).toBe(true)
-    await expect.poll(lastOffsetCommand).toEqual({ x: 30, y: -40 })
-    const duringPreview = await chat.evaluate(async () => {
-      const current = await window.companion.config.get()
-      const state = await window.companion.live2d.getState()
-      if (!current.ok || !state.ok) throw new Error('preview readback failed')
-      return {
-        configZoom: current.data.ui.live2d.zoom,
-        configOffsetY: current.data.ui.live2d.offsetY,
-        projectedZoom: state.data.window.zoom
-      }
-    })
-    expect(duringPreview).toEqual({
-      configZoom: savedFraming.zoom,
-      configOffsetY: savedFraming.offsetY,
-      projectedZoom: savedFraming.zoom
-    })
-
-    const previewEnded = await chat.evaluate(() =>
-      window.companion.live2d.previewFraming({ framing: null })
-    )
-    expect(previewEnded.ok).toBe(true)
-    await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: savedFraming.offsetY })
-
-    // 完成定义第 3 条的端到端证据：聊天说完一轮 → main 分类 → stage 收到 set-emotion。
-    // 这一环此前完全缺失（stage 侧全实现，但 main 从未发过这条命令），单测覆盖不了跨进程。
-    await chat.waitForSelector('textarea', { timeout: 30_000 })
-    await chat.fill('textarea', '今天顺利吗')
-    await chat.click('button:text("发送")')
-    await expect
-      .poll(
-        () => stage.evaluate(() => {
-          const host = window as typeof window & { __nacimeEmotionCommands?: string[] }
-          return host.__nacimeEmotionCommands?.at(-1) ?? null
-        }),
-        { timeout: 30_000 }
+      const previewEnded = await chat.evaluate(() =>
+        window.companion.live2d.previewFraming({ framing: null })
       )
-      // faux 回复固定为「你好！我是 Nacime，很高兴认识你。」——「高兴」是 happy 信号。
-      .toBe('happy')
+      expect(previewEnded.ok).toBe(true)
+      await expect.poll(lastOffsetCommand).toEqual({ x: 0, y: savedFraming.offsetY })
 
-    await expect
-      .poll(async () => {
-        const result = await chat.evaluate(() => window.companion.debug.getSnapshot())
-        return result.ok ? result.data.metrics['live2d.renderMemoryMb'] ?? 0 : 0
-      })
-      .toBeGreaterThan(0)
-    // 通过 main 的既有 metadata-only stage report 取证；不向 chat renderer 或 stage preload
-    // 新增调试接口，也不会暴露模型路径/对话内容。
-    await expect
-      .poll(
-        () => {
-          const fps = [...mainOutput.matchAll(/status=ready[^\r\n]*\bfps=(\d+)/g)]
-            .map((match) => Number(match[1]))
-            .filter(Number.isFinite)
-          return fps.at(-1) ?? 0
-        },
-        { timeout: 15_000 }
-      )
-      .toBeGreaterThanOrEqual(MIN_FPS)
-    const performanceSnapshot = await chat.evaluate(() => window.companion.debug.getSnapshot())
-    if (!performanceSnapshot.ok) throw new Error('Live2D performance metrics were unavailable')
-    const metrics = performanceSnapshot.data.metrics
-    expect(metrics['live2d.fps'] ?? 0).toBeGreaterThanOrEqual(MIN_FPS)
-    expect(metrics['live2d.fps'] ?? Infinity).toBeLessThanOrEqual(75)
-    // 内存与首帧对显卡不敏感（CI 上实测也在预算内），保持产品口径不放宽。
-    expect(metrics['live2d.renderMemoryMb'] ?? Infinity).toBeLessThanOrEqual(150)
-    expect(metrics['live2d.idleCpuPercent'] ?? Infinity).toBeLessThanOrEqual(MAX_IDLE_CPU)
-    expect(metrics['live2d.firstFrameMs.p95'] ?? Infinity).toBeLessThanOrEqual(3_000)
-    expect(stageRuntimeErrors).toEqual([])
-  } finally {
-    await shutdownApp(app)
-    cleanupTmpDir(tmpDir)
-  }
+      // 完成定义第 3 条的端到端证据：聊天说完一轮 → main 分类 → stage 收到 set-emotion。
+      // 这一环此前完全缺失（stage 侧全实现，但 main 从未发过这条命令），单测覆盖不了跨进程。
+      await chat.waitForSelector('textarea', { timeout: 30_000 })
+      await chat.fill('textarea', '今天顺利吗')
+      await chat.click('button:text("发送")')
+      await expect
+        .poll(
+          () =>
+            stage.evaluate(() => {
+              const host = window as typeof window & { __nacimeEmotionCommands?: string[] }
+              return host.__nacimeEmotionCommands?.at(-1) ?? null
+            }),
+          { timeout: 30_000 }
+        )
+        // faux 回复固定为「你好！我是 Nacime，很高兴认识你。」——「高兴」是 happy 信号。
+        .toBe('happy')
+
+      await expect
+        .poll(async () => {
+          const result = await chat.evaluate(() => window.companion.debug.getSnapshot())
+          return result.ok ? (result.data.metrics['live2d.renderMemoryMb'] ?? 0) : 0
+        })
+        .toBeGreaterThan(0)
+      // 通过 main 的既有 metadata-only stage report 取证；不向 chat renderer 或 stage preload
+      // 新增调试接口，也不会暴露模型路径/对话内容。
+      await expect
+        .poll(
+          () => {
+            const fps = [...mainOutput.matchAll(/status=ready[^\r\n]*\bfps=(\d+)/g)]
+              .map((match) => Number(match[1]))
+              .filter(Number.isFinite)
+            return fps.at(-1) ?? 0
+          },
+          { timeout: 15_000 }
+        )
+        .toBeGreaterThanOrEqual(MIN_FPS)
+      const performanceSnapshot = await chat.evaluate(() => window.companion.debug.getSnapshot())
+      if (!performanceSnapshot.ok) throw new Error('Live2D performance metrics were unavailable')
+      const metrics = performanceSnapshot.data.metrics
+      expect(metrics['live2d.fps'] ?? 0).toBeGreaterThanOrEqual(MIN_FPS)
+      expect(metrics['live2d.fps'] ?? Infinity).toBeLessThanOrEqual(75)
+      // 内存与首帧对显卡不敏感（CI 上实测也在预算内），保持产品口径不放宽。
+      expect(metrics['live2d.renderMemoryMb'] ?? Infinity).toBeLessThanOrEqual(150)
+      expect(metrics['live2d.idleCpuPercent'] ?? Infinity).toBeLessThanOrEqual(MAX_IDLE_CPU)
+      expect(metrics['live2d.firstFrameMs.p95'] ?? Infinity).toBeLessThanOrEqual(3_000)
+      expect(stageRuntimeErrors).toEqual([])
+    } finally {
+      await shutdownApp(app)
+      cleanupTmpDir(tmpDir)
+    }
   })
 }

@@ -4,3 +4,10 @@ pnpm-lock.yaml
 LICENSE.md
 tsconfig.json
 tsconfig.*.json
+
+# 第三方 vendored 资产：`npm run format` 绝不能碰。
+# resources/live2d/ 下是 Live2D Inc. 的官方 Cubism 运行时与示例模型，按其许可原样分发。
+# 实测（2026-08-29）不排除的后果：prettier 会把 `live2dcubismcore.min.js` 从 8 行
+# 反压缩成 14749 行、把 `Hiyori_m01.motion3.json` 从 1084 行重排成 235 行——
+# 既改动了受许可的第三方文件，也让日后跟上游对比变得不可能。
+resources/live2d
