@@ -9,11 +9,21 @@ import type { ComplianceGateOutcome } from './gate'
 
 function noopLogger(): Logger {
   const l: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => l
   }
   return l
@@ -82,7 +92,11 @@ describe('compliance circuit（跨轮熔断）', () => {
 
   it('冷却期满自动恢复：窗口清空、gauge 归 0、重新计数', () => {
     const metrics = createMetrics()
-    const circuit = createComplianceCircuit({ blockThreshold: 2, cooldownTurns: 3 }, noopLogger(), metrics)
+    const circuit = createComplianceCircuit(
+      { blockThreshold: 2, cooldownTurns: 3 },
+      noopLogger(),
+      metrics
+    )
     circuit.record(outcome(true))
     circuit.record(outcome(true))
     expect(circuit.isOpen()).toBe(true)

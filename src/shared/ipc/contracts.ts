@@ -28,7 +28,11 @@ import type {
 } from '../chat/types'
 import type { DebugSnapshot } from '../observability/types'
 import type { UpdateStatus } from '../update/types'
-import type { ChatFeedbackRequest, ChatFeedbackResponse, ComplianceSnapshot } from '../compliance/types'
+import type {
+  ChatFeedbackRequest,
+  ChatFeedbackResponse,
+  ComplianceSnapshot
+} from '../compliance/types'
 import type {
   Live2dStageBootstrap,
   Live2dStageReadyRequest,

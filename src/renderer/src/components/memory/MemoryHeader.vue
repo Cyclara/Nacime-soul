@@ -45,7 +45,14 @@ const { fillRateLabel } = storeToRefs(memoryStore)
       >
         <span>引擎</span>
       </button>
-      <button class="recycle-btn" aria-label="查看回收站" title="回收站" @click="router.push('/recycle-bin')">回收站</button>
+      <button
+        class="recycle-btn"
+        aria-label="查看回收站"
+        title="回收站"
+        @click="router.push('/recycle-bin')"
+      >
+        回收站
+      </button>
       <button class="growth-btn" aria-label="进入成长页" @click="router.push('/growth')">
         <span>成长</span>
         <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">

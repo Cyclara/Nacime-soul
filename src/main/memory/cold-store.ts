@@ -1,7 +1,16 @@
 // src/main/memory/cold-store.ts
 // P3G-05：冷存储先写后删。冷记录不含向量；文本可在未来找回时重新嵌入。
 
-import { appendFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, closeSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  closeSync
+} from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import { gzipSync, gunzipSync } from 'node:zlib'
 import type { ColdIndexEntry, ColdRecord } from '@shared/memory/gc-types'
@@ -22,7 +31,10 @@ function isWithin(root: string, candidate: string): boolean {
   return suffix !== '..' && !suffix.startsWith(`..${sep}`)
 }
 
-export function createColdStore(options: { readonly directory: string; readonly now?: () => number }): ColdStore {
+export function createColdStore(options: {
+  readonly directory: string
+  readonly now?: () => number
+}): ColdStore {
   const root = resolve(options.directory)
   const now = options.now ?? Date.now
   const indexPath = join(root, 'index.json')
@@ -66,7 +78,10 @@ export function createColdStore(options: { readonly directory: string; readonly 
         // gzip 支持拼接 member；逐批 append 保留已有记录，fsync 成功前绝不删热区。
         const handle = openSync(file, 'a')
         try {
-          appendFileSync(handle, gzipSync(`${records.map((record) => JSON.stringify(record)).join('\n')}\n`))
+          appendFileSync(
+            handle,
+            gzipSync(`${records.map((record) => JSON.stringify(record)).join('\n')}\n`)
+          )
           fsyncSync(handle)
         } finally {
           closeSync(handle)
@@ -93,7 +108,9 @@ export function createColdStore(options: { readonly directory: string; readonly 
     searchIndex(keywords) {
       const wanted = new Set(keywords.map((keyword) => keyword.toLowerCase()).filter(Boolean))
       if (wanted.size === 0) return []
-      return readIndex().filter((entry) => entry.keywords.some((keyword) => wanted.has(keyword.toLowerCase())))
+      return readIndex().filter((entry) =>
+        entry.keywords.some((keyword) => wanted.has(keyword.toLowerCase()))
+      )
     },
 
     read(id) {
@@ -118,11 +135,26 @@ export function createColdStore(options: { readonly directory: string; readonly 
 function isColdIndexEntry(value: unknown): value is ColdIndexEntry {
   if (typeof value !== 'object' || value === null) return false
   const entry = value as Partial<ColdIndexEntry>
-  return typeof entry.id === 'string' && typeof entry.year === 'number' && Array.isArray(entry.keywords) && typeof entry.type === 'string' && typeof entry.purgedAt === 'number'
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.year === 'number' &&
+    Array.isArray(entry.keywords) &&
+    typeof entry.type === 'string' &&
+    typeof entry.purgedAt === 'number'
+  )
 }
 
 function isColdRecord(value: unknown): value is ColdRecord {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Partial<ColdRecord>
-  return typeof record.id === 'string' && typeof record.content === 'string' && typeof record.type === 'string' && typeof record.importance === 'number' && typeof record.createdAt === 'number' && typeof record.purgedAt === 'number' && Array.isArray(record.evidenceIds) && Array.isArray(record.sourceMessageIds)
+  return (
+    typeof record.id === 'string' &&
+    typeof record.content === 'string' &&
+    typeof record.type === 'string' &&
+    typeof record.importance === 'number' &&
+    typeof record.createdAt === 'number' &&
+    typeof record.purgedAt === 'number' &&
+    Array.isArray(record.evidenceIds) &&
+    Array.isArray(record.sourceMessageIds)
+  )
 }

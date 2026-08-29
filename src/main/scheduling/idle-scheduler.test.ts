@@ -12,7 +12,10 @@ describe('P3G idle scheduler', () => {
       idleMinutes: 5,
       minIntervalHours: 20,
       now: () => now,
-      schedule: (callback) => { scheduled = callback; return 1 as never },
+      schedule: (callback) => {
+        scheduled = callback
+        return 1 as never
+      },
       cancel: () => {},
       run
     })
@@ -58,7 +61,10 @@ describe('P3G idle scheduler', () => {
       idleMinutes: 5,
       minIntervalHours: 20,
       now: () => 0,
-      schedule: (callback) => { scheduled = callback; return 1 as never },
+      schedule: (callback) => {
+        scheduled = callback
+        return 1 as never
+      },
       cancel: () => {},
       run
     })

@@ -352,7 +352,9 @@ export function createL2Store(opts: L2StoreOptions): L2Store {
     },
 
     touch(id) {
-      db.prepare(`UPDATE l2_memories SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?`).run(now(), id)
+      db.prepare(
+        `UPDATE l2_memories SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?`
+      ).run(now(), id)
     },
 
     on(_event, handler) {

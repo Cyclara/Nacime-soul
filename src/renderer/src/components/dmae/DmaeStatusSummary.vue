@@ -40,7 +40,8 @@ const narrative = computed(() => {
   if (total.value === 0) return '她还没有留下任何记忆。'
   // M-46：archived 措辞"一时想不起来"——DMAE 语义下任何命中都能经 Floor 复活，
   // "已经想不起来了"暗示永久遗忘，与实际机制（再聊起相关话题会重新想起）不符。
-  const injected = included === null || included === undefined ? '注入情况尚无记录' : `最终注入 ${included} 条`
+  const injected =
+    included === null || included === undefined ? '注入情况尚无记录' : `最终注入 ${included} 条`
   return `她现在清楚记得 ${a} 件事，${d} 件正在淡忘，${arch} 件一时想不起来。上一轮选中 ${selected} 条，${injected}（本轮共想起 ${retrieved} 条相关的）。`
 })
 </script>
@@ -101,12 +102,18 @@ const narrative = computed(() => {
       </span>
       <span class="sel-sep">·</span>
       <span class="sel-item">
-        <span class="sel-label" title="selectL2 选中的候选，尚未经过 PromptBudgeter 裁剪">上一轮选中</span>
-        <span class="sel-value">{{ selection.lastPromptSelectedCount }}/{{ selection.maxActive }}</span>
+        <span class="sel-label" title="selectL2 选中的候选，尚未经过 PromptBudgeter 裁剪"
+          >上一轮选中</span
+        >
+        <span class="sel-value"
+          >{{ selection.lastPromptSelectedCount }}/{{ selection.maxActive }}</span
+        >
       </span>
       <span class="sel-sep">·</span>
       <span class="sel-item">
-        <span class="sel-label" title="PromptBudgeter 预算裁剪后真正保留；旧历史没有此值">最终注入</span>
+        <span class="sel-label" title="PromptBudgeter 预算裁剪后真正保留；旧历史没有此值"
+          >最终注入</span
+        >
         <span class="sel-value">{{ selection.lastPromptIncludedCount ?? '未知' }}</span>
       </span>
       <span class="sel-sep">·</span>

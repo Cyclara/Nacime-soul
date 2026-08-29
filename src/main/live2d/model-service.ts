@@ -32,20 +32,23 @@ export function createModelLoadPlan(
   availableModelIds: readonly string[]
 ): ModelLoadPlan {
   const available = new Set(availableModelIds)
-  const first = selectedModelId !== null && available.has(selectedModelId)
-    ? selectedModelId
-    : available.has('mao')
-      ? 'mao'
-      : available.has('hiyori')
-        ? 'hiyori'
-        : null
+  const first =
+    selectedModelId !== null && available.has(selectedModelId)
+      ? selectedModelId
+      : available.has('mao')
+        ? 'mao'
+        : available.has('hiyori')
+          ? 'hiyori'
+          : null
   const attempts: ModelLoadAttempt[] = []
   if (first !== null) {
     attempts.push({ modelId: first, reason: 'selected' })
     attempts.push({ modelId: first, reason: 'retry-selected' })
   }
-  if (available.has('mao') && first !== 'mao') attempts.push({ modelId: 'mao', reason: 'fallback-mao' })
-  if (available.has('hiyori') && first !== 'hiyori') attempts.push({ modelId: 'hiyori', reason: 'fallback-hiyori' })
+  if (available.has('mao') && first !== 'mao')
+    attempts.push({ modelId: 'mao', reason: 'fallback-mao' })
+  if (available.has('hiyori') && first !== 'hiyori')
+    attempts.push({ modelId: 'hiyori', reason: 'fallback-hiyori' })
 
   return {
     attempts,
@@ -127,9 +130,14 @@ export function createLive2dModelService(options: {
             installedAt: now()
           })
         } catch (cause) {
-          const discovered = cause instanceof Error && 'loadError' in cause
-            ? (cause as { loadError: Live2dLoadError }).loadError
-            : { code: 'MODEL_JSON_INVALID' as const, retryable: false, suggestedAction: 'use-default' as const }
+          const discovered =
+            cause instanceof Error && 'loadError' in cause
+              ? (cause as { loadError: Live2dLoadError }).loadError
+              : {
+                  code: 'MODEL_JSON_INVALID' as const,
+                  retryable: false,
+                  suggestedAction: 'use-default' as const
+                }
           errors.push(discovered)
         }
       }
@@ -180,12 +188,21 @@ export function createLive2dModelService(options: {
 
     resolveAssetPath(modelId, requestPath) {
       const model = options.registry.get(modelId)
-      if (model === null || !isSafeResourcePath(requestPath) || !isAllowedLive2dResourceFile(requestPath)) {
+      if (
+        model === null ||
+        !isSafeResourcePath(requestPath) ||
+        !isAllowedLive2dResourceFile(requestPath)
+      ) {
         return null
       }
       const absolute = resolve(model.directory, requestPath)
       const suffix = relative(model.directory, absolute)
-      if (suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix) || !existsSync(absolute)) {
+      if (
+        suffix === '..' ||
+        suffix.startsWith(`..${sep}`) ||
+        isAbsolute(suffix) ||
+        !existsSync(absolute)
+      ) {
         return null
       }
       return absolute

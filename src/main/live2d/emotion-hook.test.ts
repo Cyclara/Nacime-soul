@@ -14,12 +14,24 @@ interface LoggedCall {
 
 function silentLogger(onDebug?: (msg: string, fields: unknown) => void): Logger {
   const logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug: (msg: string, fields: unknown) => { onDebug?.(msg, fields) },
-    child() { return logger }
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug: (msg: string, fields: unknown) => {
+      onDebug?.(msg, fields)
+    },
+    child() {
+      return logger
+    }
   }
   return logger as unknown as Logger
 }
@@ -33,7 +45,9 @@ function harness(options: { reply?: string | null; stageLive?: boolean } = {}): 
   const emitted: string[] = []
   const logged: LoggedCall[] = []
   let reads = 0
-  const logger = silentLogger((msg, fields) => { logged.push({ msg, fields }) })
+  const logger = silentLogger((msg, fields) => {
+    logged.push({ msg, fields })
+  })
   const sessionStore = {
     getTurnMessages: () => {
       reads++
@@ -53,14 +67,22 @@ function harness(options: { reply?: string | null; stageLive?: boolean } = {}): 
     hook,
     emitted,
     logged,
-    get reads() { return reads }
+    get reads() {
+      return reads
+    }
   }
 }
 
 function turn(overrides: Partial<TurnEndData> = {}): TurnEndData {
   return {
-    turnId: 't1', sessionId: 's1' as TurnEndData['sessionId'], requestId: 'r1' as TurnEndData['requestId'],
-    status: 'completed', inputLen: 4, outputLen: 12, memoryEligible: true, referencedMemoryIds: [],
+    turnId: 't1',
+    sessionId: 's1' as TurnEndData['sessionId'],
+    requestId: 'r1' as TurnEndData['requestId'],
+    status: 'completed',
+    inputLen: 4,
+    outputLen: 12,
+    memoryEligible: true,
+    referencedMemoryIds: [],
     ...overrides
   } as TurnEndData
 }
@@ -129,7 +151,9 @@ describe('Live2D 情绪 hook', () => {
       sessionStore: {
         getTurnMessages: () => ({ user: { content: 'x' }, assistant: { content: '太好了' } })
       } as unknown as SessionStore,
-      setEmotion: () => { throw new Error('stage gone') },
+      setEmotion: () => {
+        throw new Error('stage gone')
+      },
       isStageLive: () => true
     })
     expect(hook.failOpen).toBe(true)

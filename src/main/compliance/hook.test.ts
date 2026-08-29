@@ -12,27 +12,29 @@ import type { ComplianceDecisionRecord } from '@shared/compliance/types'
 import { createMemorySessionStore, type SessionStore } from '../chat/session-store'
 import type { TurnEndData } from '../chat/service'
 import type { ComplianceGateOutcome } from './gate'
-import {
-  createComplianceAuditHook,
-  buildRecentTurns,
-  type ComplianceAuditHookDeps
-} from './hook'
-import type {
-  ComplianceAuditor,
-  ComplianceAuditInput,
-  ComplianceAuditResult
-} from './auditor'
+import { createComplianceAuditHook, buildRecentTurns, type ComplianceAuditHookDeps } from './hook'
+import type { ComplianceAuditor, ComplianceAuditInput, ComplianceAuditResult } from './auditor'
 import type { ComplianceAuditTask } from './audit-queue'
 
 // === 测试辅助 ===
 
 function noopLogger(): Logger {
   const l: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => l
   }
   return l
@@ -118,7 +120,10 @@ function appendTurn(
   assistantStatus: ChatMessage['status'] = 'complete'
 ): void {
   store.appendMessage(sessionId, msg(sessionId, turnId, 'user', userText))
-  store.appendMessage(sessionId, msg(sessionId, turnId, 'assistant', assistantText, assistantStatus))
+  store.appendMessage(
+    sessionId,
+    msg(sessionId, turnId, 'assistant', assistantText, assistantStatus)
+  )
 }
 
 function turnEnd(overrides: Partial<TurnEndData> = {}): TurnEndData {
@@ -189,13 +194,25 @@ function makeHook(opts: {
   rng?: () => number
   onAuditResult?: (task: ComplianceAuditTask, result: ComplianceAuditResult) => void
   /** P3C1-08：writeSamples 桩（缺省 no-op 收集器；断言用返回的 calls） */
-  writeSamples?: (turnId: string, records: readonly ComplianceDecisionRecord[], occurredAt: number) => void
+  writeSamples?: (
+    turnId: string,
+    records: readonly ComplianceDecisionRecord[],
+    occurredAt: number
+  ) => void
   /** 裁定 1.8 总开关桩；缺省 true 保持原语义。 */
   shouldCollect?: () => boolean
 }): ReturnType<typeof createComplianceAuditHook> & {
-  sampleWrites: { turnId: string; records: readonly ComplianceDecisionRecord[]; occurredAt: number }[]
+  sampleWrites: {
+    turnId: string
+    records: readonly ComplianceDecisionRecord[]
+    occurredAt: number
+  }[]
 } {
-  const sampleWrites: { turnId: string; records: readonly ComplianceDecisionRecord[]; occurredAt: number }[] = []
+  const sampleWrites: {
+    turnId: string
+    records: readonly ComplianceDecisionRecord[]
+    occurredAt: number
+  }[] = []
   const deps: ComplianceAuditHookDeps = {
     logger: opts.logger ?? noopLogger(),
     sessionStore: opts.store,
@@ -558,9 +575,7 @@ describe('P3C1-06 audit hook：消费者', () => {
     const auditor: ComplianceAuditor = {
       audit: (_input, signal) =>
         new Promise<ComplianceAuditResult>((resolve) => {
-          signal.addEventListener('abort', () =>
-            resolve({ ...PASS_RESULT, unavailable: true })
-          )
+          signal.addEventListener('abort', () => resolve({ ...PASS_RESULT, unavailable: true }))
         })
     }
     const delivered: ComplianceAuditResult[] = []
@@ -637,15 +652,22 @@ describe('P3C1-08 audit hook：动态撤销', () => {
     expect(delivered).toHaveLength(0)
     expect(queue.isClosed()).toBe(false)
     // 可恢复性：clear/revoke 不 close queue（重新启用后可继续消费）。
-    expect(queue.enqueue({
-      turnId: 't-next',
-      sessionId: sid,
-      input: {
-        turnId: 't-next', sessionId: sid, personaSummary: '', recentTurns: [],
-        userText: 'u', candidateText: 'a', knownFactKeys: []
-      },
-      reason: 'sampled'
-    })).toBe(true)
+    expect(
+      queue.enqueue({
+        turnId: 't-next',
+        sessionId: sid,
+        input: {
+          turnId: 't-next',
+          sessionId: sid,
+          personaSummary: '',
+          recentTurns: [],
+          userText: 'u',
+          candidateText: 'a',
+          knownFactKeys: []
+        },
+        reason: 'sampled'
+      })
+    ).toBe(true)
     queue.clearPending()
     startConsumer()
   })
@@ -658,8 +680,22 @@ describe('P3C1-06 buildRecentTurns', () => {
 
   it('无 turnId / system 角色消息跳过', () => {
     const messages: ChatMessage[] = [
-      { id: 'm0', sessionId: sid, role: 'system', content: 'sys', createdAt: 1, status: 'complete' },
-      { id: 'm1', sessionId: sid, role: 'user', content: '无turn', createdAt: 2, status: 'complete' },
+      {
+        id: 'm0',
+        sessionId: sid,
+        role: 'system',
+        content: 'sys',
+        createdAt: 1,
+        status: 'complete'
+      },
+      {
+        id: 'm1',
+        sessionId: sid,
+        role: 'user',
+        content: '无turn',
+        createdAt: 2,
+        status: 'complete'
+      },
       msg(sid, 't-1', 'user', 'u1'),
       msg(sid, 't-1', 'assistant', 'a1')
     ]
@@ -713,7 +749,10 @@ describe('P3C1-08 audit hook：samples 批写', () => {
       auditor,
       config: { ...AUDIT_CONFIG, enabled: false }
     })
-    await hook.fn({ event: 'turn.end' }, turnEnd({ sessionId: sid, complianceRecords: [record(true)] }))
+    await hook.fn(
+      { event: 'turn.end' },
+      turnEnd({ sessionId: sid, complianceRecords: [record(true)] })
+    )
     // 硬门照旧：不送审
     expect(calls).toHaveLength(0)
     // 但 samples 先行落库
@@ -756,13 +795,17 @@ describe('P3C1-08 audit hook：samples 批写', () => {
         throw new Error('db full')
       }
     })
-    await hook.fn({ event: 'turn.end' }, turnEnd({ sessionId: sid, complianceRecords: [record(true)] }))
+    await hook.fn(
+      { event: 'turn.end' },
+      turnEnd({ sessionId: sid, complianceRecords: [record(true)] })
+    )
     await flush()
     expect(calls).toHaveLength(1)
-    expect(logs.some((c) => c.level === 'warn' && c.msg.includes('samples write failed'))).toBe(true)
+    expect(logs.some((c) => c.level === 'warn' && c.msg.includes('samples write failed'))).toBe(
+      true
+    )
   })
 })
-
 
 // === P3C1-08：裁定 1.8 总开关（enabled=false / scope='off' 时整个管线关闭） ===
 
@@ -812,6 +855,8 @@ describe('P3C1-08 audit hook：总开关 kill switch', () => {
     expect(sampleWrites).toHaveLength(0)
     expect(reads.getTurnMessages).toBe(0)
     expect(calls).toHaveLength(0)
-    expect(logs.some((c) => c.level === 'warn' && c.msg.includes('collection gate unavailable'))).toBe(true)
+    expect(
+      logs.some((c) => c.level === 'warn' && c.msg.includes('collection gate unavailable'))
+    ).toBe(true)
   })
 })

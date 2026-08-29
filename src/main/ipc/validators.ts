@@ -29,10 +29,7 @@ import type {
   ChatSendRequest
 } from '@shared/chat/types'
 import type { ChatFeedbackRequest } from '@shared/compliance/types'
-import type {
-  Live2dStageReadyRequest,
-  Live2dStageReport
-} from '@shared/live2d/stage-types'
+import type { Live2dStageReadyRequest, Live2dStageReport } from '@shared/live2d/stage-types'
 import type { Live2dFramingPreviewRequest } from '@shared/live2d/public-types'
 import type {
   ConfigResetRequest,
@@ -220,10 +217,13 @@ function isLive2dStageReadyRequest(value: unknown): value is Live2dStageReadyReq
 
 function isLive2dStageReport(value: unknown): value is Live2dStageReport {
   if (!isPlainObject(value)) return false
-  if (!hasOnlyKeys(value, ['stageInstanceId', 'status', 'fps', 'modelLoadMs', 'errorCode'])) return false
+  if (!hasOnlyKeys(value, ['stageInstanceId', 'status', 'fps', 'modelLoadMs', 'errorCode']))
+    return false
   if (!isStageInstanceId(value.stageInstanceId)) return false
-  if (!['starting', 'loading-model', 'ready', 'degraded', 'error'].includes(String(value.status))) return false
-  if ('fps' in value && value.fps !== undefined && !isNumber(value.fps, { min: 0, max: 240 })) return false
+  if (!['starting', 'loading-model', 'ready', 'degraded', 'error'].includes(String(value.status)))
+    return false
+  if ('fps' in value && value.fps !== undefined && !isNumber(value.fps, { min: 0, max: 240 }))
+    return false
   if (
     'modelLoadMs' in value &&
     value.modelLoadMs !== undefined &&
@@ -231,7 +231,11 @@ function isLive2dStageReport(value: unknown): value is Live2dStageReport {
   ) {
     return false
   }
-  if ('errorCode' in value && value.errorCode !== undefined && !isString(value.errorCode, { minLen: 1, maxLen: 64 })) {
+  if (
+    'errorCode' in value &&
+    value.errorCode !== undefined &&
+    !isString(value.errorCode, { minLen: 1, maxLen: 64 })
+  ) {
     return false
   }
   return true
@@ -451,31 +455,71 @@ function isPartialDmaeConfig(value: unknown): boolean {
 
 function isPartialGcPolicy(value: unknown): boolean {
   if (!isPlainObject(value)) return false
-  if (!hasOnlyKeys(value, ['archiveToSoftDeleteDays', 'softDeleteToPurgeDays', 'recentAccessGraceDays', 'anchorImportanceMin', 'maxPurgePerRun', 'schedule', 'monthlyDigest', 'coldStorage'])) return false
+  if (
+    !hasOnlyKeys(value, [
+      'archiveToSoftDeleteDays',
+      'softDeleteToPurgeDays',
+      'recentAccessGraceDays',
+      'anchorImportanceMin',
+      'maxPurgePerRun',
+      'schedule',
+      'monthlyDigest',
+      'coldStorage'
+    ])
+  )
+    return false
   if ('archiveToSoftDeleteDays' in value && value.archiveToSoftDeleteDays !== undefined) {
     const tiers = value.archiveToSoftDeleteDays
-    if (!isPlainObject(tiers) || !hasOnlyKeys(tiers, ['one_off', 'situational', 'stable'])) return false
-    if ('one_off' in tiers && !isNumber(tiers.one_off, { min: 7, max: 365, integer: true })) return false
-    if ('situational' in tiers && !isNumber(tiers.situational, { min: 14, max: 730, integer: true })) return false
+    if (!isPlainObject(tiers) || !hasOnlyKeys(tiers, ['one_off', 'situational', 'stable']))
+      return false
+    if ('one_off' in tiers && !isNumber(tiers.one_off, { min: 7, max: 365, integer: true }))
+      return false
+    if (
+      'situational' in tiers &&
+      !isNumber(tiers.situational, { min: 14, max: 730, integer: true })
+    )
+      return false
     if ('stable' in tiers && tiers.stable !== null) return false
   }
-  if ('softDeleteToPurgeDays' in value && !isNumber(value.softDeleteToPurgeDays, { min: 7, max: 365, integer: true })) return false
-  if ('recentAccessGraceDays' in value && !isNumber(value.recentAccessGraceDays, { min: 7, max: 365, integer: true })) return false
-  if ('anchorImportanceMin' in value && !isNumber(value.anchorImportanceMin, { min: 1, max: 10, integer: true })) return false
-  if ('maxPurgePerRun' in value && !isNumber(value.maxPurgePerRun, { min: 1, max: 500, integer: true })) return false
+  if (
+    'softDeleteToPurgeDays' in value &&
+    !isNumber(value.softDeleteToPurgeDays, { min: 7, max: 365, integer: true })
+  )
+    return false
+  if (
+    'recentAccessGraceDays' in value &&
+    !isNumber(value.recentAccessGraceDays, { min: 7, max: 365, integer: true })
+  )
+    return false
+  if (
+    'anchorImportanceMin' in value &&
+    !isNumber(value.anchorImportanceMin, { min: 1, max: 10, integer: true })
+  )
+    return false
+  if (
+    'maxPurgePerRun' in value &&
+    !isNumber(value.maxPurgePerRun, { min: 1, max: 500, integer: true })
+  )
+    return false
   if ('monthlyDigest' in value && !isBoolean(value.monthlyDigest)) return false
   if ('schedule' in value && value.schedule !== undefined) {
-    if (!validatePartialFields(value.schedule, {
-      idleMinutes: (v) => isNumber(v, { min: 1, max: 60, integer: true }),
-      minIntervalHours: (v) => isNumber(v, { min: 1, max: 168, integer: true }),
-      eagerCountThreshold: (v) => isNumber(v, { min: 100, max: 100_000, integer: true })
-    })) return false
+    if (
+      !validatePartialFields(value.schedule, {
+        idleMinutes: (v) => isNumber(v, { min: 1, max: 60, integer: true }),
+        minIntervalHours: (v) => isNumber(v, { min: 1, max: 168, integer: true }),
+        eagerCountThreshold: (v) => isNumber(v, { min: 100, max: 100_000, integer: true })
+      })
+    )
+      return false
   }
   if ('coldStorage' in value && value.coldStorage !== undefined) {
-    if (!validatePartialFields(value.coldStorage, {
-      enabled: (v) => isBoolean(v),
-      dir: (v) => v === 'data/cold'
-    })) return false
+    if (
+      !validatePartialFields(value.coldStorage, {
+        enabled: (v) => isBoolean(v),
+        dir: (v) => v === 'data/cold'
+      })
+    )
+      return false
   }
   return true
 }
@@ -544,7 +588,11 @@ function isPartialLive2dConfig(value: unknown): boolean {
 function isPartialOnboardingConfig(value: unknown): boolean {
   return validatePartialFields(value, {
     version: (v) => v === 1,
-    stage: (v) => v === 'provider-setup' || v === 'connection-test' || v === 'first-conversation' || v === 'complete',
+    stage: (v) =>
+      v === 'provider-setup' ||
+      v === 'connection-test' ||
+      v === 'first-conversation' ||
+      v === 'complete',
     completedAt: (v) => isNumber(v, { min: 0, integer: true }),
     voiceSendMode: (v) => v === 'draft' || v === 'send'
   })
@@ -636,10 +684,7 @@ function isPartialSecurityConfig(value: unknown): boolean {
 /** ComplianceGateScope 四值（与 shared/compliance/types.ts 单真源一致） */
 function isComplianceGateScope(value: unknown): boolean {
   return (
-    value === 'first-segment' ||
-    value === 'all-segments' ||
-    value === 'observe' ||
-    value === 'off'
+    value === 'first-segment' || value === 'all-segments' || value === 'observe' || value === 'off'
   )
 }
 
@@ -786,7 +831,10 @@ function isMemoryRestoreRequest(value: unknown): value is MemoryRestoreRequest {
 
 function isRecycleBinListRequest(value: unknown): value is RecycleBinListRequest {
   if (!isPlainObject(value) || !hasOnlyKeys(value, ['limit', 'offset'])) return false
-  return isNumber(value.limit, { min: 1, max: 200, integer: true }) && isNumber(value.offset, { min: 0, max: 100_000, integer: true })
+  return (
+    isNumber(value.limit, { min: 1, max: 200, integer: true }) &&
+    isNumber(value.offset, { min: 0, max: 100_000, integer: true })
+  )
 }
 
 function isRecycleBinRestoreRequest(value: unknown): value is RecycleBinRestoreRequest {
@@ -844,14 +892,24 @@ function isGrowthTrendRequest(value: unknown): value is GrowthTrendRequest {
 
 function isDmaePanelRequest(value: unknown): value is DmaePanelRequest | undefined {
   if (value === undefined) return true
-  if (!isPlainObject(value) || !hasOnlyKeys(value, ['eligibleCursor', 'eligibleLimit'])) return false
-  if ('eligibleLimit' in value && value.eligibleLimit !== undefined && !isNumber(value.eligibleLimit, { min: 1, max: 200, integer: true })) {
+  if (!isPlainObject(value) || !hasOnlyKeys(value, ['eligibleCursor', 'eligibleLimit']))
+    return false
+  if (
+    'eligibleLimit' in value &&
+    value.eligibleLimit !== undefined &&
+    !isNumber(value.eligibleLimit, { min: 1, max: 200, integer: true })
+  ) {
     return false
   }
   if ('eligibleCursor' in value && value.eligibleCursor !== undefined) {
     const cursor = value.eligibleCursor
-    if (!isPlainObject(cursor) || !hasOnlyKeys(cursor, ['turn', 'activation', 'memoryId'])) return false
-    if (!isNumber(cursor.turn, { min: 0, integer: true }) || !isNumber(cursor.activation, { min: 0, max: 100 })) return false
+    if (!isPlainObject(cursor) || !hasOnlyKeys(cursor, ['turn', 'activation', 'memoryId']))
+      return false
+    if (
+      !isNumber(cursor.turn, { min: 0, integer: true }) ||
+      !isNumber(cursor.activation, { min: 0, max: 100 })
+    )
+      return false
     if (!isMemoryId(cursor.memoryId)) return false
   }
   return true

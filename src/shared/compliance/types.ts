@@ -175,7 +175,6 @@ export interface ChatFeedbackResponse {
   readonly ok: true
 }
 
-
 /**
  * IPC: 'companion:compliance:get-snapshot' 响应（F5-001 §3.10，P3C1-08 落地）。
  * 调试面板快照。**只含聚合量，不含任何正文**——模型生成的 rationale 即使声称不摘抄

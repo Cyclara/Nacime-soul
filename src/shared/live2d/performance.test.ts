@@ -5,12 +5,37 @@ import { evaluateLive2dPerformance, failedLive2dPerformanceChecks } from './perf
 
 describe('P3A-28 Live2D performance budget', () => {
   it('达到 fps/内存/首帧/CPU 预算才通过', () => {
-    expect(evaluateLive2dPerformance({ fps: 60, idleCpuPercent: 2, renderMemoryMb: 120, firstFrameMs: 1_200, visible: true, modelsLoadedThisSession: 1 }).ok).toBe(true)
-    expect(evaluateLive2dPerformance({ fps: 20, idleCpuPercent: 2, renderMemoryMb: 120, firstFrameMs: 1_200, visible: true, modelsLoadedThisSession: 1 }).ok).toBe(false)
+    expect(
+      evaluateLive2dPerformance({
+        fps: 60,
+        idleCpuPercent: 2,
+        renderMemoryMb: 120,
+        firstFrameMs: 1_200,
+        visible: true,
+        modelsLoadedThisSession: 1
+      }).ok
+    ).toBe(true)
+    expect(
+      evaluateLive2dPerformance({
+        fps: 20,
+        idleCpuPercent: 2,
+        renderMemoryMb: 120,
+        firstFrameMs: 1_200,
+        visible: true,
+        modelsLoadedThisSession: 1
+      }).ok
+    ).toBe(false)
   })
 
   it('未测量指标显式为 null，不伪造 0；隐藏窗口不以低 fps 判失败', () => {
-    const result = evaluateLive2dPerformance({ fps: 0, idleCpuPercent: null, renderMemoryMb: null, firstFrameMs: null, visible: false, modelsLoadedThisSession: 1 })
+    const result = evaluateLive2dPerformance({
+      fps: 0,
+      idleCpuPercent: null,
+      renderMemoryMb: null,
+      firstFrameMs: null,
+      visible: false,
+      modelsLoadedThisSession: 1
+    })
     expect(result.checks).toEqual({ fps: null, memory: null, firstFrame: null, idleCpu: null })
     expect(result.ok).toBe(false)
   })
@@ -24,7 +49,12 @@ describe('P3A-28 Live2D performance budget', () => {
       visible: true,
       modelsLoadedThisSession: 1
     })
-    expect(failedLive2dPerformanceChecks(breached)).toEqual(['fps', 'memory', 'firstFrame', 'idleCpu'])
+    expect(failedLive2dPerformanceChecks(breached)).toEqual([
+      'fps',
+      'memory',
+      'firstFrame',
+      'idleCpu'
+    ])
 
     const hidden = evaluateLive2dPerformance({
       fps: 0,

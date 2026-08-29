@@ -99,10 +99,7 @@ export interface MemoryConfig {
 // === UI ===
 
 export type OnboardingStage =
-  | 'provider-setup'
-  | 'connection-test'
-  | 'first-conversation'
-  | 'complete'
+  'provider-setup' | 'connection-test' | 'first-conversation' | 'complete'
 
 export interface OnboardingConfigV1 {
   /** 引导内容版本；后续文案升级据此决定是否提示，不重跑首次见面。 */

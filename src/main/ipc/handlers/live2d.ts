@@ -65,7 +65,10 @@ export function registerLive2dHandlers(deps: Live2dHandlerDeps): void {
         retryable: true
       })
     }
-    const selected = deps.setSelectedModel === undefined ? deps.service.select(input.modelId) : await deps.setSelectedModel(input.modelId)
+    const selected =
+      deps.setSelectedModel === undefined
+        ? deps.service.select(input.modelId)
+        : await deps.setSelectedModel(input.modelId)
     if (!selected) {
       throw new AppError({
         code: 'L2D_MODEL_LOAD',
@@ -92,7 +95,13 @@ export function registerLive2dHandlers(deps: Live2dHandlerDeps): void {
   registerValidatedHandler('companion:live2d:set-visible', async (_ctx, input) => {
     if (deps.setEnabled !== undefined) {
       const saved = await deps.setEnabled(input.visible)
-      if (!saved) throw new AppError({ code: 'L2D_MODEL_LOAD', userMessage: '角色窗口设置没有保存', severity: 'error', retryable: true })
+      if (!saved)
+        throw new AppError({
+          code: 'L2D_MODEL_LOAD',
+          userMessage: '角色窗口设置没有保存',
+          severity: 'error',
+          retryable: true
+        })
     }
     if (input.visible) deps.manager.show({ alwaysOnTop: deps.getAlwaysOnTop?.() ?? true })
     else deps.manager.destroy()

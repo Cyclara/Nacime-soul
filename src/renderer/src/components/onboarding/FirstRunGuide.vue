@@ -17,7 +17,9 @@ const { state } = storeToRefs(configStore)
 
 type Step = 'form' | 'testing' | 'first-conversation'
 
-const step = ref<Step>(state.value.draft?.ui.onboarding.stage === 'first-conversation' ? 'first-conversation' : 'form')
+const step = ref<Step>(
+  state.value.draft?.ui.onboarding.stage === 'first-conversation' ? 'first-conversation' : 'form'
+)
 const errorMessage = ref<string | null>(null)
 
 const hasApiKey = computed(() => state.value.draft?.model.hasApiKey ?? false)
@@ -90,7 +92,9 @@ async function onTestAndSave(): Promise<void> {
         errorMessage.value = '配置状态已过期，请重新保存后再试'
         return
       }
-      configStore.patch('ui', { onboarding: { ...state.value.draft.ui.onboarding, stage: 'first-conversation' } })
+      configStore.patch('ui', {
+        onboarding: { ...state.value.draft.ui.onboarding, stage: 'first-conversation' }
+      })
       const progressSaved = await configStore.save()
       if (!progressSaved) {
         step.value = 'form'

@@ -18,7 +18,9 @@ class FakeStageWindow {
     this.contents = {
       id,
       isDestroyed: () => this.destroyed,
-      send() { /* noop */ }
+      send() {
+        /* noop */
+      }
     } as unknown as WebContents
   }
 
@@ -102,7 +104,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       },
       onStageCreated: (id) => created.push(id),
       onStageDestroyed: (id) => destroyed.push(id),
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1,
@@ -110,7 +119,12 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       sendStageCommand: () => {}
     })
 
-    expect(manager.show()).toMatchObject({ status: 'starting', webContentsId: 10, loadedModelId: null, visible: false })
+    expect(manager.show()).toMatchObject({
+      status: 'starting',
+      webContentsId: 10,
+      loadedModelId: null,
+      visible: false
+    })
     expect(manager.show()).toMatchObject({ webContentsId: 10 })
     expect(created).toEqual([10, 10]) // factory once + capability once
 
@@ -128,16 +142,31 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     const reports: Array<{ senderId: number; fps?: number; modelLoadMs?: number }> = []
     const manager = new Live2dWindowManager({
       createWindow: () => window as unknown as BrowserWindow,
-      onStageCreated: () => {}, onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
-      getStageModelUrl: () => null, getCubismCoreUrl: () => null,
+      onStageCreated: () => {},
+      onStageDestroyed: () => {},
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
+      getStageModelUrl: () => null,
+      getCubismCoreUrl: () => null,
       getZoom: () => 1,
       getOffset: () => ({ x: 0, y: 0 }),
-      onPerformanceReport: (sender, report) => reports.push({ senderId: sender.id, fps: report.fps, modelLoadMs: report.modelLoadMs })
+      onPerformanceReport: (sender, report) =>
+        reports.push({ senderId: sender.id, fps: report.fps, modelLoadMs: report.modelLoadMs })
     })
     manager.show()
     manager.acceptStageReady(window.webContents, { stageInstanceId: 'stage-metrics' })
-    manager.acceptStageReport(window.webContents, { stageInstanceId: 'stage-metrics', status: 'ready', fps: 60, modelLoadMs: 120 })
+    manager.acceptStageReport(window.webContents, {
+      stageInstanceId: 'stage-metrics',
+      status: 'ready',
+      fps: 60,
+      modelLoadMs: 120
+    })
     expect(reports).toEqual([{ senderId: 19, fps: 60, modelLoadMs: 120 }])
   })
 
@@ -148,7 +177,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => window as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1.75,
@@ -158,7 +194,9 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     })
 
     manager.show()
-    const bootstrap = manager.acceptStageReady(window.webContents, { stageInstanceId: 'stage-placement' })
+    const bootstrap = manager.acceptStageReady(window.webContents, {
+      stageInstanceId: 'stage-placement'
+    })
     expect(bootstrap.zoom).toBe(1.75)
     manager.setZoom(9)
     expect(commands).toEqual([{ type: 'set-zoom', zoom: 3 }])
@@ -174,13 +212,22 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => window as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1,
       getOffset: () => ({ x: 0, y: 0 }),
       sendStageCommand: (_wc, command) => commands.push(command),
-      onStateChange: () => { stateChanges++ }
+      onStateChange: () => {
+        stateChanges++
+      }
     })
 
     // 窗口未开：不发命令也不报错（hook 每轮都会调，绝不能因此抛进 turn.end）。
@@ -208,7 +255,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => window as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: (id) => destroyed.push(id),
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1,
@@ -222,7 +276,11 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     expect(() => window.destroy()).not.toThrow()
     expect(destroyed).toEqual([31])
     // 快照仍可安全读取，且不再声称持有 webContents。
-    expect(manager.getSnapshot()).toMatchObject({ status: 'closed', visible: false, webContentsId: null })
+    expect(manager.getSnapshot()).toMatchObject({
+      status: 'closed',
+      visible: false,
+      webContentsId: null
+    })
   })
 
   it('取景预览只推 stage 命令；预览期间 config 变更不抢画面，结束时按落盘构图归位', () => {
@@ -233,7 +291,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => window as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => saved.zoom,
@@ -279,7 +344,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => windows.shift() as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1,
@@ -308,7 +380,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => windows.shift() as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1,
@@ -319,10 +398,16 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     })
 
     manager.show()
-    expect(manager.acceptStageReady(first.webContents, { stageInstanceId: 'stage-a' })).toMatchObject({
+    expect(
+      manager.acceptStageReady(first.webContents, { stageInstanceId: 'stage-a' })
+    ).toMatchObject({
       status: 'loading-model'
     })
-    manager.acceptStageReport(first.webContents, { stageInstanceId: 'stage-a', status: 'ready', fps: 60 })
+    manager.acceptStageReport(first.webContents, {
+      stageInstanceId: 'stage-a',
+      status: 'ready',
+      fps: 60
+    })
     expect(manager.getSnapshot()).toMatchObject({ status: 'ready', visible: true })
     manager.sendStageCommand({ type: 'pause' })
     expect(commands).toEqual([{ type: 'resume' }, { type: 'pause' }])
@@ -346,7 +431,9 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     expect(() =>
       manager.acceptStageReport(staleSender, { stageInstanceId: 'stage-a', status: 'ready' })
     ).toThrow('状态已过期')
-    expect(() => manager.acceptStageReady(second.webContents, { stageInstanceId: 'stage-b' })).not.toThrow()
+    expect(() =>
+      manager.acceptStageReady(second.webContents, { stageInstanceId: 'stage-b' })
+    ).not.toThrow()
   })
 
   it('模型失败按 selected → retry → Mao → Hiyori 推进，耗尽后保持 error 而不无限循环', () => {
@@ -363,7 +450,11 @@ describe('P3A-04/05 Live2dWindowManager', () => {
           { modelId: 'mao', reason: 'fallback-mao' },
           { modelId: 'hiyori', reason: 'fallback-hiyori' }
         ],
-        exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' }
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
       }),
       getStageModelUrl: (id) => `nacime-live2d://model/${id}/model.model3.json`,
       // 真机复现的关键：首选模型没有任何 expression，降级目标才有。
@@ -375,7 +466,9 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     })
 
     manager.show()
-    expect(manager.acceptStageReady(window.webContents, { stageInstanceId: 'stage-fallback' })).toMatchObject({
+    expect(
+      manager.acceptStageReady(window.webContents, { stageInstanceId: 'stage-fallback' })
+    ).toMatchObject({
       initialModelUrl: 'nacime-live2d://model/user/model.model3.json',
       expressionNames: []
     })
@@ -389,9 +482,21 @@ describe('P3A-04/05 Live2dWindowManager', () => {
     // 每条 load-model 都必须带**该模型自己的** expression 名单：bootstrap 那份属于首次尝试，
     // 降级后就过期了。2026-08-29 真机实测正是因此表情静默失效（首选损坏 → 降级 Mao → 名单仍为空）。
     expect(commands).toEqual([
-      { type: 'load-model', modelUrl: 'nacime-live2d://model/user/model.model3.json', expressionNames: [] },
-      { type: 'load-model', modelUrl: 'nacime-live2d://model/mao/model.model3.json', expressionNames: ['mao_exp_01', 'mao_exp_02'] },
-      { type: 'load-model', modelUrl: 'nacime-live2d://model/hiyori/model.model3.json', expressionNames: ['hiyori_exp_01', 'hiyori_exp_02'] }
+      {
+        type: 'load-model',
+        modelUrl: 'nacime-live2d://model/user/model.model3.json',
+        expressionNames: []
+      },
+      {
+        type: 'load-model',
+        modelUrl: 'nacime-live2d://model/mao/model.model3.json',
+        expressionNames: ['mao_exp_01', 'mao_exp_02']
+      },
+      {
+        type: 'load-model',
+        modelUrl: 'nacime-live2d://model/hiyori/model.model3.json',
+        expressionNames: ['hiyori_exp_01', 'hiyori_exp_02']
+      }
     ])
     expect(manager.getSnapshot().status).toBe('error')
   })
@@ -402,7 +507,14 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       createWindow: () => window as unknown as BrowserWindow,
       onStageCreated: () => {},
       onStageDestroyed: () => {},
-      getModelLoadPlan: () => ({ attempts: [], exhaustedError: { code: 'FILE_NOT_FOUND', retryable: false, suggestedAction: 'choose-model' } }),
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
       getStageModelUrl: () => null,
       getCubismCoreUrl: () => null,
       getZoom: () => 1,

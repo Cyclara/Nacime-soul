@@ -50,7 +50,9 @@ function isSafeRelativeDirectory(value: string): boolean {
   if (value.length === 0) return false
   const resolved = resolve('/', value)
   const suffix = relative('/', resolved)
-  return suffix === value.replaceAll('\\', '/') && !value.startsWith('..') && !value.includes(`..${sep}`)
+  return (
+    suffix === value.replaceAll('\\', '/') && !value.startsWith('..') && !value.includes(`..${sep}`)
+  )
 }
 
 function isValidRecord(value: unknown): value is RegistryRecord {
@@ -69,9 +71,14 @@ function readRegistry(path: string): RegistryFile {
   if (!existsSync(path)) return { schemaVersion: 1, selectedModelId: null, models: [] }
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('not object')
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+      throw new Error('not object')
     const file = parsed as Partial<RegistryFile>
-    if (file.schemaVersion !== 1 || !Array.isArray(file.models) || !file.models.every(isValidRecord)) {
+    if (
+      file.schemaVersion !== 1 ||
+      !Array.isArray(file.models) ||
+      !file.models.every(isValidRecord)
+    ) {
       throw new Error('invalid registry')
     }
     return {
@@ -131,8 +138,11 @@ export function createLive2dModelRegistry(options: {
       return true
     },
     register(input) {
-      const relativeDirectory = relative(rootFor(input.manifest.source), resolve(input.directory)).split(sep).join('/')
-      if (!isSafeRelativeDirectory(relativeDirectory)) throw new Error('model directory escapes registry root')
+      const relativeDirectory = relative(rootFor(input.manifest.source), resolve(input.directory))
+        .split(sep)
+        .join('/')
+      if (!isSafeRelativeDirectory(relativeDirectory))
+        throw new Error('model directory escapes registry root')
       const record: RegistryRecord = {
         id: input.id,
         directory: relativeDirectory,

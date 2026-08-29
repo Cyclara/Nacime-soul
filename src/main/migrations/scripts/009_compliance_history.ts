@@ -109,7 +109,10 @@ export const migration: Migration = {
 
     const samples = columnsOf('compliance_samples')
     if (samples.length !== SAMPLES_COLUMNS) {
-      return { ok: false, detail: `compliance_samples columns ${samples.length} != ${SAMPLES_COLUMNS}` }
+      return {
+        ok: false,
+        detail: `compliance_samples columns ${samples.length} != ${SAMPLES_COLUMNS}`
+      }
     }
     // 红线守卫：永远不得有 content 列（F5-001 §3.11 + 台账 §5）
     if (samples.includes('content')) {
@@ -136,7 +139,10 @@ export const migration: Migration = {
     }
     // 裁定 1.7 #3：单槽列已废除，不得复活
     if (turns.includes('user_feedback')) {
-      return { ok: false, detail: 'compliance_turns must NOT resurrect user_feedback (adjudication 1.7)' }
+      return {
+        ok: false,
+        detail: 'compliance_turns must NOT resurrect user_feedback (adjudication 1.7)'
+      }
     }
     for (const col of [
       'provider_first_delta_ms',
@@ -151,13 +157,21 @@ export const migration: Migration = {
 
     const feedback = columnsOf('compliance_feedback')
     if (feedback.length !== FEEDBACK_COLUMNS) {
-      return { ok: false, detail: `compliance_feedback columns ${feedback.length} != ${FEEDBACK_COLUMNS}` }
+      return {
+        ok: false,
+        detail: `compliance_feedback columns ${feedback.length} != ${FEEDBACK_COLUMNS}`
+      }
     }
     // UNIQUE(message_id, kind) 幂等约束（裁定 1.7 #3）：查建表 SQL
     const feedbackSql = db
-      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'compliance_feedback'`)
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'compliance_feedback'`
+      )
       .get() as { sql: string } | undefined
-    if (feedbackSql === undefined || !/UNIQUE\s*\(\s*message_id\s*,\s*kind\s*\)/i.test(feedbackSql.sql)) {
+    if (
+      feedbackSql === undefined ||
+      !/UNIQUE\s*\(\s*message_id\s*,\s*kind\s*\)/i.test(feedbackSql.sql)
+    ) {
       return { ok: false, detail: 'compliance_feedback missing UNIQUE(message_id, kind)' }
     }
 

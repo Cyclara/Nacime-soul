@@ -136,7 +136,8 @@ export class PixiLive2DRenderer implements ILive2DRenderer {
     this.now = options.now ?? defaultNow
     this.motionPipeline = createMotionPipeline()
     this.onTickerFrame = (deltaMs) => this.renderFrame(deltaMs)
-    this.onModelFrame = (frame, nativeMotionUpdate) => this.runFramePlugins(frame, nativeMotionUpdate)
+    this.onModelFrame = (frame, nativeMotionUpdate) =>
+      this.runFramePlugins(frame, nativeMotionUpdate)
     this.onContextLost = (event) => {
       event.preventDefault()
       this.contextLost = true
@@ -321,7 +322,8 @@ export class PixiLive2DRenderer implements ILive2DRenderer {
   }
 
   hitTest(x: number, y: number): readonly string[] {
-    if (this.model === null || this.disposed || !Number.isFinite(x) || !Number.isFinite(y)) return []
+    if (this.model === null || this.disposed || !Number.isFinite(x) || !Number.isFinite(y))
+      return []
     return this.model.hitTest(x, y)
   }
 
@@ -526,7 +528,8 @@ export function createPixiLive2DAdapter(canvas: HTMLCanvasElement): PixiLive2DAd
       // 同时保持生产 stage 的浏览器运行时加载。autoUpdate:false 防止它挂到 shared ticker。
       // 内置 Mao/Hiyori 均为 .model3.json，只加载 Cubism 4 entry；stage 不注册无关的
       // Cubism 2 middleware，避免把两种模型生命周期混在同一 renderer bundle。
-      const { Live2DModel, MotionPreloadStrategy } = await import('pixi-live2d-display-lipsyncpatch/cubism4')
+      const { Live2DModel, MotionPreloadStrategy } =
+        await import('pixi-live2d-display-lipsyncpatch/cubism4')
       const model = await Live2DModel.from(manifestUrl, {
         autoUpdate: false,
         ticker: app.ticker,
@@ -735,19 +738,31 @@ function getCoreModel(model: Live2DModel): unknown {
   return model.internalModel?.coreModel
 }
 
-function resizeModelToFit(model: Live2DModel, width: number, height: number, layout: Live2DViewLayout): void {
+function resizeModelToFit(
+  model: Live2DModel,
+  width: number,
+  height: number,
+  layout: Live2DViewLayout
+): void {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
   // model.width/height are scale-aware. Measure from a normalized transform so successive resize
   // events do not compound scale and eventually move the model out of the stage.
   model.scale.set(1)
   const modelWidth = model.width
   const modelHeight = model.height
-  if (!Number.isFinite(modelWidth) || !Number.isFinite(modelHeight) || modelWidth <= 0 || modelHeight <= 0) return
+  if (
+    !Number.isFinite(modelWidth) ||
+    !Number.isFinite(modelHeight) ||
+    modelWidth <= 0 ||
+    modelHeight <= 0
+  )
+    return
 
   // AIRI's desktop stage deliberately normalizes scale=1 to roughly twice the viewport height and
   // places the model at the bottom center. A full-canvas "contain" fit makes official sample models
   // appear as a tiny fragment because their authored canvas includes large transparent margins.
-  const scale = Math.min((width / modelWidth) * 2, (height / modelHeight) * 2) * normalizeZoom(layout.zoom)
+  const scale =
+    Math.min((width / modelWidth) * 2, (height / modelHeight) * 2) * normalizeZoom(layout.zoom)
   // 百分比偏移同 AIRI：正 Y 抬高模型，露出更多身体；与 zoom 组合即可在半身/全身之间切换。
   const offsetX = (normalizeOffset(layout.offsetX) / 100) * width
   const offsetY = (normalizeOffset(layout.offsetY) / 100) * height

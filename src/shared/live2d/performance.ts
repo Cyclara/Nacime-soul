@@ -61,8 +61,10 @@ export function evaluateLive2dPerformance(
       sample.renderMemoryMb === null || !singleModelSteadyState
         ? null
         : sample.renderMemoryMb <= budget.maximumRenderMemoryMb,
-    firstFrame: sample.firstFrameMs === null ? null : sample.firstFrameMs <= budget.maximumFirstFrameMs,
-    idleCpu: sample.idleCpuPercent === null ? null : sample.idleCpuPercent <= budget.maximumIdleCpuPercent
+    firstFrame:
+      sample.firstFrameMs === null ? null : sample.firstFrameMs <= budget.maximumFirstFrameMs,
+    idleCpu:
+      sample.idleCpuPercent === null ? null : sample.idleCpuPercent <= budget.maximumIdleCpuPercent
   }
   const measured = Object.values(checks).filter((check): check is boolean => check !== null)
   return { ok: measured.length > 0 && measured.every(Boolean), checks }

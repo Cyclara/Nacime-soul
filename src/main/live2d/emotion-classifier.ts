@@ -56,7 +56,20 @@ const SIGNALS: readonly EmotionSignal[] = [
   {
     emotion: 'surprised',
     weight: 2,
-    markers: ['真的吗', '居然', '竟然', '没想到', '哇', '咦', '诶', '欸', '？！', '！？', '?!', '!?']
+    markers: [
+      '真的吗',
+      '居然',
+      '竟然',
+      '没想到',
+      '哇',
+      '咦',
+      '诶',
+      '欸',
+      '？！',
+      '！？',
+      '?!',
+      '!?'
+    ]
   },
   {
     emotion: 'happy',

@@ -31,13 +31,28 @@ export function scanGcCandidates(
   now: number
 ): GcScanResult {
   const candidates: GcCandidate[] = []
-  const skipped: GcSkippedCounts = { pinned: 0, anchor: 0, recentAccess: 0, typeStable: 0, quotaExceeded: 0 }
+  const skipped: GcSkippedCounts = {
+    pinned: 0,
+    anchor: 0,
+    recentAccess: 0,
+    typeStable: 0,
+    quotaExceeded: 0
+  }
 
   for (const memory of memories) {
     if (memory.lifecycleState === 'soft_deleted') {
       const days = ageDays(now, memory.softDeletedAt ?? memory.archivedAt)
       if (days >= policy.softDeleteToPurgeDays) {
-        candidates.push({ memoryId: memory.id, action: 'purge', reasons: ['soft-delete-retention-expired'], ageDays: days, lastAccessDays: memory.lastAccessedAt === null || memory.lastAccessedAt === undefined ? null : ageDays(now, memory.lastAccessedAt) })
+        candidates.push({
+          memoryId: memory.id,
+          action: 'purge',
+          reasons: ['soft-delete-retention-expired'],
+          ageDays: days,
+          lastAccessDays:
+            memory.lastAccessedAt === null || memory.lastAccessedAt === undefined
+              ? null
+              : ageDays(now, memory.lastAccessedAt)
+        })
       }
       continue
     }
@@ -55,14 +70,23 @@ export function scanGcCandidates(
       skipped.typeStable++
       continue
     }
-    const accessDays = memory.lastAccessedAt === null || memory.lastAccessedAt === undefined ? null : ageDays(now, memory.lastAccessedAt)
+    const accessDays =
+      memory.lastAccessedAt === null || memory.lastAccessedAt === undefined
+        ? null
+        : ageDays(now, memory.lastAccessedAt)
     if (accessDays !== null && accessDays < policy.recentAccessGraceDays) {
       skipped.recentAccess++
       continue
     }
     const archivedDays = ageDays(now, memory.archivedAt)
     if (memory.archivedAt !== null && archivedDays >= retention) {
-      candidates.push({ memoryId: memory.id, action: 'soft_delete', reasons: ['archived-retention-expired'], ageDays: archivedDays, lastAccessDays: accessDays })
+      candidates.push({
+        memoryId: memory.id,
+        action: 'soft_delete',
+        reasons: ['archived-retention-expired'],
+        ageDays: archivedDays,
+        lastAccessDays: accessDays
+      })
     }
   }
 

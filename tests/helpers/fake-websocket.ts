@@ -9,7 +9,12 @@
 // onopen/onmessage/onerror/onclose 与 addEventListener 双通道。
 // 服务端行为由测试用 simulate* 方法显式驱动（确定时序，无真实异步竞态）。
 
-type FakeWsListener = (event: { type: string; data?: unknown; code?: number; reason?: string }) => void
+type FakeWsListener = (event: {
+  type: string
+  data?: unknown
+  code?: number
+  reason?: string
+}) => void
 
 export class FakeWebSocket {
   static readonly CONNECTING = 0

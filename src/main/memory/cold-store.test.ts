@@ -7,10 +7,32 @@ import { tmpdir } from 'node:os'
 import { createColdStore } from './cold-store'
 
 const directories: string[] = []
-afterEach(() => directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })))
+afterEach(() =>
+  directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true }))
+)
 
-function record(id: string): { id: string; content: string; type: 'one_off'; importance: number; createdAt: number; archivedAt: number; purgedAt: number; evidenceIds: string[]; sourceMessageIds: string[] } {
-  return { id, content: '咖啡 和 散步', type: 'one_off' as const, importance: 5, createdAt: 1, archivedAt: 2, purgedAt: 3, evidenceIds: [], sourceMessageIds: [] }
+function record(id: string): {
+  id: string
+  content: string
+  type: 'one_off'
+  importance: number
+  createdAt: number
+  archivedAt: number
+  purgedAt: number
+  evidenceIds: string[]
+  sourceMessageIds: string[]
+} {
+  return {
+    id,
+    content: '咖啡 和 散步',
+    type: 'one_off' as const,
+    importance: 5,
+    createdAt: 1,
+    archivedAt: 2,
+    purgedAt: 3,
+    evidenceIds: [],
+    sourceMessageIds: []
+  }
 }
 
 describe('P3G cold store', () => {

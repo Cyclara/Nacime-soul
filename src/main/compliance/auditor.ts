@@ -31,7 +31,11 @@
 //   （覆盖范围 = [0, reviewedChars)）；覆盖外 sample 不计 LLM veto 的细化留给 C2+。
 
 import type { Logger, MetricsRegistry } from '@shared/observability/types'
-import type { ComplianceSeverity, ComplianceViolation, ComplianceViolationType } from '@shared/compliance/types'
+import type {
+  ComplianceSeverity,
+  ComplianceViolation,
+  ComplianceViolationType
+} from '@shared/compliance/types'
 import type { LlmMessage } from '../llm/types'
 import type { ExtractionProvider, ExtractionRequest } from '../memory/extraction/provider'
 import type { ComplianceGateOutcome } from './gate'
@@ -217,7 +221,10 @@ export function parseComplianceAuditResponse(text: string): ParsedAuditResponse 
   if (!isPlainObject(raw)) return null
   const keys = Object.keys(raw)
   if (keys.some((k) => k !== 'verdict' && k !== 'level' && k !== 'violations')) return null
-  if (typeof raw.verdict !== 'string' || !VERDICTS.includes(raw.verdict as ComplianceAuditVerdict)) {
+  if (
+    typeof raw.verdict !== 'string' ||
+    !VERDICTS.includes(raw.verdict as ComplianceAuditVerdict)
+  ) {
     return null
   }
   if (typeof raw.level !== 'string' || !LEVELS.includes(raw.level as PersonaBreakLevel)) {
@@ -230,20 +237,29 @@ export function parseComplianceAuditResponse(text: string): ParsedAuditResponse 
     if (!isPlainObject(item)) return null
     const itemKeys = Object.keys(item)
     if (
-      itemKeys.some((k) => k !== 'type' && k !== 'severity' && k !== 'confidence' && k !== 'rationale')
+      itemKeys.some(
+        (k) => k !== 'type' && k !== 'severity' && k !== 'confidence' && k !== 'rationale'
+      )
     ) {
       return null
     }
-    if (typeof item.type !== 'string' || !VIOLATION_TYPES.includes(item.type as ComplianceViolationType)) {
+    if (
+      typeof item.type !== 'string' ||
+      !VIOLATION_TYPES.includes(item.type as ComplianceViolationType)
+    ) {
       return null
     }
-    if (typeof item.severity !== 'string' || !SEVERITIES.includes(item.severity as ComplianceSeverity)) {
+    if (
+      typeof item.severity !== 'string' ||
+      !SEVERITIES.includes(item.severity as ComplianceSeverity)
+    ) {
       return null
     }
     if (typeof item.confidence !== 'number' || Number.isNaN(item.confidence)) return null
     if (item.confidence < 0 || item.confidence > 1) return null
     // 模型自由文本一律不可信：只验证类型/长度，随后立即丢弃；不得进入 result/DB/IPC/log。
-    if (typeof item.rationale !== 'string' || item.rationale.length > RATIONALE_MAX_CHARS) return null
+    if (typeof item.rationale !== 'string' || item.rationale.length > RATIONALE_MAX_CHARS)
+      return null
     violations.push({
       type: item.type as ComplianceViolationType,
       severity: item.severity as ComplianceSeverity,
@@ -292,7 +308,14 @@ export function buildComplianceAuditRequest(
 }
 
 function emptyShell(reviewedChars: number, latencyMs: number): ComplianceAuditResult {
-  return { verdict: 'pass', level: 'none', violations: [], reviewedChars, latencyMs, unavailable: true }
+  return {
+    verdict: 'pass',
+    level: 'none',
+    violations: [],
+    reviewedChars,
+    latencyMs,
+    unavailable: true
+  }
 }
 
 function errorTag(e: unknown): string {
@@ -321,7 +344,10 @@ export function createComplianceAuditor(deps: ComplianceAuditorDeps): Compliance
     return Number.isFinite(ms) && ms >= 0 ? ms : 0
   }
 
-  async function audit(input: ComplianceAuditInput, signal: AbortSignal): Promise<ComplianceAuditResult> {
+  async function audit(
+    input: ComplianceAuditInput,
+    signal: AbortSignal
+  ): Promise<ComplianceAuditResult> {
     const reviewedChars = Math.min(input.candidateText.length, AUDIT_CANDIDATE_MAX_CHARS)
     const started = safeNow()
     let parsed: ParsedAuditResponse

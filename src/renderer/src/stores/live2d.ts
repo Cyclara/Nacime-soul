@@ -6,7 +6,11 @@
 
 import { computed, reactive } from 'vue'
 import { defineStore } from 'pinia'
-import type { Live2dImportResult, Live2dPublicSnapshot, Live2dStateEvent } from '@shared/live2d/public-types'
+import type {
+  Live2dImportResult,
+  Live2dPublicSnapshot,
+  Live2dStateEvent
+} from '@shared/live2d/public-types'
 import type { Live2dLoadError, Live2dModelListItem } from '@shared/live2d/types'
 import type { Unsubscribe } from '@shared/ipc/contracts'
 
@@ -26,7 +30,14 @@ function initialState(): Live2dState {
     models: [],
     selectedModelId: null,
     loadedModelId: null,
-    window: { visible: false, alwaysOnTop: true, zoom: 1, offsetX: 0, offsetY: 0, stageStatus: 'closed' },
+    window: {
+      visible: false,
+      alwaysOnTop: true,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+      stageStatus: 'closed'
+    },
     loading: false,
     lastError: null,
     revision: 0,
@@ -39,8 +50,12 @@ export const useLive2dStore = defineStore('live2d', () => {
   let unsubscribe: Unsubscribe | null = null
   let hydrateEpoch = 0
 
-  const currentModel = computed(() => state.models.find((model) => model.id === state.selectedModelId) ?? null)
-  const isReady = computed(() => state.window.stageStatus === 'ready' && state.loadedModelId !== null)
+  const currentModel = computed(
+    () => state.models.find((model) => model.id === state.selectedModelId) ?? null
+  )
+  const isReady = computed(
+    () => state.window.stageStatus === 'ready' && state.loadedModelId !== null
+  )
 
   function applyState(event: Live2dStateEvent): void {
     if (event.revision < state.revision) return

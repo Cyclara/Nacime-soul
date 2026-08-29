@@ -8,7 +8,15 @@ function successApi(): StageBootstrapApi {
   return {
     ready: vi.fn(async () => ({
       ok: true as const,
-      data: { stageInstanceId: 'stage-1', status: 'loading-model' as const, initialModelUrl: null, cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 }
+      data: {
+        stageInstanceId: 'stage-1',
+        status: 'loading-model' as const,
+        initialModelUrl: null,
+        cubismCoreUrl: null,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0
+      }
     })),
     reportState: vi.fn(async () => ({ ok: true as const, data: undefined })),
     onCommand: vi.fn(() => () => {})
@@ -22,7 +30,10 @@ describe('P3A-06 stage bootstrap', () => {
 
     expect(handle.stageInstanceId).toBe('stage-1')
     expect(api.ready).toHaveBeenCalledWith({ stageInstanceId: 'stage-1' })
-    expect(api.reportState).toHaveBeenCalledWith({ stageInstanceId: 'stage-1', status: 'loading-model' })
+    expect(api.reportState).toHaveBeenCalledWith({
+      stageInstanceId: 'stage-1',
+      status: 'loading-model'
+    })
     expect(api.onCommand).toHaveBeenCalledTimes(1)
   })
 
@@ -36,7 +47,9 @@ describe('P3A-06 stage bootstrap', () => {
       onCommand: vi.fn(() => () => {})
     }
 
-    await expect(startLive2dStage(api, { createStageInstanceId: () => 'stage-denied' })).resolves.toMatchObject({
+    await expect(
+      startLive2dStage(api, { createStageInstanceId: () => 'stage-denied' })
+    ).resolves.toMatchObject({
       stageInstanceId: 'stage-denied'
     })
     expect(api.reportState).toHaveBeenCalledWith({

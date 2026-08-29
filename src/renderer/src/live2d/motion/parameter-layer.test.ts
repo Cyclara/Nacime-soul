@@ -6,14 +6,59 @@ import { describe, expect, it } from 'vitest'
 import type { ILive2DRenderer } from '../ILive2DRenderer'
 import { createParameterLayer } from './parameter-layer'
 
-function makeRenderer(): { renderer: ILive2DRenderer; updates: Array<{ id: string; value: number }> } {
+function makeRenderer(): {
+  renderer: ILive2DRenderer
+  updates: Array<{ id: string; value: number }>
+} {
   const updates: Array<{ id: string; value: number }> = []
   const result = {
-    attach() { /* noop */ }, load: async () => { /* noop */ }, unload() { /* noop */ }, resize() { /* noop */ }, setZoom() { /* noop */ }, setOffset() { /* noop */ }, pause() { /* noop */ }, resume() { /* noop */ }, setFrameDriver() { /* noop */ },
-    setExpression: async () => true, playMotion: async () => true,
-    setParameter(update: { id: string; value: number }) { updates.push(update); return true },
-    setMouthOpen: () => true, setEyeOpen: () => true, hitTest: () => [],
-    getMetrics: () => ({ fps: 0, frameCount: 0, modelLoadMs: null, contextLossCount: 0, paused: false, hasModel: true }), dispose() { /* noop */ }
+    attach() {
+      /* noop */
+    },
+    load: async () => {
+      /* noop */
+    },
+    unload() {
+      /* noop */
+    },
+    resize() {
+      /* noop */
+    },
+    setZoom() {
+      /* noop */
+    },
+    setOffset() {
+      /* noop */
+    },
+    pause() {
+      /* noop */
+    },
+    resume() {
+      /* noop */
+    },
+    setFrameDriver() {
+      /* noop */
+    },
+    setExpression: async () => true,
+    playMotion: async () => true,
+    setParameter(update: { id: string; value: number }) {
+      updates.push(update)
+      return true
+    },
+    setMouthOpen: () => true,
+    setEyeOpen: () => true,
+    hitTest: () => [],
+    getMetrics: () => ({
+      fps: 0,
+      frameCount: 0,
+      modelLoadMs: null,
+      contextLossCount: 0,
+      paused: false,
+      hasModel: true
+    }),
+    dispose() {
+      /* noop */
+    }
   } satisfies ILive2DRenderer
   return { renderer: result, updates }
 }

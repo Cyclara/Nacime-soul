@@ -276,7 +276,10 @@ describe('S-004 #35: API 只暴露固定通道', () => {
   })
 
   it('compliance.getSnapshot 固定调用 companion:compliance:get-snapshot（P3C1-08）', async () => {
-    mockIpc.invoke.mockResolvedValue({ ok: true, data: { gateEnabled: true, gateScope: 'observe' } })
+    mockIpc.invoke.mockResolvedValue({
+      ok: true,
+      data: { gateEnabled: true, gateScope: 'observe' }
+    })
     const result = await companionApi.compliance.getSnapshot()
     expect(mockIpc.invoke).toHaveBeenCalledWith('companion:compliance:get-snapshot', undefined)
     expect(result).toEqual({ ok: true, data: { gateEnabled: true, gateScope: 'observe' } })

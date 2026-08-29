@@ -13,11 +13,21 @@ import type { ComplianceAuditInput } from './auditor'
 
 function noopLogger(): Logger {
   const l: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => l
   }
   return l

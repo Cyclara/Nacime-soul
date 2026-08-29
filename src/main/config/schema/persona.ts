@@ -13,10 +13,7 @@ export const ComplianceGateScopeSchema = v.picklist([
   'off'
 ])
 
-const RuleIdSchema = v.pipe(
-  v.string(),
-  v.regex(/^R-[A-Z]{2}-\d{2}$/)
-)
+const RuleIdSchema = v.pipe(v.string(), v.regex(/^R-[A-Z]{2}-\d{2}$/))
 
 export const ComplianceGateConfigSchema = v.pipe(
   v.strictObject({
@@ -29,13 +26,7 @@ export const ComplianceGateConfigSchema = v.pipe(
       v.minValue(1),
       v.maxValue(512)
     ),
-    segmentMaxChars: v.pipe(
-      v.number(),
-      v.finite(),
-      v.integer(),
-      v.minValue(64),
-      v.maxValue(4096)
-    ),
+    segmentMaxChars: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(64), v.maxValue(4096)),
     budgetMs: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(100)),
     maxRegenerations: v.picklist([0, 1]),
     // 首段时限门（开工裁定 1.2）：整数 100–2000，默认 400，待校准基线

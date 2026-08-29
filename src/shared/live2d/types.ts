@@ -18,14 +18,7 @@ export type Live2DStandardParameterId =
   (typeof LIVE2D_PARAMETER_IDS)[keyof typeof LIVE2D_PARAMETER_IDS]
 
 export type Live2dSemanticEmotion =
-  | 'neutral'
-  | 'smile'
-  | 'happy'
-  | 'surprised'
-  | 'sad'
-  | 'angry'
-  | 'shy'
-  | 'confused'
+  'neutral' | 'smile' | 'happy' | 'surprised' | 'sad' | 'angry' | 'shy' | 'confused'
 
 export const LIVE2D_LOAD_ERROR_CODES = [
   'FILE_NOT_FOUND',

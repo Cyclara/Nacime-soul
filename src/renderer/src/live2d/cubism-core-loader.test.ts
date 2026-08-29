@@ -13,7 +13,9 @@ afterEach(() => {
 describe('P3A-11 Cubism Core loader', () => {
   it('拒绝 null 或任何非 main 固定 URL', async () => {
     await expect(ensureCubismCore(null)).rejects.toThrow('CUBISM_CORE_UNAVAILABLE')
-    await expect(ensureCubismCore('https://cdn.example/core.js')).rejects.toThrow('CUBISM_CORE_UNAVAILABLE')
+    await expect(ensureCubismCore('https://cdn.example/core.js')).rejects.toThrow(
+      'CUBISM_CORE_UNAVAILABLE'
+    )
   })
 
   it('固定 URL 只插入一次 script，load 后验证全局 runtime 存在', async () => {

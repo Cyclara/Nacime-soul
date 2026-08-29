@@ -13,7 +13,12 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-function setup(): { root: string; registryPath: string; builtinModelsRoot: string; userModelsRoot: string } {
+function setup(): {
+  root: string
+  registryPath: string
+  builtinModelsRoot: string
+  userModelsRoot: string
+} {
   const root = mkdtempSync(join(tmpdir(), 'nacime-live2d-registry-'))
   roots.push(root)
   return {
@@ -43,8 +48,18 @@ const MANIFEST: Live2dModelManifest = {
 describe('P3A-08/11 model registry', () => {
   it('注册和选择落盘，但 public list 没有 directory/path/hash 等敏感内部字段', () => {
     const { registryPath, builtinModelsRoot, userModelsRoot } = setup()
-    const registry = createLive2dModelRegistry({ registryPath, builtinModelsRoot, userModelsRoot, now: () => 100 })
-    registry.register({ id: 'mao', directory: join(builtinModelsRoot, 'mao'), manifest: MANIFEST, installedAt: 100 })
+    const registry = createLive2dModelRegistry({
+      registryPath,
+      builtinModelsRoot,
+      userModelsRoot,
+      now: () => 100
+    })
+    registry.register({
+      id: 'mao',
+      directory: join(builtinModelsRoot, 'mao'),
+      manifest: MANIFEST,
+      installedAt: 100
+    })
     expect(registry.select('mao')).toBe(true)
 
     expect(registry.list()).toEqual([
@@ -60,15 +75,26 @@ describe('P3A-08/11 model registry', () => {
       }
     ])
     expect(JSON.stringify(registry.list())).not.toContain(builtinModelsRoot)
-    expect(registry.getSelected()).toMatchObject({ id: 'mao', directory: join(builtinModelsRoot, 'mao') })
+    expect(registry.getSelected()).toMatchObject({
+      id: 'mao',
+      directory: join(builtinModelsRoot, 'mao')
+    })
     expect(existsSync(registryPath)).toBe(true)
-    expect(JSON.parse(readFileSync(registryPath, 'utf8'))).toMatchObject({ schemaVersion: 1, selectedModelId: 'mao' })
+    expect(JSON.parse(readFileSync(registryPath, 'utf8'))).toMatchObject({
+      schemaVersion: 1,
+      selectedModelId: 'mao'
+    })
   })
 
   it('重开 registry 恢复已有选择；未知 ID 不会把选择篡改为不存在模型', () => {
     const { registryPath, builtinModelsRoot, userModelsRoot } = setup()
     const first = createLive2dModelRegistry({ registryPath, builtinModelsRoot, userModelsRoot })
-    first.register({ id: 'mao', directory: join(builtinModelsRoot, 'mao'), manifest: MANIFEST, installedAt: 1 })
+    first.register({
+      id: 'mao',
+      directory: join(builtinModelsRoot, 'mao'),
+      manifest: MANIFEST,
+      installedAt: 1
+    })
     first.select('mao')
 
     const restarted = createLive2dModelRegistry({ registryPath, builtinModelsRoot, userModelsRoot })
@@ -81,7 +107,12 @@ describe('P3A-08/11 model registry', () => {
     const { registryPath, builtinModelsRoot, userModelsRoot, root } = setup()
     const registry = createLive2dModelRegistry({ registryPath, builtinModelsRoot, userModelsRoot })
     expect(() =>
-      registry.register({ id: 'escape', directory: join(root, 'other'), manifest: { ...MANIFEST, id: 'escape' }, installedAt: 1 })
+      registry.register({
+        id: 'escape',
+        directory: join(root, 'other'),
+        manifest: { ...MANIFEST, id: 'escape' },
+        installedAt: 1
+      })
     ).toThrow('escapes registry root')
     expect(existsSync(registryPath)).toBe(false)
   })

@@ -11,8 +11,17 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import JSZip from 'jszip'
 import { decodeZipFileName } from './decode-zip-filename'
 import { discoverLive2dModel } from './model-discovery'
-import { validateLive2dModel, DEFAULT_LIVE2D_VALIDATION_LIMITS, type Live2dModelValidationLimits } from './model-validator'
-import type { Live2dLoadError, Live2dModelCandidate, Live2dModelManifest, Live2dValidationResult } from '@shared/live2d/types'
+import {
+  validateLive2dModel,
+  DEFAULT_LIVE2D_VALIDATION_LIMITS,
+  type Live2dModelValidationLimits
+} from './model-validator'
+import type {
+  Live2dLoadError,
+  Live2dModelCandidate,
+  Live2dModelManifest,
+  Live2dValidationResult
+} from '@shared/live2d/types'
 import type { Live2dModelRegistry } from './model-registry'
 
 export interface Live2dImportLimits extends Live2dModelValidationLimits {
@@ -120,7 +129,11 @@ function resultFailure(error: Live2dLoadError): Live2dImportResult {
 
 function modelIdFromManifest(manifest: Live2dModelManifest, bytes: Buffer): string {
   const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 16)
-  const slug = manifest.displayName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'model'
+  const slug =
+    manifest.displayName
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-|-$/g, '') || 'model'
   return `${slug}-${hash}`
 }
 
@@ -136,7 +149,9 @@ export function createLive2dModelImporter(options: {
 }): Live2dModelImporter {
   const limits = options.limits ?? DEFAULT_LIVE2D_IMPORT_LIMITS
   const userRoot = resolve(options.userModelsRoot)
-  const makeTempId = limits.makeTempId ?? (() => `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+  const makeTempId =
+    limits.makeTempId ??
+    (() => `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`)
   mkdirSync(userRoot, { recursive: true })
 
   return {
@@ -156,7 +171,10 @@ export function createLive2dModelImporter(options: {
         // decodeFileName 只对**未标 UTF-8 标志**的条目生效：CJK 作者导出的模型包
         // （尤其 VTube Studio）常按 GBK 存条目名，默认 UTF-8 解会变乱码，
         // 随后 model3.json 里正确的 UTF-8 资源名就对不上磁盘文件，导入失败于误导性错误码。
-        zip = await JSZip.loadAsync(zipBytes, { checkCRC32: true, decodeFileName: decodeZipFileName })
+        zip = await JSZip.loadAsync(zipBytes, {
+          checkCRC32: true,
+          decodeFileName: decodeZipFileName
+        })
       } catch {
         return resultFailure(importError('MODEL_JSON_INVALID', false, 'choose-model'))
       }
@@ -183,7 +201,12 @@ export function createLive2dModelImporter(options: {
         if (isMacOsMetadataEntry(safeName)) continue
         names.add(safeName)
         const lowerName = safeName.toLowerCase()
-        if (!isDirectory(safeName, entry) && (!isSupportedEntry(safeName) || lowerName === 'items_pinned_to_model.json' || lowerName.endsWith('/items_pinned_to_model.json'))) {
+        if (
+          !isDirectory(safeName, entry) &&
+          (!isSupportedEntry(safeName) ||
+            lowerName === 'items_pinned_to_model.json' ||
+            lowerName.endsWith('/items_pinned_to_model.json'))
+        ) {
           return resultFailure(importError('MODEL_JSON_INVALID', false, 'choose-model'))
         }
       }
@@ -203,10 +226,19 @@ export function createLive2dModelImporter(options: {
           // discovery 随后按「多个 model3 入口」拒绝整个模型。
           if (isMacOsMetadataEntry(safeName)) continue
           const declaredSize = entry._data?.uncompressedSize
-          if (declaredSize !== undefined && (!Number.isFinite(declaredSize) || declaredSize < 0 || declaredSize > limits.maxResourceBytes)) {
+          if (
+            declaredSize !== undefined &&
+            (!Number.isFinite(declaredSize) ||
+              declaredSize < 0 ||
+              declaredSize > limits.maxResourceBytes)
+          ) {
             return resultFailure(importError('TEXTURE_TOO_LARGE', false, 'choose-model'))
           }
-          if (declaredSize !== undefined && safeName.toLowerCase().endsWith('.png') && declaredSize > limits.maxTextureBytes) {
+          if (
+            declaredSize !== undefined &&
+            safeName.toLowerCase().endsWith('.png') &&
+            declaredSize > limits.maxTextureBytes
+          ) {
             return resultFailure(importError('TEXTURE_TOO_LARGE', false, 'update-driver'))
           }
           const content = await entry.async('nodebuffer')
@@ -215,7 +247,8 @@ export function createLive2dModelImporter(options: {
             return resultFailure(importError('TEXTURE_TOO_LARGE', false, 'choose-model'))
           }
           const target = resolve(staging, safeName)
-          if (!ensureInside(staging, target)) return resultFailure(importError('MODEL_JSON_INVALID', false, 'choose-model'))
+          if (!ensureInside(staging, target))
+            return resultFailure(importError('MODEL_JSON_INVALID', false, 'choose-model'))
           mkdirSync(resolve(target, '..'), { recursive: true })
           writeFileSync(target, content, { flag: 'wx' })
         }
@@ -228,7 +261,13 @@ export function createLive2dModelImporter(options: {
         })
         const validation = validateLive2dModel(discovered, limits)
         if (!validation.ok) {
-          return { ok: false, modelId: null, manifest: discovered.manifest, validation, error: validation.errors[0] ?? null }
+          return {
+            ok: false,
+            modelId: null,
+            manifest: discovered.manifest,
+            validation,
+            error: validation.errors[0] ?? null
+          }
         }
 
         const modelId = modelIdFromManifest(discovered.manifest, zipBytes)
@@ -253,7 +292,8 @@ export function createLive2dModelImporter(options: {
         registered = true
         return { ok: true, modelId, manifest: finalCandidate.manifest, validation, error: null }
       } catch {
-        if (installedPath !== null && !registered) rmSync(installedPath, { recursive: true, force: true })
+        if (installedPath !== null && !registered)
+          rmSync(installedPath, { recursive: true, force: true })
         return resultFailure(importError('MODEL_JSON_INVALID', false, 'choose-model'))
       } finally {
         rmSync(tempRoot, { recursive: true, force: true })

@@ -1069,8 +1069,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
             accumulated += emission.releaseText
             if (firstReleaseAt === null) {
               firstReleaseAt = performance.now()
-              gateHoldMs =
-                firstDeltaAt === null ? null : Math.round(firstReleaseAt - firstDeltaAt)
+              gateHoldMs = firstDeltaAt === null ? null : Math.round(firstReleaseAt - firstDeltaAt)
             }
             sink({ type: 'chunk', requestId, sequence, delta: emission.releaseText })
             sequence++

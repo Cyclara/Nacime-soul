@@ -7,10 +7,33 @@ import { useLive2dStore } from './live2d'
 import type { Live2dStateEvent } from '@shared/live2d/public-types'
 
 const state: Live2dStateEvent = {
-  models: [{ id: 'mao', displayName: 'Mao', source: 'builtin', cubismVersion: 3, expressionCount: 8, motionCount: 8, hasMouthOpen: false, warnings: [] }],
-  selectedModelId: 'mao', loadedModelId: 'mao',
-  window: { visible: true, alwaysOnTop: true, zoom: 1, offsetX: 0, offsetY: 0, stageStatus: 'ready' },
-  loading: false, lastError: null, revision: 2, lastEventSequence: 3, sequence: 3
+  models: [
+    {
+      id: 'mao',
+      displayName: 'Mao',
+      source: 'builtin',
+      cubismVersion: 3,
+      expressionCount: 8,
+      motionCount: 8,
+      hasMouthOpen: false,
+      warnings: []
+    }
+  ],
+  selectedModelId: 'mao',
+  loadedModelId: 'mao',
+  window: {
+    visible: true,
+    alwaysOnTop: true,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0,
+    stageStatus: 'ready'
+  },
+  loading: false,
+  lastError: null,
+  revision: 2,
+  lastEventSequence: 3,
+  sequence: 3
 }
 
 beforeEach(() => {
@@ -20,7 +43,10 @@ beforeEach(() => {
       live2d: {
         getState: vi.fn(async () => ({ ok: true as const, data: state })),
         setVisible: vi.fn(async () => ({ ok: true as const, data: undefined })),
-        chooseImportSource: vi.fn(async () => ({ ok: true as const, data: { ok: true, modelId: 'x', displayName: 'X', warnings: [], error: null } })),
+        chooseImportSource: vi.fn(async () => ({
+          ok: true as const,
+          data: { ok: true, modelId: 'x', displayName: 'X', warnings: [], error: null }
+        })),
         selectModel: vi.fn(async () => ({ ok: true as const, data: undefined })),
         resetWindowPlacement: vi.fn(async () => ({ ok: true as const, data: undefined })),
         retryLoad: vi.fn(async () => ({ ok: true as const, data: undefined })),

@@ -740,7 +740,8 @@ export async function setupMemoryInfrastructure(
   })
 
   // P3G：GC 只在 idle 后运行，不进入首屏/启动热路径；先暴露 dry-run 可审计，再由调度器跑真实批次。
-  const gcPolicy = (): import('@shared/memory/gc-types').GcPolicy => configStore.get().memory.gc ?? DEFAULT_GC_POLICY
+  const gcPolicy = (): import('@shared/memory/gc-types').GcPolicy =>
+    configStore.get().memory.gc ?? DEFAULT_GC_POLICY
   const gcService = createGcService({
     l2Store,
     vectorStore,

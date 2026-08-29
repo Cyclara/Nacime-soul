@@ -23,9 +23,22 @@ describe('ZIP 条目名历史编码解码', () => {
   })
 
   it('多字 GBK 名与带目录的 GBK 路径都能正确还原', () => {
-    expect(decodeZipFileName(new Uint8Array([0xb8, 0xdf, 0xb9, 0xe2, ...ascii('.exp3.json')]))).toBe('高光.exp3.json')
+    expect(
+      decodeZipFileName(new Uint8Array([0xb8, 0xdf, 0xb9, 0xe2, ...ascii('.exp3.json')]))
+    ).toBe('高光.exp3.json')
     // 「模型/贴图.png」：GBK 下目录分隔符仍是 ASCII 的 '/'
-    const path = new Uint8Array([0xc4, 0xa3, 0xd0, 0xcd, 0x2f, 0xcc, 0xf9, 0xcd, 0xbc, ...ascii('.png')])
+    const path = new Uint8Array([
+      0xc4,
+      0xa3,
+      0xd0,
+      0xcd,
+      0x2f,
+      0xcc,
+      0xf9,
+      0xcd,
+      0xbc,
+      ...ascii('.png')
+    ])
     expect(decodeZipFileName(path)).toBe('模型/贴图.png')
   })
 

@@ -37,15 +37,53 @@ function isStageCommand(value: unknown): value is Live2dStageCommand {
   const command = value as Record<string, unknown>
   switch (command['type']) {
     case 'load-model':
-      return Object.keys(command).every((key) => key === 'type' || key === 'modelUrl' || key === 'expressionNames') && typeof command['modelUrl'] === 'string' && command['modelUrl'].length > 0 && command['modelUrl'].length <= 2048 && (command['expressionNames'] === undefined || isExpressionNameList(command['expressionNames']))
+      return (
+        Object.keys(command).every(
+          (key) => key === 'type' || key === 'modelUrl' || key === 'expressionNames'
+        ) &&
+        typeof command['modelUrl'] === 'string' &&
+        command['modelUrl'].length > 0 &&
+        command['modelUrl'].length <= 2048 &&
+        (command['expressionNames'] === undefined ||
+          isExpressionNameList(command['expressionNames']))
+      )
     case 'set-emotion':
-      return Object.keys(command).every((key) => key === 'type' || key === 'emotion') && ['neutral', 'smile', 'happy', 'surprised', 'sad', 'angry', 'shy', 'confused'].includes(String(command['emotion']))
+      return (
+        Object.keys(command).every((key) => key === 'type' || key === 'emotion') &&
+        ['neutral', 'smile', 'happy', 'surprised', 'sad', 'angry', 'shy', 'confused'].includes(
+          String(command['emotion'])
+        )
+      )
     case 'set-zoom':
-      return Object.keys(command).every((key) => key === 'type' || key === 'zoom') && typeof command['zoom'] === 'number' && Number.isFinite(command['zoom']) && command['zoom'] >= 0.25 && command['zoom'] <= 3
+      return (
+        Object.keys(command).every((key) => key === 'type' || key === 'zoom') &&
+        typeof command['zoom'] === 'number' &&
+        Number.isFinite(command['zoom']) &&
+        command['zoom'] >= 0.25 &&
+        command['zoom'] <= 3
+      )
     case 'set-offset':
-      return Object.keys(command).every((key) => key === 'type' || key === 'offsetX' || key === 'offsetY') && isOffsetPercent(command['offsetX']) && isOffsetPercent(command['offsetY'])
+      return (
+        Object.keys(command).every(
+          (key) => key === 'type' || key === 'offsetX' || key === 'offsetY'
+        ) &&
+        isOffsetPercent(command['offsetX']) &&
+        isOffsetPercent(command['offsetY'])
+      )
     case 'resize':
-      return Object.keys(command).every((key) => key === 'type' || key === 'width' || key === 'height') && typeof command['width'] === 'number' && Number.isFinite(command['width']) && command['width'] >= 1 && command['width'] <= 8192 && typeof command['height'] === 'number' && Number.isFinite(command['height']) && command['height'] >= 1 && command['height'] <= 8192
+      return (
+        Object.keys(command).every(
+          (key) => key === 'type' || key === 'width' || key === 'height'
+        ) &&
+        typeof command['width'] === 'number' &&
+        Number.isFinite(command['width']) &&
+        command['width'] >= 1 &&
+        command['width'] <= 8192 &&
+        typeof command['height'] === 'number' &&
+        Number.isFinite(command['height']) &&
+        command['height'] >= 1 &&
+        command['height'] <= 8192
+      )
     case 'pause':
     case 'resume':
     case 'dispose':

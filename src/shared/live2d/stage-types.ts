@@ -46,7 +46,11 @@ export type Live2dStageCommand =
    * 不随命令更新会让表情静默失效（2026-08-29 真机实测：首选模型损坏 → 降级 Mao 后
    * 名单仍是损坏模型的空数组，任何情绪都解析不到）。
    */
-  | { readonly type: 'load-model'; readonly modelUrl: string; readonly expressionNames?: readonly string[] }
+  | {
+      readonly type: 'load-model'
+      readonly modelUrl: string
+      readonly expressionNames?: readonly string[]
+    }
   | { readonly type: 'set-emotion'; readonly emotion: Live2dSemanticEmotion }
   | { readonly type: 'set-zoom'; readonly zoom: number }
   | { readonly type: 'set-offset'; readonly offsetX: number; readonly offsetY: number }

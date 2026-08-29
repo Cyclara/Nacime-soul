@@ -185,10 +185,13 @@ describe('C-γ-2 DMAE hook：sessionId 透传', () => {
       l2Total: 42 // 修复前恒 0
     })
     // P3X-01：最终预算保留/裁掉真值由 TurnEndData 透传；selected 不冒充 injected。
-    hook.fn({ event: 'turn.end' }, makeTurnEnd({
-      promptIncludedMemoryIds: ['m-actual'],
-      promptTrimmedMemoryIds: ['m-dropped']
-    }))
+    hook.fn(
+      { event: 'turn.end' },
+      makeTurnEnd({
+        promptIncludedMemoryIds: ['m-actual'],
+        promptTrimmedMemoryIds: ['m-dropped']
+      })
+    )
     expect(recordTurnSpy.mock.calls.at(-1)![0]).toMatchObject({
       promptIncludedIds: ['m-actual'],
       promptTrimmedIds: ['m-dropped']

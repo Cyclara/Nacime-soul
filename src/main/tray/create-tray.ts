@@ -17,7 +17,10 @@ const STATUS_COPY: Record<TrayStatus, string> = {
   attention: 'Nacime · 需要你的注意'
 }
 
-function createTrayIcon(assetsDirectory: string, status: TrayStatus): ReturnType<typeof nativeImage.createFromPath> {
+function createTrayIcon(
+  assetsDirectory: string,
+  status: TrayStatus
+): ReturnType<typeof nativeImage.createFromPath> {
   const icon = nativeImage.createFromPath(join(assetsDirectory, 'tray', `tray-${status}-24.png`))
   return process.platform === 'darwin' ? icon.resize({ width: 18, height: 18 }) : icon
 }
@@ -32,12 +35,14 @@ export function createNacimeTray(options: {
     const label = STATUS_COPY[status]
     tray.setImage(createTrayIcon(options.assetsDirectory, status))
     tray.setToolTip(label)
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label, enabled: false },
-      { type: 'separator' },
-      { label: '打开 Nacime', click: options.showMainWindow },
-      { label: '退出', role: 'quit' }
-    ]))
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label, enabled: false },
+        { type: 'separator' },
+        { label: '打开 Nacime', click: options.showMainWindow },
+        { label: '退出', role: 'quit' }
+      ])
+    )
   }
 
   applyStatus('idle')

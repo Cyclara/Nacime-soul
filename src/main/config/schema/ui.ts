@@ -34,7 +34,9 @@ const Live2dConfigSchema = v.object({
   offsetX: v.pipe(v.number(), v.finite(), v.minValue(-100), v.maxValue(100)),
   offsetY: v.pipe(v.number(), v.finite(), v.minValue(-100), v.maxValue(100)),
   // Additive within config schema v1; undefined placeholder in defaults preserves old files.
-  selectedModelId: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(128), v.regex(/^[A-Za-z0-9._:-]+$/)))
+  selectedModelId: v.optional(
+    v.pipe(v.string(), v.minLength(1), v.maxLength(128), v.regex(/^[A-Za-z0-9._:-]+$/))
+  )
 })
 
 /**

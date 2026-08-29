@@ -6,7 +6,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createLive2dModelRegistry } from './model-registry'
-import { createLive2dModelService, createModelLoadPlan, type Live2dModelService } from './model-service'
+import {
+  createLive2dModelService,
+  createModelLoadPlan,
+  type Live2dModelService
+} from './model-service'
 import { discoverLive2dModel } from './model-discovery'
 import { parseLive2dAssetRequest } from './asset-protocol'
 
@@ -37,7 +41,9 @@ describe('P3A-11/12 model service', () => {
     expect(models.errors).toEqual([])
     expect(models.models.map((model) => model.id).sort()).toEqual(['hiyori', 'mao'])
     expect(models.models.find((model) => model.id === 'mao')?.hasMouthOpen).toBe(false)
-    expect(models.models.find((model) => model.id === 'mao')?.warnings).toContain('MOUTH_OPEN_PARAMETER_MISSING')
+    expect(models.models.find((model) => model.id === 'mao')?.warnings).toContain(
+      'MOUTH_OPEN_PARAMETER_MISSING'
+    )
     expect(models.models.find((model) => model.id === 'hiyori')?.hasMouthOpen).toBe(true)
   })
 

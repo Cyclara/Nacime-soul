@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PublicConfigSnapshot, UiConfig } from '@shared/config/types'
 import type { ConfigState } from '../stores/config'
 import type { Live2dState } from '../stores/live2d'
-import { createLive2dSettingsOrchestrator, type Live2dSettingsOrchestrator } from './live2d-settings'
+import {
+  createLive2dSettingsOrchestrator,
+  type Live2dSettingsOrchestrator
+} from './live2d-settings'
 
 type Framing = { zoom: number; offsetX: number; offsetY: number }
 
@@ -30,7 +33,14 @@ function createHarness(saveResult: boolean): Harness {
   const previewFraming = vi.fn<(framing: Framing | null) => Promise<void>>(async () => {})
   const draft: PublicConfigSnapshot = {
     ui: {
-      live2d: { enabled: true, zoom: 1, alwaysOnTop: true, offsetX: 0, offsetY: 0, selectedModelId: 'mao' }
+      live2d: {
+        enabled: true,
+        zoom: 1,
+        alwaysOnTop: true,
+        offsetX: 0,
+        offsetY: 0,
+        selectedModelId: 'mao'
+      }
     }
   } as PublicConfigSnapshot
   const orchestrator = createLive2dSettingsOrchestrator({
@@ -42,19 +52,35 @@ function createHarness(saveResult: boolean): Harness {
     },
     live2d: {
       state: {
-        window: { visible: true, alwaysOnTop: true, zoom: 1, offsetX: 0, offsetY: 0, stageStatus: 'ready' }
+        window: {
+          visible: true,
+          alwaysOnTop: true,
+          zoom: 1,
+          offsetX: 0,
+          offsetY: 0,
+          stageStatus: 'ready'
+        }
       } as Pick<Live2dState, 'window'>,
       hydrate,
       previewFraming
     },
     // 同步执行帧回调，让「每帧只发一次」的合并逻辑在测试中可断言。
-    scheduleFrame: (callback) => { callback() }
+    scheduleFrame: (callback) => {
+      callback()
+    }
   })
   return { orchestrator, patch, save, discard, hydrate, previewFraming, draft }
 }
 
 describe('P3A-25 Live2dSettingsOrchestrator', () => {
-  const base = { enabled: true, zoom: 1, alwaysOnTop: true, offsetX: 0, offsetY: 0, selectedModelId: 'mao' }
+  const base = {
+    enabled: true,
+    zoom: 1,
+    alwaysOnTop: true,
+    offsetX: 0,
+    offsetY: 0,
+    selectedModelId: 'mao'
+  }
 
   it('缩放先钳到合同范围，置顶与缩放都只 patch config', () => {
     const harness = createHarness(true)
@@ -120,9 +146,29 @@ describe('P3A-25 Live2dSettingsOrchestrator', () => {
     const harness = createHarness(true)
     let frame: (() => void) | null = null
     const deferred = createLive2dSettingsOrchestrator({
-      config: { state: { draft: harness.draft } as Pick<ConfigState, 'draft'>, patch: harness.patch, save: harness.save, discard: harness.discard },
-      live2d: { state: { window: { visible: true, alwaysOnTop: true, zoom: 1, offsetX: 0, offsetY: 0, stageStatus: 'ready' } } as Pick<Live2dState, 'window'>, hydrate: harness.hydrate, previewFraming: harness.previewFraming },
-      scheduleFrame: (callback) => { frame = callback }
+      config: {
+        state: { draft: harness.draft } as Pick<ConfigState, 'draft'>,
+        patch: harness.patch,
+        save: harness.save,
+        discard: harness.discard
+      },
+      live2d: {
+        state: {
+          window: {
+            visible: true,
+            alwaysOnTop: true,
+            zoom: 1,
+            offsetX: 0,
+            offsetY: 0,
+            stageStatus: 'ready'
+          }
+        } as Pick<Live2dState, 'window'>,
+        hydrate: harness.hydrate,
+        previewFraming: harness.previewFraming
+      },
+      scheduleFrame: (callback) => {
+        frame = callback
+      }
     })
 
     deferred.patchZoom(2)
@@ -151,7 +197,11 @@ describe('P3A-25 Live2dSettingsOrchestrator', () => {
 
     const abandoned = createHarness(true)
     abandoned.orchestrator.applyFraming('full-body')
-    expect(abandoned.previewFraming).toHaveBeenLastCalledWith({ zoom: 0.5, offsetX: 0, offsetY: 50 })
+    expect(abandoned.previewFraming).toHaveBeenLastCalledWith({
+      zoom: 0.5,
+      offsetX: 0,
+      offsetY: 50
+    })
     abandoned.orchestrator.discard()
     expect(abandoned.previewFraming).toHaveBeenLastCalledWith(null)
   })

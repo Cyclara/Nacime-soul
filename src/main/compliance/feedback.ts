@@ -108,8 +108,7 @@ export function createComplianceFeedbackService(
 
     // 3. 幂等写入（UNIQUE(message_id, kind) 承载 §3.7 幂等）
     const inserted =
-      stmts.insertFeedback.run(request.turnId, request.messageId, request.kind, now())
-        .changes === 1
+      stmts.insertFeedback.run(request.turnId, request.messageId, request.kind, now()).changes === 1
     if (!inserted) {
       try {
         deps.logger?.debug('compliance feedback duplicate; not counted again', {
@@ -163,7 +162,10 @@ export function createComplianceFeedbackService(
     return { status: 'inserted', kind: request.kind }
   }
 
-  function ignore(reason: ComplianceFeedbackIgnoreReason, turnId: string): ComplianceFeedbackOutcome {
+  function ignore(
+    reason: ComplianceFeedbackIgnoreReason,
+    turnId: string
+  ): ComplianceFeedbackOutcome {
     try {
       deps.logger?.debug('compliance feedback ignored: association check failed', {
         scope: 'compliance',

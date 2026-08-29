@@ -30,14 +30,21 @@ export function createIdleScheduler(options: {
     if (timer !== null) cancel(timer)
     const remainingIdle = Math.max(0, idleMs - (now() - lastActivity))
     const remainingInterval = lastRun === null ? 0 : Math.max(0, intervalMs - (now() - lastRun))
-    timer = schedule(() => {
-      timer = null
-      checkNow()
-    }, Math.max(remainingIdle, remainingInterval))
+    timer = schedule(
+      () => {
+        timer = null
+        checkNow()
+      },
+      Math.max(remainingIdle, remainingInterval)
+    )
   }
 
   const checkNow = (): void => {
-    if (disposed || now() - lastActivity < idleMs || (lastRun !== null && now() - lastRun < intervalMs)) {
+    if (
+      disposed ||
+      now() - lastActivity < idleMs ||
+      (lastRun !== null && now() - lastRun < intervalMs)
+    ) {
       arm()
       return
     }

@@ -30,7 +30,9 @@ const guidance: Record<Live2dLoadErrorCode, string> = {
 }
 
 function message(code: string | null): string {
-  return code !== null && code in copy ? copy[code as Live2dLoadErrorCode] : 'Live2D 暂时没有显示出来。'
+  return code !== null && code in copy
+    ? copy[code as Live2dLoadErrorCode]
+    : 'Live2D 暂时没有显示出来。'
 }
 
 function hint(code: string | null): string {
@@ -54,14 +56,76 @@ function hint(code: string | null): string {
 </template>
 
 <style scoped>
-.error-overlay { position: absolute; inset: 50% 1rem auto; display: flex; align-items: center; gap: 0.7rem; max-width: 25rem; margin: 0 auto; padding: 0.85rem; border: 1px solid rgb(255 139 139 / 52%); border-radius: 0.9rem; background: rgb(35 22 31 / 92%); box-shadow: 0 0.8rem 2.2rem rgb(0 0 0 / 38%); color: rgb(255 235 235 / 94%); transform: translateY(-50%); backdrop-filter: blur(0.8rem); -webkit-app-region: no-drag; }
-.error-overlay__mark { display: grid; width: 1.8rem; height: 1.8rem; flex: 0 0 auto; place-items: center; border: 1px solid rgb(255 139 139 / 55%); border-radius: 50%; color: rgb(255 167 167); font-weight: 700; }
-.error-overlay__copy { min-width: 0; flex: 1; }
-.error-overlay__copy strong { display: block; font-size: 0.8rem; }
-.error-overlay__copy p { margin: 0.2rem 0 0; color: rgb(255 235 235 / 74%); font-size: 0.72rem; line-height: 1.4; }
-.error-overlay__copy p.error-overlay__hint { color: rgb(255 235 235 / 58%); }
-.error-overlay__copy small { display: block; margin-top: 0.2rem; color: rgb(255 235 235 / 48%); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.62rem; }
-.error-overlay button { flex: 0 0 auto; min-height: 2rem; padding: 0.35rem 0.6rem; border: 1px solid rgb(255 167 167 / 46%); border-radius: 0.55rem; background: transparent; color: rgb(255 235 235 / 92%); cursor: pointer; font: inherit; font-size: 0.7rem; }
-.error-overlay button:hover { background: rgb(255 139 139 / 16%); }
-.error-overlay button:focus-visible { outline: 2px solid rgb(255 190 190); outline-offset: 2px; }
+.error-overlay {
+  position: absolute;
+  inset: 50% 1rem auto;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  max-width: 25rem;
+  margin: 0 auto;
+  padding: 0.85rem;
+  border: 1px solid rgb(255 139 139 / 52%);
+  border-radius: 0.9rem;
+  background: rgb(35 22 31 / 92%);
+  box-shadow: 0 0.8rem 2.2rem rgb(0 0 0 / 38%);
+  color: rgb(255 235 235 / 94%);
+  transform: translateY(-50%);
+  backdrop-filter: blur(0.8rem);
+  -webkit-app-region: no-drag;
+}
+.error-overlay__mark {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(255 139 139 / 55%);
+  border-radius: 50%;
+  color: rgb(255 167 167);
+  font-weight: 700;
+}
+.error-overlay__copy {
+  min-width: 0;
+  flex: 1;
+}
+.error-overlay__copy strong {
+  display: block;
+  font-size: 0.8rem;
+}
+.error-overlay__copy p {
+  margin: 0.2rem 0 0;
+  color: rgb(255 235 235 / 74%);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.error-overlay__copy p.error-overlay__hint {
+  color: rgb(255 235 235 / 58%);
+}
+.error-overlay__copy small {
+  display: block;
+  margin-top: 0.2rem;
+  color: rgb(255 235 235 / 48%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+}
+.error-overlay button {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgb(255 167 167 / 46%);
+  border-radius: 0.55rem;
+  background: transparent;
+  color: rgb(255 235 235 / 92%);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+}
+.error-overlay button:hover {
+  background: rgb(255 139 139 / 16%);
+}
+.error-overlay button:focus-visible {
+  outline: 2px solid rgb(255 190 190);
+  outline-offset: 2px;
+}
 </style>

@@ -386,7 +386,11 @@ export function createComplianceGate(deps: ComplianceGateDeps): ComplianceGate {
     return outputHeld.slice(span.length).trim().length > 0
   }
 
-  function decideEffectiveAction(declared: ComplianceRuleAction, span: ComplianceSpan, segment: Segment): ComplianceRuleAction {
+  function decideEffectiveAction(
+    declared: ComplianceRuleAction,
+    span: ComplianceSpan,
+    segment: Segment
+  ): ComplianceRuleAction {
     // EOF 段动作一律降级为 flag（F5-001 §3.4 step 4：流已结束，abort 没有意义）
     if (segment.trigger === 'eof') return 'flag'
     if (declared === 'block') return isBlockEligible(segment) ? 'block' : 'flag'
@@ -482,7 +486,8 @@ export function createComplianceGate(deps: ComplianceGateDeps): ComplianceGate {
       if (hit.effectiveAction === 'block') {
         blocks++
         abort = true
-        if (primary === null || hit.violation.confidence > primary.violation.confidence) primary = hit
+        if (primary === null || hit.violation.confidence > primary.violation.confidence)
+          primary = hit
       } else if (hit.effectiveAction === 'strip') {
         strips++
         // 多条 strip 命中只应用一条（最高优先级 = 最先记录）；其余按 flag 记录
@@ -525,7 +530,10 @@ export function createComplianceGate(deps: ComplianceGateDeps): ComplianceGate {
   }
 
   /** 异常降级（CMP-S15）：吞错、置 degraded、放行一切持有、后续直通。本函数自身不再抛。 */
-  function degradeAfterError(err: unknown, releaseParts: readonly string[]): ComplianceGateEmission {
+  function degradeAfterError(
+    err: unknown,
+    releaseParts: readonly string[]
+  ): ComplianceGateEmission {
     halted = true
     degraded = true
     try {

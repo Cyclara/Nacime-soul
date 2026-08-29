@@ -130,7 +130,9 @@ check('assets/icon.ico 含 16/32/48/256 四种尺寸', () => {
     if (width === height) sizes.add(width)
   }
   const missing = [16, 32, 48, 256].filter((size) => !sizes.has(size))
-  return missing.length === 0 ? { ok: true, detail: '16/32/48/256 均存在' } : `缺少尺寸: ${missing.join('/')}`
+  return missing.length === 0
+    ? { ok: true, detail: '16/32/48/256 均存在' }
+    : `缺少尺寸: ${missing.join('/')}`
 })
 check('托盘 idle/unread/attention 三态 16/20/24 资源齐全', () => {
   const missing = []
@@ -255,8 +257,16 @@ check('asar 内含 resources/prompts/seeds/growth/live2d（M-09/P3A-11）', () =
   const files = asar.listPackage(asarPath)
   // asar 路径分隔符在 Windows 为反斜杠；统一归一化后匹配 resources/<seg>/
   const normalized = files.map((f) => f.replace(/\\/g, '/'))
-  const requiredDirectories = ['resources/prompts', 'resources/seeds', 'resources/growth', 'resources/live2d', 'assets/tray']
-  const missing = requiredDirectories.filter((directory) => !normalized.some((f) => f.includes(`${directory}/`)))
+  const requiredDirectories = [
+    'resources/prompts',
+    'resources/seeds',
+    'resources/growth',
+    'resources/live2d',
+    'assets/tray'
+  ]
+  const missing = requiredDirectories.filter(
+    (directory) => !normalized.some((f) => f.includes(`${directory}/`))
+  )
   if (missing.length > 0) {
     return `app.asar 中缺失运行时资源: ${missing.join(', ')}（请重新打包后再发布）`
   }

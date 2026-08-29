@@ -98,7 +98,9 @@ async function save(): Promise<void> {
             <dd>{{ compliance.gate.maxHoldMs }} ms</dd>
           </div>
         </dl>
-        <p class="card-note">门控参数的编辑权限由 C2/C3 门禁决定；当前如需修改请手改 config.json。</p>
+        <p class="card-note">
+          门控参数的编辑权限由 C2/C3 门禁决定；当前如需修改请手改 config.json。
+        </p>
       </section>
 
       <section class="settings-card">

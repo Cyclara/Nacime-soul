@@ -104,7 +104,9 @@ function trendLabel(trend: 'rising' | 'falling' | 'stable'): string {
         </div>
       </li>
     </ul>
-    <button v-if="hasMore" type="button" class="load-more" @click="emit('loadMore')">加载更多有资格的记忆</button>
+    <button v-if="hasMore" type="button" class="load-more" @click="emit('loadMore')">
+      加载更多有资格的记忆
+    </button>
   </section>
 </template>
 
@@ -272,7 +274,9 @@ function trendLabel(trend: 'rising' | 'falling' | 'stable'): string {
   font-size: var(--font-size-xs);
 }
 
-.load-more:hover { background: var(--color-surface); }
+.load-more:hover {
+  background: var(--color-surface);
+}
 
 .trend-badge {
   color: var(--color-text-muted);

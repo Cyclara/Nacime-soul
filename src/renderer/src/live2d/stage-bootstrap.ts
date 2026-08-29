@@ -42,7 +42,12 @@ export async function startLive2dStage(
 
   if (!ready.ok) {
     await api.reportState({ stageInstanceId, status: 'error', errorCode: ready.error.code })
-    return { stageInstanceId, dispose() { /* noop */ } }
+    return {
+      stageInstanceId,
+      dispose() {
+        /* noop */
+      }
+    }
   }
 
   const report = (status: Live2dStageReport['status']): void => {

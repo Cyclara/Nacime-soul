@@ -31,12 +31,15 @@ export function createGcService(options: {
 }): GcService {
   const now = options.now ?? Date.now
 
-  const visible = (): L2Memory[] => options.l2Store.list({ lifecycleState: ['archived', 'soft_deleted'] })
+  const visible = (): L2Memory[] =>
+    options.l2Store.list({ lifecycleState: ['archived', 'soft_deleted'] })
   const scan = (): GcScanResult => scanGcCandidates(visible(), options.getPolicy(), now())
 
   const persistReport = (report: GcReport): void => {
     try {
-      options.db?.prepare(`INSERT OR REPLACE INTO gc_log (ran_at, report) VALUES (?, ?)`).run(report.ranAt, JSON.stringify(report))
+      options.db
+        ?.prepare(`INSERT OR REPLACE INTO gc_log (ran_at, report) VALUES (?, ?)`)
+        .run(report.ranAt, JSON.stringify(report))
     } catch {
       // 报告写入失败不回滚已经安全完成的保守 GC 批次。
     }
@@ -49,11 +52,16 @@ export function createGcService(options: {
     return true
   }
 
-  const purge = (candidates: readonly GcCandidate[], policy: GcPolicy): { count: number; coldFile: string | null; quotaExceeded: number } => {
+  const purge = (
+    candidates: readonly GcCandidate[],
+    policy: GcPolicy
+  ): { count: number; coldFile: string | null; quotaExceeded: number } => {
     const permitted = candidates.slice(0, policy.maxPurgePerRun)
     const records = permitted
       .map((candidate) => options.l2Store.get(candidate.memoryId))
-      .filter((memory): memory is L2Memory => memory !== null && memory.lifecycleState === 'soft_deleted')
+      .filter(
+        (memory): memory is L2Memory => memory !== null && memory.lifecycleState === 'soft_deleted'
+      )
       .map((memory) => ({
         id: memory.id,
         content: memory.content,
@@ -65,8 +73,14 @@ export function createGcService(options: {
         evidenceIds: memory.evidenceIds,
         sourceMessageIds: memory.sourceMessageIds
       }))
-    if (records.length === 0) return { count: 0, coldFile: null, quotaExceeded: Math.max(0, candidates.length - permitted.length) }
-    if (!policy.coldStorage.enabled) return { count: 0, coldFile: null, quotaExceeded: candidates.length }
+    if (records.length === 0)
+      return {
+        count: 0,
+        coldFile: null,
+        quotaExceeded: Math.max(0, candidates.length - permitted.length)
+      }
+    if (!policy.coldStorage.enabled)
+      return { count: 0, coldFile: null, quotaExceeded: candidates.length }
     // 磁盘满/冷目录不可写时整段跳过 purge；soft-delete 段已完成的结果保留。
     let coldFile: string | null = null
     try {
@@ -87,7 +101,11 @@ export function createGcService(options: {
       options.l2Store.remove(record.id)
       options.vectorStore.remove(record.id)
     }
-    return { count: records.length, coldFile, quotaExceeded: Math.max(0, candidates.length - permitted.length) }
+    return {
+      count: records.length,
+      coldFile,
+      quotaExceeded: Math.max(0, candidates.length - permitted.length)
+    }
   }
 
   return {
@@ -97,10 +115,21 @@ export function createGcService(options: {
       const policy = options.getPolicy()
       const scanned = visible().length
       const result = scan()
-      const softCandidates = result.candidates.filter((candidate) => candidate.action === 'soft_delete')
+      const softCandidates = result.candidates.filter(
+        (candidate) => candidate.action === 'soft_delete'
+      )
       const purgeCandidates = result.candidates.filter((candidate) => candidate.action === 'purge')
       if (input.dryRun) {
-        const report = { ranAt: startedAt, dryRun: true, scanned, softDeleted: 0, purged: 0, skipped: result.skipped, coldFile: null, durationMs: Math.max(0, now() - startedAt) }
+        const report = {
+          ranAt: startedAt,
+          dryRun: true,
+          scanned,
+          softDeleted: 0,
+          purged: 0,
+          skipped: result.skipped,
+          coldFile: null,
+          durationMs: Math.max(0, now() - startedAt)
+        }
         persistReport(report)
         return report
       }
@@ -118,17 +147,26 @@ export function createGcService(options: {
         scanned,
         softDeleted,
         purged: purged.count,
-        skipped: { ...result.skipped, quotaExceeded: result.skipped.quotaExceeded + purged.quotaExceeded },
+        skipped: {
+          ...result.skipped,
+          quotaExceeded: result.skipped.quotaExceeded + purged.quotaExceeded
+        },
         coldFile: purged.coldFile,
         durationMs: Math.max(0, now() - startedAt)
       }
       persistReport(report)
-      options.logger.info('memory GC run completed', { scope: 'memory', metrics: { scanned: report.scanned, softDeleted, purged: report.purged } })
+      options.logger.info('memory GC run completed', {
+        scope: 'memory',
+        metrics: { scanned: report.scanned, softDeleted, purged: report.purged }
+      })
       return report
     },
     listRecycleBin(limit, offset) {
       const total = options.l2Store.count({ lifecycleState: 'soft_deleted' })
-      return { items: options.l2Store.list({ lifecycleState: 'soft_deleted', limit, offset }), total }
+      return {
+        items: options.l2Store.list({ lifecycleState: 'soft_deleted', limit, offset }),
+        total
+      }
     },
     restore(memoryId) {
       const memory = options.l2Store.get(memoryId)

@@ -115,7 +115,10 @@ export function removeIpcSenderCapability(webContentsId: number): void {
   senderCapabilities.delete(webContentsId)
   const trustedIds = new Set(guardConfig.trustedWebContentsIds)
   trustedIds.delete(webContentsId)
-  guardConfig = { trustedOrigins: new Set(guardConfig.trustedOrigins), trustedWebContentsIds: trustedIds }
+  guardConfig = {
+    trustedOrigins: new Set(guardConfig.trustedOrigins),
+    trustedWebContentsIds: trustedIds
+  }
 }
 
 function hasChannelCapability(
@@ -125,9 +128,10 @@ function hasChannelCapability(
 ): boolean {
   const capability = senderCapabilities.get(senderId)
   if (capability === undefined) return false
-  const stageOnly = direction === 'invoke'
-    ? STAGE_INVOKE_CHANNELS.has(channel as IpcInvokeChannel)
-    : STAGE_EVENT_CHANNELS.has(channel as IpcEventChannel)
+  const stageOnly =
+    direction === 'invoke'
+      ? STAGE_INVOKE_CHANNELS.has(channel as IpcInvokeChannel)
+      : STAGE_EVENT_CHANNELS.has(channel as IpcEventChannel)
   return stageOnly ? capability === 'live2d-stage' : capability === 'chat'
 }
 
@@ -250,7 +254,10 @@ export function sendEvent<K extends IpcEventChannel>(
   // 既有 chat event 由 main 明确持有目标 webContents，不可由 renderer 自选目标；保留原
   // sendEvent 语义，避免给 updater/memory 等已有通道引入启动时序耦合。唯 stage command
   // 可驱动图形/资源生命周期，必须再经 capability 验证，chat 绝不能收到它。
-  if (STAGE_EVENT_CHANNELS.has(channel) && !hasChannelCapability(webContents.id, channel, 'event')) {
+  if (
+    STAGE_EVENT_CHANNELS.has(channel) &&
+    !hasChannelCapability(webContents.id, channel, 'event')
+  ) {
     ipcLogger.debug('skip stage event for unauthorized webContents', {
       scope: 'ipc',
       tags: { channel, senderId: String(webContents.id) }

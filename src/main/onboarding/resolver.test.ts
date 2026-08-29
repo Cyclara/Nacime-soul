@@ -17,15 +17,19 @@ const initial = {
 
 describe('P3A-29 OnboardingResolver', () => {
   it('无 API Key 始终回 provider-setup，旧的进度会被 healing', () => {
-    expect(resolver.resolve({
-      hasApiKey: false,
-      persisted: { ...initial, stage: 'first-conversation' },
-      history: completedTurnExists
-    })).toEqual({ stage: 'provider-setup', reason: 'no-api-key', persisted: true })
+    expect(
+      resolver.resolve({
+        hasApiKey: false,
+        persisted: { ...initial, stage: 'first-conversation' },
+        history: completedTurnExists
+      })
+    ).toEqual({ stage: 'provider-setup', reason: 'no-api-key', persisted: true })
   })
 
   it('已有 API Key 且存在真实 completed turn 时，不把空 session 误当作首次用户', () => {
-    expect(resolver.resolve({ hasApiKey: true, persisted: initial, history: completedTurnExists })).toEqual({
+    expect(
+      resolver.resolve({ hasApiKey: true, persisted: initial, history: completedTurnExists })
+    ).toEqual({
       stage: 'complete',
       reason: 'existing-user',
       persisted: true
@@ -33,7 +37,9 @@ describe('P3A-29 OnboardingResolver', () => {
   })
 
   it('已有 API Key 但没有真实 completed turn 时进入第一次见面', () => {
-    expect(resolver.resolve({ hasApiKey: true, persisted: initial, history: noCompletedTurns })).toEqual({
+    expect(
+      resolver.resolve({ hasApiKey: true, persisted: initial, history: noCompletedTurns })
+    ).toEqual({
       stage: 'first-conversation',
       reason: 'configured-empty-history',
       persisted: true
@@ -42,11 +48,13 @@ describe('P3A-29 OnboardingResolver', () => {
 
   it('已经持久化的 connection-test / first-conversation / complete 进度优先于自动推断', () => {
     for (const stage of ['connection-test', 'first-conversation', 'complete'] as const) {
-      expect(resolver.resolve({
-        hasApiKey: true,
-        persisted: { ...initial, stage },
-        history: completedTurnExists
-      })).toEqual({ stage, reason: 'persisted-progress', persisted: false })
+      expect(
+        resolver.resolve({
+          hasApiKey: true,
+          persisted: { ...initial, stage },
+          history: completedTurnExists
+        })
+      ).toEqual({ stage, reason: 'persisted-progress', persisted: false })
     }
   })
 })

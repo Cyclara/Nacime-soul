@@ -11,7 +11,9 @@ import { useConfigStore } from '../stores/config'
 import { useChatStore } from '../stores/chat'
 import ChatShell from '../components/chat/ChatShell.vue'
 import FirstRunGuide from '../components/onboarding/FirstRunGuide.vue'
-import StartupTransition, { type StartupStage } from '../components/onboarding/StartupTransition.vue'
+import StartupTransition, {
+  type StartupStage
+} from '../components/onboarding/StartupTransition.vue'
 
 const appStore = useAppStore()
 const configStore = useConfigStore()
@@ -28,7 +30,10 @@ const needsOnboarding = computed(() => {
 })
 
 const isLoading = computed(
-  () => appState.value.bootStage === 'idle' || appState.value.bootStage === 'loading-config' || appState.value.bootStage === 'registering-events'
+  () =>
+    appState.value.bootStage === 'idle' ||
+    appState.value.bootStage === 'loading-config' ||
+    appState.value.bootStage === 'registering-events'
 )
 const startupStage = computed<StartupStage>(() => {
   if (appState.value.fatalError) return 'blocked'
@@ -46,10 +51,7 @@ function onFirstRunComplete(text: string): void {
 
 <template>
   <div class="chat-view">
-    <StartupTransition
-      v-if="isLoading"
-      :stage="startupStage"
-    />
+    <StartupTransition v-if="isLoading" :stage="startupStage" />
     <div v-else-if="appState.fatalError" class="fatal-error" role="alert">
       <p>{{ appState.fatalError.message }}</p>
       <button class="retry-btn" @click="appStore.reset()">重试</button>

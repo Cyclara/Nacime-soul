@@ -21,7 +21,9 @@ function loadScript(url: string, scriptId: string, documentRef: Document): Promi
         resolvePromise()
       } else {
         existing.addEventListener('load', () => resolvePromise(), { once: true })
-        existing.addEventListener('error', () => reject(new Error('CUBISM_CORE_LOAD_FAILED')), { once: true })
+        existing.addEventListener('error', () => reject(new Error('CUBISM_CORE_LOAD_FAILED')), {
+          once: true
+        })
       }
       return
     }
@@ -29,13 +31,25 @@ function loadScript(url: string, scriptId: string, documentRef: Document): Promi
     script.id = scriptId
     script.src = url
     script.async = false
-    script.addEventListener('load', () => { script.dataset['loaded'] = 'true'; resolvePromise() }, { once: true })
-    script.addEventListener('error', () => reject(new Error('CUBISM_CORE_LOAD_FAILED')), { once: true })
+    script.addEventListener(
+      'load',
+      () => {
+        script.dataset['loaded'] = 'true'
+        resolvePromise()
+      },
+      { once: true }
+    )
+    script.addEventListener('error', () => reject(new Error('CUBISM_CORE_LOAD_FAILED')), {
+      once: true
+    })
     documentRef.head.append(script)
   })
 }
 
-export function ensureCubismCore(url: string | null, documentRef: Document = document): Promise<void> {
+export function ensureCubismCore(
+  url: string | null,
+  documentRef: Document = document
+): Promise<void> {
   const hostWindow = documentRef.defaultView as CubismWindow | null
   if (url !== CUBISM_CORE_URL || hostWindow === null) {
     return Promise.reject(new Error('CUBISM_CORE_UNAVAILABLE'))

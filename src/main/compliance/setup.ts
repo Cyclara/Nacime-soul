@@ -45,11 +45,7 @@ import { registerHook } from '../hooks/registry'
 import { COMPLIANCE_RULES } from './rules'
 import { compileComplianceRules, type CompiledComplianceRule } from './compile'
 import { createComplianceCircuit, type ComplianceCircuit } from './circuit'
-import {
-  createComplianceGate,
-  type ComplianceGate,
-  type ComplianceGateOutcome
-} from './gate'
+import { createComplianceGate, type ComplianceGate, type ComplianceGateOutcome } from './gate'
 import {
   createComplianceAuditor,
   type ComplianceAuditInput,
@@ -176,10 +172,12 @@ export function setupCompliance(deps: SetupComplianceDeps): ComplianceInfrastruc
     }
   }
 
-  const getGateConfig = (): Readonly<ReturnType<typeof deps.configStore.get>['persona']['compliance']['gate']> =>
-    deps.configStore.get().persona.compliance.gate
-  const getAuditConfig = (): Readonly<ReturnType<typeof deps.configStore.get>['persona']['compliance']['audit']> =>
-    deps.configStore.get().persona.compliance.audit
+  const getGateConfig = (): Readonly<
+    ReturnType<typeof deps.configStore.get>['persona']['compliance']['gate']
+  > => deps.configStore.get().persona.compliance.gate
+  const getAuditConfig = (): Readonly<
+    ReturnType<typeof deps.configStore.get>['persona']['compliance']['audit']
+  > => deps.configStore.get().persona.compliance.audit
 
   /** gate 是否处于采集状态（裁定 1.8：enabled=总开关，scope='off' 运行时等价关闭）。 */
   const gateCollecting = (): boolean => {
@@ -320,7 +318,10 @@ export function setupCompliance(deps: SetupComplianceDeps): ComplianceInfrastruc
       }
       for (const record of records) {
         if (ruleById.has(record.ruleId)) {
-          snapshotState.ruleHits.set(record.ruleId, (snapshotState.ruleHits.get(record.ruleId) ?? 0) + 1)
+          snapshotState.ruleHits.set(
+            record.ruleId,
+            (snapshotState.ruleHits.get(record.ruleId) ?? 0) + 1
+          )
         }
       }
       for (const entry of snapshotEntries) pushRing(entry)
@@ -533,11 +534,14 @@ export function setupCompliance(deps: SetupComplianceDeps): ComplianceInfrastruc
       if (enqueued) auditHook.startConsumer()
     } catch (e) {
       try {
-        cmplLogger.warn('compliance dislike supplementary-audit failed (feedback already persisted)', {
-          scope: 'compliance',
-          turnId,
-          tags: { reason: e instanceof Error ? e.name : 'unknown' }
-        })
+        cmplLogger.warn(
+          'compliance dislike supplementary-audit failed (feedback already persisted)',
+          {
+            scope: 'compliance',
+            turnId,
+            tags: { reason: e instanceof Error ? e.name : 'unknown' }
+          }
+        )
       } catch {
         /* logger 抛错不影响主流程 */
       }

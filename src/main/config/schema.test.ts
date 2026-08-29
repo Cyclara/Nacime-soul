@@ -555,12 +555,21 @@ describe('P1-06 UiConfigSchema', () => {
   })
 
   it('live2d.selectedModelId 可选且合法值通过', () => {
-    expectValid(UiConfigSchema, { ...DEFAULT_CONFIG_V1.ui, live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: 'mao' } })
+    expectValid(UiConfigSchema, {
+      ...DEFAULT_CONFIG_V1.ui,
+      live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: 'mao' }
+    })
   })
 
   it('live2d.selectedModelId 非法路径/空值 -> 失败', () => {
-    expectInvalid(UiConfigSchema, { ...DEFAULT_CONFIG_V1.ui, live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: '' } })
-    expectInvalid(UiConfigSchema, { ...DEFAULT_CONFIG_V1.ui, live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: 'C:\\secret.model3.json' } })
+    expectInvalid(UiConfigSchema, {
+      ...DEFAULT_CONFIG_V1.ui,
+      live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: '' }
+    })
+    expectInvalid(UiConfigSchema, {
+      ...DEFAULT_CONFIG_V1.ui,
+      live2d: { ...DEFAULT_CONFIG_V1.ui.live2d, selectedModelId: 'C:\\secret.model3.json' }
+    })
   })
 
   it('window.x 可选，省略 -> 通过', () => {

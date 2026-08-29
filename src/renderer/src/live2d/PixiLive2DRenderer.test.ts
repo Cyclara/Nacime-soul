@@ -54,7 +54,13 @@ interface AdapterHarness {
     expressions: string[]
     motions: Array<{ group: string; index: number | undefined }>
     parameters: Array<{ id: string; value: number; weight: number | undefined }>
-    layouts: Array<{ width: number; height: number; zoom: number; offsetX: number; offsetY: number }>
+    layouts: Array<{
+      width: number
+      height: number
+      zoom: number
+      offsetX: number
+      offsetY: number
+    }>
     stageModels: PixiLive2DModelHandle[]
     models: FakeModelHandle[]
     context: 'ok' | 'throw-on-add' | 'throw-on-render'
@@ -208,7 +214,10 @@ function canvas(): HTMLCanvasElement {
 describe('P3A-02/03 PixiLive2DRenderer', () => {
   it('业务抽象不泄漏 Pixi：挂载、加载、参数、motion 和 hitTest 均走注入 adapter', async () => {
     const harness = createHarness()
-    const renderer = new PixiLive2DRenderer({ adapterFactory: () => harness.adapter, now: () => 100 })
+    const renderer = new PixiLive2DRenderer({
+      adapterFactory: () => harness.adapter,
+      now: () => 100
+    })
     renderer.attach(canvas())
     await renderer.load('model.model3.json')
 
@@ -371,7 +380,10 @@ describe('P3A-16 帧插件跑在 native motion 求值处', () => {
   it('ticker 只推进计时器，插件由模型内部求值触发，且 pre/native/post 顺序正确', async () => {
     const harness = createHarness()
     let clock = 0
-    const renderer = new PixiLive2DRenderer({ adapterFactory: () => harness.adapter, now: () => clock })
+    const renderer = new PixiLive2DRenderer({
+      adapterFactory: () => harness.adapter,
+      now: () => clock
+    })
     renderer.attach(canvas())
     await renderer.load('stable')
     const model = harness.state.models[0]!

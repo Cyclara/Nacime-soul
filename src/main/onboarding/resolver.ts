@@ -5,10 +5,7 @@
 import type { OnboardingConfigV1, OnboardingStage } from '@shared/config/types'
 
 export type OnboardingResolutionReason =
-  | 'no-api-key'
-  | 'configured-empty-history'
-  | 'existing-user'
-  | 'persisted-progress'
+  'no-api-key' | 'configured-empty-history' | 'existing-user' | 'persisted-progress'
 
 export interface OnboardingHistoryProbe {
   hasCompletedTurn(): boolean

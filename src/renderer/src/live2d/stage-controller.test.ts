@@ -26,28 +26,67 @@ function renderer(): FakeRenderer {
     set failNextLoad(value: boolean) {
       failNextLoad = value
     },
-    attach() { calls.push('attach') },
+    attach() {
+      calls.push('attach')
+    },
     async load(url: string) {
       calls.push(`load:${url}`)
       if (failNextLoad) throw new Error('fake model failure')
     },
-    unload() { calls.push('unload') },
-    resize(width: number, height: number) { calls.push(`resize:${width}x${height}`) },
-    setZoom(zoom: number) { calls.push(`zoom:${zoom}`) },
-    setOffset(offsetX: number, offsetY: number) { calls.push(`offset:${offsetX},${offsetY}`) },
-    pause() { calls.push('pause') },
-    resume() { calls.push('resume') },
-    setFrameDriver(driver: Live2DFrameDriver | null) { void driver },
-    async setExpression(name: string) { calls.push(`expression:${name}`); return true },
-    async playMotion() { return true },
-    setParameter(update: Live2DParameterUpdate) { void update; return true },
-    setMouthOpen() { return true },
-    setEyeOpen() { return true },
-    hitTest() { return [] },
-    getMetrics(): Live2DRendererMetrics {
-      return { fps: 60, frameCount: 1, modelLoadMs: 33, contextLossCount: 0, paused: false, hasModel: true }
+    unload() {
+      calls.push('unload')
     },
-    dispose() { calls.push('dispose') }
+    resize(width: number, height: number) {
+      calls.push(`resize:${width}x${height}`)
+    },
+    setZoom(zoom: number) {
+      calls.push(`zoom:${zoom}`)
+    },
+    setOffset(offsetX: number, offsetY: number) {
+      calls.push(`offset:${offsetX},${offsetY}`)
+    },
+    pause() {
+      calls.push('pause')
+    },
+    resume() {
+      calls.push('resume')
+    },
+    setFrameDriver(driver: Live2DFrameDriver | null) {
+      void driver
+    },
+    async setExpression(name: string) {
+      calls.push(`expression:${name}`)
+      return true
+    },
+    async playMotion() {
+      return true
+    },
+    setParameter(update: Live2DParameterUpdate) {
+      void update
+      return true
+    },
+    setMouthOpen() {
+      return true
+    },
+    setEyeOpen() {
+      return true
+    },
+    hitTest() {
+      return []
+    },
+    getMetrics(): Live2DRendererMetrics {
+      return {
+        fps: 60,
+        frameCount: 1,
+        modelLoadMs: 33,
+        contextLossCount: 0,
+        paused: false,
+        hasModel: true
+      }
+    },
+    dispose() {
+      calls.push('dispose')
+    }
   }
   return implementation
 }
@@ -62,14 +101,24 @@ describe('P3A-06/07 StageController', () => {
     })
     const controller = createStageController({
       renderer: fake,
-      report: async (report) => { reports.push(report) },
+      report: async (report) => {
+        reports.push(report)
+      },
       requestFrame,
       setTimer: () => 0 as unknown as ReturnType<typeof setTimeout>,
       ensureCubismCore: async () => {}
     })
 
     controller.attach({} as HTMLCanvasElement)
-    await controller.initialize({ stageInstanceId: 'stage-1', status: 'loading-model', initialModelUrl: 'safe://mao', cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 })
+    await controller.initialize({
+      stageInstanceId: 'stage-1',
+      status: 'loading-model',
+      initialModelUrl: 'safe://mao',
+      cubismCoreUrl: null,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0
+    })
 
     expect(fake.calls).toEqual(['attach', 'zoom:1', 'offset:0,0', 'load:safe://mao'])
     expect(requestFrame).toHaveBeenCalledTimes(1)
@@ -86,17 +135,40 @@ describe('P3A-06/07 StageController', () => {
     let timer: (() => void) | null = null
     const controller = createStageController({
       renderer: fake,
-      report: async (report) => { reports.push(report) },
-      requestFrame: (callback) => { callback(0); return 0 },
-      setTimer: (callback) => { timer = callback; return 0 as unknown as ReturnType<typeof setTimeout> },
-      clearTimer: () => { timer = null },
+      report: async (report) => {
+        reports.push(report)
+      },
+      requestFrame: (callback) => {
+        callback(0)
+        return 0
+      },
+      setTimer: (callback) => {
+        timer = callback
+        return 0 as unknown as ReturnType<typeof setTimeout>
+      },
+      clearTimer: () => {
+        timer = null
+      },
       ensureCubismCore: async () => {}
     })
     controller.attach({} as HTMLCanvasElement)
-    await controller.initialize({ stageInstanceId: 'stage-performance', status: 'loading-model', initialModelUrl: 'safe://mao', cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 })
+    await controller.initialize({
+      stageInstanceId: 'stage-performance',
+      status: 'loading-model',
+      initialModelUrl: 'safe://mao',
+      cubismCoreUrl: null,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0
+    })
     const performanceCallback = timer as (() => void) | null
     performanceCallback?.()
-    expect(reports.at(-1)).toEqual({ stageInstanceId: 'stage-performance', status: 'ready', fps: 60, modelLoadMs: 33 })
+    expect(reports.at(-1)).toEqual({
+      stageInstanceId: 'stage-performance',
+      status: 'ready',
+      fps: 60,
+      modelLoadMs: 33
+    })
     controller.dispose()
   })
 
@@ -106,17 +178,37 @@ describe('P3A-06/07 StageController', () => {
     const reports: unknown[] = []
     const controller = createStageController({
       renderer: fake,
-      report: async (report) => { reports.push(report) },
-      requestFrame: (callback) => { callback(0); return 0 },
+      report: async (report) => {
+        reports.push(report)
+      },
+      requestFrame: (callback) => {
+        callback(0)
+        return 0
+      },
       ensureCubismCore: async () => {}
     })
     controller.attach({} as HTMLCanvasElement)
 
     await expect(
-      controller.initialize({ stageInstanceId: 'stage-2', status: 'loading-model', initialModelUrl: 'safe://broken', cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 })
+      controller.initialize({
+        stageInstanceId: 'stage-2',
+        status: 'loading-model',
+        initialModelUrl: 'safe://broken',
+        cubismCoreUrl: null,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0
+      })
     ).resolves.toBeUndefined()
-    expect(reports.at(-1)).toEqual({ stageInstanceId: 'stage-2', status: 'error', errorCode: 'MODEL_JSON_INVALID' })
-    expect(controller.getState()).toMatchObject({ status: 'error', errorCode: 'MODEL_JSON_INVALID' })
+    expect(reports.at(-1)).toEqual({
+      stageInstanceId: 'stage-2',
+      status: 'error',
+      errorCode: 'MODEL_JSON_INVALID'
+    })
+    expect(controller.getState()).toMatchObject({
+      status: 'error',
+      errorCode: 'MODEL_JSON_INVALID'
+    })
   })
 
   it('枚举 command 只调用对应 renderer 方法，dispose 后不再处理新命令', async () => {
@@ -124,11 +216,22 @@ describe('P3A-06/07 StageController', () => {
     const controller = createStageController({
       renderer: fake,
       report: async () => {},
-      requestFrame: (callback) => { callback(0); return 0 },
+      requestFrame: (callback) => {
+        callback(0)
+        return 0
+      },
       ensureCubismCore: async () => {}
     })
     controller.attach({} as HTMLCanvasElement)
-    await controller.initialize({ stageInstanceId: 'stage-3', status: 'loading-model', initialModelUrl: null, cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 })
+    await controller.initialize({
+      stageInstanceId: 'stage-3',
+      status: 'loading-model',
+      initialModelUrl: null,
+      cubismCoreUrl: null,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0
+    })
 
     await controller.handleCommand({ type: 'set-zoom', zoom: 1.5 })
     await controller.handleCommand({ type: 'set-offset', offsetX: -20, offsetY: 50 })
@@ -159,12 +262,24 @@ describe('P3A-06/07 StageController', () => {
     const controller = createStageController({
       renderer: fake,
       report: async () => {},
-      requestFrame: (callback) => { callback(0); return 0 },
+      requestFrame: (callback) => {
+        callback(0)
+        return 0
+      },
       ensureCubismCore: async () => {}
     })
     controller.attach({} as HTMLCanvasElement)
     // bootstrap 来自首选模型：一个表情都没有。
-    await controller.initialize({ stageInstanceId: 'stage-4', status: 'loading-model', initialModelUrl: null, cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0, expressionNames: [] })
+    await controller.initialize({
+      stageInstanceId: 'stage-4',
+      status: 'loading-model',
+      initialModelUrl: null,
+      cubismCoreUrl: null,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+      expressionNames: []
+    })
 
     await controller.handleCommand({ type: 'set-emotion', emotion: 'happy' })
     expect(fake.calls.filter((call) => call.startsWith('expression:'))).toEqual([])

@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { discoverLive2dModel, Live2dModelDiscoveryError, type DiscoverLive2dModelOptions } from './model-discovery'
+import {
+  discoverLive2dModel,
+  Live2dModelDiscoveryError,
+  type DiscoverLive2dModelOptions
+} from './model-discovery'
 
 const roots: string[] = []
 afterEach(() => {
@@ -19,7 +23,12 @@ function temporaryDirectory(): string {
 }
 
 function options(directory: string): DiscoverLive2dModelOptions {
-  return { modelDirectory: directory, id: 'model-1', displayName: '测试模型', source: 'user' as const }
+  return {
+    modelDirectory: directory,
+    id: 'model-1',
+    displayName: '测试模型',
+    source: 'user' as const
+  }
 }
 
 describe('P3A-09 model discovery', () => {
@@ -59,7 +68,10 @@ describe('P3A-09 model discovery', () => {
     const root = temporaryDirectory()
     writeFileSync(
       join(root, 'bad.model3.json'),
-      JSON.stringify({ Version: 3, FileReferences: { Moc: '../secret.moc3', Textures: ['tex.png'] } }),
+      JSON.stringify({
+        Version: 3,
+        FileReferences: { Moc: '../secret.moc3', Textures: ['tex.png'] }
+      }),
       'utf8'
     )
     writeFileSync(join(root, 'tex.png'), '', 'utf8')
@@ -94,7 +106,10 @@ describe('P3A-09 model discovery', () => {
     writeFileSync(join(root, 'textures/texture.png'), '', 'utf8')
     writeFileSync(
       join(root, 'model.model3.json'),
-      JSON.stringify({ Version: 3, FileReferences: { Moc: 'model.moc3', Textures: ['textures/texture.png'] } }),
+      JSON.stringify({
+        Version: 3,
+        FileReferences: { Moc: 'model.moc3', Textures: ['textures/texture.png'] }
+      }),
       'utf8'
     )
 

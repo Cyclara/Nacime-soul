@@ -14,7 +14,10 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function writeArchive(root: string, entries: Record<string, string | Uint8Array>): Promise<string> {
+async function writeArchive(
+  root: string,
+  entries: Record<string, string | Uint8Array>
+): Promise<string> {
   const zip = new JSZip()
   for (const [name, content] of Object.entries(entries)) zip.file(name, content)
   const path = join(root, 'model.zip')
@@ -34,7 +37,11 @@ function makeImporter(
     userModelsRoot: join(root, 'installed')
   })
   return {
-    importer: createLive2dModelImporter({ userModelsRoot: join(root, 'installed'), registry, limits }),
+    importer: createLive2dModelImporter({
+      userModelsRoot: join(root, 'installed'),
+      registry,
+      limits
+    }),
     registry
   }
 }
@@ -111,7 +118,9 @@ describe('P3A-13/14 Live2D model importer', () => {
     expect(result.manifest?.hasMouthOpen).toBe(true)
     expect(registry.get(result.modelId!)).not.toBeNull()
     expect(existsSync(join(root, 'installed', result.modelId!))).toBe(true)
-    expect(readFileSync(join(root, 'installed', result.modelId!, 'model.model3.json'), 'utf8')).toBe(MODEL_JSON)
+    expect(
+      readFileSync(join(root, 'installed', result.modelId!, 'model.model3.json'), 'utf8')
+    ).toBe(MODEL_JSON)
     expect(existsSync(join(root, 'installed', '.import-fixed'))).toBe(false)
   })
 
@@ -134,7 +143,12 @@ describe('P3A-13/14 Live2D model importer', () => {
     roots.push(root)
     const entriesList: Record<string, string>[] = [
       { 'items_pinned_to_model.json': '{}', 'model.moc3': 'x' },
-      { 'model.model3.json': MODEL_JSON, 'model.moc3': 'moc', 'texture.png': 'png', 'payload.exe': 'bad' }
+      {
+        'model.model3.json': MODEL_JSON,
+        'model.moc3': 'moc',
+        'texture.png': 'png',
+        'payload.exe': 'bad'
+      }
     ]
     for (const entries of entriesList) {
       const zipPath = await writeArchive(root, entries)

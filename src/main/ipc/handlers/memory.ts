@@ -222,7 +222,8 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
   registerValidatedHandler('companion:memory:list-recycle-bin', async (_ctx, input) => {
     if (disabled()) return { items: [], total: 0, revision: 0 }
     const gc = services!.gcService
-    if (gc === null || gc === undefined) return { items: [], total: 0, revision: services!.revisionClock.current() }
+    if (gc === null || gc === undefined)
+      return { items: [], total: 0, revision: services!.revisionClock.current() }
     const page = gc.listRecycleBin(input.limit, input.offset)
     return {
       items: page.items.map((memory) => ({
@@ -237,17 +238,23 @@ export function registerMemoryHandlers(deps: MemoryHandlerDeps): void {
     }
   })
 
-  registerValidatedHandler('companion:memory:restore-from-recycle-bin', async (_ctx, input): Promise<void> => {
-    if (disabled()) throw memDisabled()
-    if (!services!.gcService?.restore(input.memoryId)) throw memNotFound()
-  })
+  registerValidatedHandler(
+    'companion:memory:restore-from-recycle-bin',
+    async (_ctx, input): Promise<void> => {
+      if (disabled()) throw memDisabled()
+      if (!services!.gcService?.restore(input.memoryId)) throw memNotFound()
+    }
+  )
 
-  registerValidatedHandler('companion:memory:empty-recycle-bin', async (): Promise<{ purged: number }> => {
-    if (disabled()) throw memDisabled()
-    const gc = services!.gcService
-    if (gc === null || gc === undefined) return { purged: 0 }
-    return { purged: gc.emptyRecycleBin() }
-  })
+  registerValidatedHandler(
+    'companion:memory:empty-recycle-bin',
+    async (): Promise<{ purged: number }> => {
+      if (disabled()) throw memDisabled()
+      const gc = services!.gcService
+      if (gc === null || gc === undefined) return { purged: 0 }
+      return { purged: gc.emptyRecycleBin() }
+    }
+  )
 
   // === companion:memory:update-content（M-44）===
   // 用户编辑 L2 记忆内容：trim 非空 -> 落库 + syncStatus 打回 pending（改过的内容需重新向量化）

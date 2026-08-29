@@ -87,9 +87,12 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
     // 先等**任一**终局界面出现再分支：密钥能否跨重启回读取决于机器的系统钥匙串
     // （GitHub Actions 的 Windows runner 上 safeStorage 密文换进程就解不开），
     // 死等其中一个会在另一条路径上白等 30 秒再报一个看不出原因的错。
-    await win.waitForSelector('.first-conversation, input[placeholder="https://api.deepseek.com"]', {
-      timeout: 30_000
-    })
+    await win.waitForSelector(
+      '.first-conversation, input[placeholder="https://api.deepseek.com"]',
+      {
+        timeout: 30_000
+      }
+    )
 
     const persisted = await win.evaluate(async () => {
       const current = await window.companion.config.get()

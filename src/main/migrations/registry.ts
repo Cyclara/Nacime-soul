@@ -16,4 +16,17 @@ import { migration as m010 } from './scripts/010_dmae_prompt_truth'
 import { migration as m011 } from './scripts/011_gc_retention_metadata'
 import { migration as m012 } from './scripts/012_gc_log'
 
-export const MIGRATIONS: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012]
+export const MIGRATIONS: Migration[] = [
+  m001,
+  m002,
+  m003,
+  m004,
+  m005,
+  m006,
+  m007,
+  m008,
+  m009,
+  m010,
+  m011,
+  m012
+]

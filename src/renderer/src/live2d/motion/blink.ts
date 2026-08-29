@@ -48,9 +48,10 @@ export function createBlinkController(options: BlinkOptions): BlinkController {
   const schedule = (): void => {
     const span = Math.max(0, maxIdleMs - minIdleMs)
     scheduledIntervalMs = minIdleMs + unitRandom(random) * span
-    nextBlinkInMs = options.reduceMotion?.() === true
-      ? Math.max(scheduledIntervalMs, 12_000)
-      : scheduledIntervalMs
+    nextBlinkInMs =
+      options.reduceMotion?.() === true
+        ? Math.max(scheduledIntervalMs, 12_000)
+        : scheduledIntervalMs
     elapsed = 0
   }
 
@@ -95,7 +96,8 @@ export function createBlinkController(options: BlinkOptions): BlinkController {
         if (progress >= 1) {
           state = 'closed'
           elapsed = 0
-          openingDuration = minOpeningMs + unitRandom(random) * Math.max(0, maxOpeningMs - minOpeningMs)
+          openingDuration =
+            minOpeningMs + unitRandom(random) * Math.max(0, maxOpeningMs - minOpeningMs)
         }
         return
       }
@@ -114,8 +116,12 @@ export function createBlinkController(options: BlinkOptions): BlinkController {
 
   reset()
   return {
-    get state() { return state },
-    get nextBlinkInMs() { return Math.max(0, nextBlinkInMs - elapsed) },
+    get state() {
+      return state
+    },
+    get nextBlinkInMs() {
+      return Math.max(0, nextBlinkInMs - elapsed)
+    },
     update,
     reset,
     dispose() {
@@ -124,7 +130,9 @@ export function createBlinkController(options: BlinkOptions): BlinkController {
   }
 }
 
-export function createBlinkPlugin(options: BlinkOptions): MotionPlugin & { readonly controller: BlinkController } {
+export function createBlinkPlugin(
+  options: BlinkOptions
+): MotionPlugin & { readonly controller: BlinkController } {
   const controller = createBlinkController(options)
   return {
     id: 'auto-blink',

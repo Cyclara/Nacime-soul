@@ -8,7 +8,7 @@
   "scripts": {
     "format": "prettier --write .",
     "check:repo-hygiene": "node scripts/check-repo-hygiene.mjs",
-    "lint": "eslint --cache .",
+    "lint": "eslint --cache --max-warnings=0 .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json --composite false",

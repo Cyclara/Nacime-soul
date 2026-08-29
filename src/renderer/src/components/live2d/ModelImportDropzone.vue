@@ -20,7 +20,9 @@ function onDragOver(event: DragEvent): void {
   event.preventDefault()
   dragging.value = true
 }
-function onDragLeave(): void { dragging.value = false }
+function onDragLeave(): void {
+  dragging.value = false
+}
 function onDrop(event: DragEvent): void {
   event.preventDefault()
   dragging.value = false
@@ -56,14 +58,63 @@ function onDrop(event: DragEvent): void {
 </template>
 
 <style scoped>
-.dropzone-section { margin-top: 1rem; }
-.dropzone { display: flex; align-items: center; gap: 0.7rem; min-height: 4.6rem; padding: 0.85rem 1rem; border: 1px dashed rgb(193 177 255 / 46%); border-radius: 0.9rem; background: linear-gradient(105deg, rgb(193 177 255 / 9%), rgb(255 255 255 / 3%)); color: var(--color-text-secondary, rgb(255 255 255 / 78%)); cursor: pointer; transition: 160ms ease; }
-.dropzone:hover, .dropzone:focus-visible, .dropzone--dragging { border-color: rgb(193 177 255 / 92%); background: rgb(193 177 255 / 16%); outline: none; }
-.dropzone--loading { cursor: progress; opacity: 0.7; }
-.dropzone__icon { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 0.65rem; background: rgb(193 177 255 / 18%); color: rgb(219 211 255); font-size: 1.4rem; }
-.dropzone > span:nth-child(2) { display: grid; gap: 0.18rem; }
-.dropzone strong { color: var(--color-text-primary, white); font-size: 0.82rem; }
-.dropzone small { color: var(--color-text-muted, rgb(255 255 255 / 55%)); font-size: 0.72rem; }
-.dropzone__loading { margin-left: auto; font-size: 1.25rem; }
-.dropzone__message { margin: 0.55rem 0 0; color: var(--color-text-muted, rgb(255 255 255 / 58%)); font-size: 0.72rem; line-height: 1.4; }
+.dropzone-section {
+  margin-top: 1rem;
+}
+.dropzone {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 4.6rem;
+  padding: 0.85rem 1rem;
+  border: 1px dashed rgb(193 177 255 / 46%);
+  border-radius: 0.9rem;
+  background: linear-gradient(105deg, rgb(193 177 255 / 9%), rgb(255 255 255 / 3%));
+  color: var(--color-text-secondary, rgb(255 255 255 / 78%));
+  cursor: pointer;
+  transition: 160ms ease;
+}
+.dropzone:hover,
+.dropzone:focus-visible,
+.dropzone--dragging {
+  border-color: rgb(193 177 255 / 92%);
+  background: rgb(193 177 255 / 16%);
+  outline: none;
+}
+.dropzone--loading {
+  cursor: progress;
+  opacity: 0.7;
+}
+.dropzone__icon {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 0.65rem;
+  background: rgb(193 177 255 / 18%);
+  color: rgb(219 211 255);
+  font-size: 1.4rem;
+}
+.dropzone > span:nth-child(2) {
+  display: grid;
+  gap: 0.18rem;
+}
+.dropzone strong {
+  color: var(--color-text-primary, white);
+  font-size: 0.82rem;
+}
+.dropzone small {
+  color: var(--color-text-muted, rgb(255 255 255 / 55%));
+  font-size: 0.72rem;
+}
+.dropzone__loading {
+  margin-left: auto;
+  font-size: 1.25rem;
+}
+.dropzone__message {
+  margin: 0.55rem 0 0;
+  color: var(--color-text-muted, rgb(255 255 255 / 58%));
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
 </style>

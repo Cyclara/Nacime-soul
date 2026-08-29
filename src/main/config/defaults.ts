@@ -130,7 +130,14 @@ const DOMAIN_DEFAULTS = {
     // JSON.stringify 落盘时丢弃 undefined——首次启动 config 仍无 x/y，Electron 居中语义不变
     window: { width: 900, height: 720, x: undefined, y: undefined, maximized: false },
     chat: { sendOnEnter: true, showTimestamps: false, showReasoning: true },
-    live2d: { enabled: false, zoom: 1, alwaysOnTop: true, offsetX: 0, offsetY: 0, selectedModelId: undefined }
+    live2d: {
+      enabled: false,
+      zoom: 1,
+      alwaysOnTop: true,
+      offsetX: 0,
+      offsetY: 0,
+      selectedModelId: undefined
+    }
   },
   security: {
     allowHttpLocalhostInDev: true,

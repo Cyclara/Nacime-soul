@@ -112,7 +112,9 @@ export class Live2dWindowManager {
     }
     if (existing !== null) this.releaseWindow(existing)
 
-    const window = this.deps.createWindow({ alwaysOnTop: this.alwaysOnTop }) as unknown as ManagedStageWindow
+    const window = this.deps.createWindow({
+      alwaysOnTop: this.alwaysOnTop
+    }) as unknown as ManagedStageWindow
     this.window = window
     this.webContentsId = window.webContents.id
     this.stageInstanceId = null
@@ -303,7 +305,9 @@ export class Live2dWindowManager {
   sendStageCommand(command: Live2dStageCommand): void {
     const window = this.window
     if (window === null || window.isDestroyed() || this.stageInstanceId === null) return
-    const send = this.deps.sendStageCommand ?? ((wc, payload) => sendEvent(wc, 'companion:event:stage-command', payload))
+    const send =
+      this.deps.sendStageCommand ??
+      ((wc, payload) => sendEvent(wc, 'companion:event:stage-command', payload))
     try {
       send(window.webContents, command)
     } catch {
@@ -329,7 +333,8 @@ export class Live2dWindowManager {
     if (plan === null) return
     for (let index = this.pendingLoadAttemptIndex + 1; index < plan.attempts.length; index++) {
       const attempt = plan.attempts[index]!
-      const modelUrl = this.deps.getLoadAttemptUrl?.(index) ?? this.deps.getStageModelUrl(attempt.modelId)
+      const modelUrl =
+        this.deps.getLoadAttemptUrl?.(index) ?? this.deps.getStageModelUrl(attempt.modelId)
       if (modelUrl === null) continue
       this.pendingLoadAttemptIndex = index
       this.activeModelId = attempt.modelId
@@ -377,9 +382,11 @@ export class Live2dWindowManager {
 
   private scheduleStageResume(): void {
     if (this.resumeTimer !== null) clearTimeout(this.resumeTimer)
-    const scheduleResume = this.deps.scheduleResume ?? ((callback: () => void) => {
-      this.resumeTimer = setTimeout(callback, 0)
-    })
+    const scheduleResume =
+      this.deps.scheduleResume ??
+      ((callback: () => void) => {
+        this.resumeTimer = setTimeout(callback, 0)
+      })
     scheduleResume(() => {
       this.resumeTimer = null
       this.sendStageCommand({ type: 'resume' })

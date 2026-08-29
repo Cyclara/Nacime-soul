@@ -16,7 +16,9 @@ export const migration: Migration = {
   },
   validate({ db }) {
     const columns = new Set(
-      (db.prepare(`PRAGMA table_info(l2_memories)`).all() as Array<{ name: string }>).map((row) => row.name)
+      (db.prepare(`PRAGMA table_info(l2_memories)`).all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
     )
     if (!columns.has('soft_deleted_at') || !columns.has('last_accessed_at')) {
       return { ok: false, detail: 'l2_memories GC retention columns missing after migration 011' }

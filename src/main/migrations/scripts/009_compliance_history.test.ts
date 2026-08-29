@@ -15,11 +15,21 @@ import { MIGRATIONS } from '../registry'
 import { migration as m009 } from './009_compliance_history'
 
 const noop: Logger = {
-  fatal() { /* noop */ },
-  error() { /* noop */ },
-  warn() { /* noop */ },
-  info() { /* noop */ },
-  debug() { /* noop */ },
+  fatal() {
+    /* noop */
+  },
+  error() {
+    /* noop */
+  },
+  warn() {
+    /* noop */
+  },
+  info() {
+    /* noop */
+  },
+  debug() {
+    /* noop */
+  },
   child() {
     return noop
   }
@@ -269,9 +279,11 @@ describe('009_compliance_history：dry-run / rollback', () => {
 
     db = new Database(dbPath)
     expect(db.pragma('user_version', { simple: true })).toBe(12)
-    expect(db.prepare(`SELECT turn_id FROM compliance_turns WHERE turn_id='t-keep'`).get()).toEqual({
-      turn_id: 't-keep'
-    })
+    expect(db.prepare(`SELECT turn_id FROM compliance_turns WHERE turn_id='t-keep'`).get()).toEqual(
+      {
+        turn_id: 't-keep'
+      }
+    )
     db.close()
   })
 })

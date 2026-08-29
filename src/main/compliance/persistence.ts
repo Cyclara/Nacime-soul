@@ -75,7 +75,10 @@ export interface CompliancePersistence {
    */
   recordAuditResult(turnId: string, result: ComplianceAuditResult, occurredAt: number): boolean
   /** 90 天滚动删除（turn_id 级联清三表 + 孤儿行）。返回各表删除行数。 */
-  purgeStale(nowMs: number, retentionDays?: number): { turns: number; samples: number; feedback: number }
+  purgeStale(
+    nowMs: number,
+    retentionDays?: number
+  ): { turns: number; samples: number; feedback: number }
 }
 
 /** 默认保留期（§3.11 纪律 3：90 天，与 F5-002 dmae_turns 一致）。 */

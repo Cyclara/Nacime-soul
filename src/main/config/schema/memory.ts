@@ -150,14 +150,32 @@ const GcPolicySchema = v.strictObject({
     situational: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(14), v.maxValue(730)),
     stable: v.null()
   }),
-  softDeleteToPurgeDays: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(7), v.maxValue(365)),
-  recentAccessGraceDays: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(7), v.maxValue(365)),
+  softDeleteToPurgeDays: v.pipe(
+    v.number(),
+    v.finite(),
+    v.integer(),
+    v.minValue(7),
+    v.maxValue(365)
+  ),
+  recentAccessGraceDays: v.pipe(
+    v.number(),
+    v.finite(),
+    v.integer(),
+    v.minValue(7),
+    v.maxValue(365)
+  ),
   anchorImportanceMin: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(10)),
   maxPurgePerRun: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(500)),
   schedule: v.strictObject({
     idleMinutes: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(60)),
     minIntervalHours: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(1), v.maxValue(168)),
-    eagerCountThreshold: v.pipe(v.number(), v.finite(), v.integer(), v.minValue(100), v.maxValue(100_000))
+    eagerCountThreshold: v.pipe(
+      v.number(),
+      v.finite(),
+      v.integer(),
+      v.minValue(100),
+      v.maxValue(100_000)
+    )
   }),
   monthlyDigest: v.boolean(),
   coldStorage: v.strictObject({

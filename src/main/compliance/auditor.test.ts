@@ -8,7 +8,10 @@
 import { describe, it, expect } from 'vitest'
 import type { Logger, LogFields, MetricsRegistry } from '@shared/observability/types'
 import { createMetrics } from '../observability/metrics'
-import { createFauxExtractionProvider, type FauxExtractionProviderHandle } from '../memory/extraction/provider'
+import {
+  createFauxExtractionProvider,
+  type FauxExtractionProviderHandle
+} from '../memory/extraction/provider'
 import {
   createComplianceAuditor,
   parseComplianceAuditResponse,
@@ -22,11 +25,21 @@ import {
 
 function noopLogger(): Logger {
   const l: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => l
   }
   return l
@@ -75,7 +88,11 @@ function makeAuditor(opts: {
   metrics?: MetricsRegistry
   timeoutMs?: number
   now?: () => number
-}): { auditor: ComplianceAuditor; provider: FauxExtractionProviderHandle; metrics: MetricsRegistry } {
+}): {
+  auditor: ComplianceAuditor
+  provider: FauxExtractionProviderHandle
+  metrics: MetricsRegistry
+} {
   const provider = opts.provider ?? createFauxExtractionProvider()
   const metrics = opts.metrics ?? createMetrics()
   const auditor = createComplianceAuditor({
@@ -93,7 +110,12 @@ const FLAG_JSON = JSON.stringify({
   verdict: 'flag',
   level: 'overt',
   violations: [
-    { type: 'meta-reference', severity: 'critical', confidence: 0.97, rationale: '自称人工智能助手' },
+    {
+      type: 'meta-reference',
+      severity: 'critical',
+      confidence: 0.97,
+      rationale: '自称人工智能助手'
+    },
     { type: 'disclaimer', severity: 'warning', confidence: 0.6, rationale: '模板化能力免责' }
   ]
 })
@@ -151,7 +173,10 @@ describe('P3C1-06 auditor：请求形状与 prompt', () => {
     const { auditor, provider } = makeAuditor({})
     provider.setResponses([PASS_JSON])
     const long = '长'.repeat(5000)
-    const result = await auditor.audit(makeInput({ candidateText: long }), new AbortController().signal)
+    const result = await auditor.audit(
+      makeInput({ candidateText: long }),
+      new AbortController().signal
+    )
     const block = JSON.parse(provider.calls()[0].messages[1].content) as { candidateText: string }
     expect(block.candidateText).toHaveLength(AUDIT_CANDIDATE_MAX_CHARS)
     expect(result.reviewedChars).toBe(AUDIT_CANDIDATE_MAX_CHARS)
@@ -160,7 +185,11 @@ describe('P3C1-06 auditor：请求形状与 prompt', () => {
   it('candidateText 不足 4000 时 reviewedChars 为全文长度', async () => {
     const faux = createFauxExtractionProvider()
     faux.setResponses([PASS_JSON])
-    const aud = createComplianceAuditor({ provider: faux, logger: noopLogger(), metrics: createMetrics() })
+    const aud = createComplianceAuditor({
+      provider: faux,
+      logger: noopLogger(),
+      metrics: createMetrics()
+    })
     const text = '短回复。'
     const result = await aud.audit(makeInput({ candidateText: text }), new AbortController().signal)
     expect(result.reviewedChars).toBe(text.length)
@@ -176,7 +205,12 @@ describe('P3C1-06 auditor：成功路径', () => {
     const m = createMetrics()
     const aud = createComplianceAuditor({ provider: faux, logger: noopLogger(), metrics: m })
     const result = await aud.audit(makeInput(), new AbortController().signal)
-    expect(result).toMatchObject({ verdict: 'pass', level: 'none', violations: [], unavailable: false })
+    expect(result).toMatchObject({
+      verdict: 'pass',
+      level: 'none',
+      violations: [],
+      unavailable: false
+    })
     expect(m.counter('compliance.audit.runs').value()).toBe(1)
     expect(m.counter('compliance.audit.violations').value()).toBe(0)
     expect(m.snapshot()['compliance.audit.latencyMs.count']).toBe(1)
@@ -212,7 +246,11 @@ describe('P3C1-06 auditor：成功路径', () => {
         ]
       })
     ])
-    const aud = createComplianceAuditor({ provider: faux, logger: noopLogger(), metrics: createMetrics() })
+    const aud = createComplianceAuditor({
+      provider: faux,
+      logger: noopLogger(),
+      metrics: createMetrics()
+    })
     const result = await aud.audit(makeInput(), new AbortController().signal)
     expect(result.unavailable).toBe(true)
     expect(JSON.stringify(result)).not.toContain('长')
@@ -227,7 +265,11 @@ describe('P3C1-06 auditor：成功路径', () => {
     }))
     const faux = createFauxExtractionProvider()
     faux.setResponses([JSON.stringify({ verdict: 'flag', level: 'subtle', violations: many })])
-    const aud = createComplianceAuditor({ provider: faux, logger: noopLogger(), metrics: createMetrics() })
+    const aud = createComplianceAuditor({
+      provider: faux,
+      logger: noopLogger(),
+      metrics: createMetrics()
+    })
     const result = await aud.audit(makeInput(), new AbortController().signal)
     expect(result.unavailable).toBe(false)
     expect(result.violations).toHaveLength(8)
@@ -275,7 +317,11 @@ describe('P3C1-06 auditor：fail-open', () => {
   it('signal 中止 → unavailable 空壳（faux 检测到 aborted 抛错）', async () => {
     const faux = createFauxExtractionProvider()
     faux.setResponses([PASS_JSON])
-    const aud = createComplianceAuditor({ provider: faux, logger: noopLogger(), metrics: createMetrics() })
+    const aud = createComplianceAuditor({
+      provider: faux,
+      logger: noopLogger(),
+      metrics: createMetrics()
+    })
     const controller = new AbortController()
     controller.abort()
     const result = await aud.audit(makeInput(), controller.signal)
@@ -328,7 +374,9 @@ describe('P3C1-06 auditor：parseComplianceAuditResponse schema 不符全拒', (
       {
         verdict: 'flag',
         level: 'overt',
-        violations: [{ type: 'disclaimer', severity: 'info', confidence: 0.5, rationale: 'x', span: {} }]
+        violations: [
+          { type: 'disclaimer', severity: 'info', confidence: 0.5, rationale: 'x', span: {} }
+        ]
       }
     ],
     [

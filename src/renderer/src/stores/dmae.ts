@@ -18,7 +18,11 @@ import type {
   DmaePanelSnapshot,
   DmaeTurnExplanation
 } from '@shared/memory/dmae-types'
-import type { DmaeBenchmarkRequest, DmaeEligibleCursor, DmaeQualitativeRequest } from '@shared/memory/types'
+import type {
+  DmaeBenchmarkRequest,
+  DmaeEligibleCursor,
+  DmaeQualitativeRequest
+} from '@shared/memory/types'
 
 /** IpcError -> PublicAppError */
 function toPublicAppError(e: IpcError): PublicAppError {
@@ -156,7 +160,10 @@ export const useDmaeStore = defineStore('dmae', () => {
       if (res.data.eligibleCursorReset) {
         state.snapshot = res.data
       } else {
-        state.snapshot = { ...res.data, activeSet: [...state.snapshot.activeSet, ...res.data.activeSet] }
+        state.snapshot = {
+          ...res.data,
+          activeSet: [...state.snapshot.activeSet, ...res.data.activeSet]
+        }
       }
       state.nextEligibleCursor = res.data.nextEligibleCursor
     } catch {

@@ -62,7 +62,9 @@ export interface ComplianceAuditQueue {
  * 创建合规审计有界队列。
  * 满时丢最旧未开始任务：droppedOverflow 计数 + compliance.audit.dropped 指标 + warn（无正文）。
  */
-export function createComplianceAuditQueue(opts: ComplianceAuditQueueOptions = {}): ComplianceAuditQueue {
+export function createComplianceAuditQueue(
+  opts: ComplianceAuditQueueOptions = {}
+): ComplianceAuditQueue {
   const maxPending = opts.maxPending ?? 16
   const logger = opts.logger
   const metrics = opts.metrics

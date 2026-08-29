@@ -38,11 +38,7 @@ import type { HookFn, HookResult } from '../hooks/types'
 import type { TurnEndData } from '../chat/service'
 import type { SessionStore } from '../chat/session-store'
 import type { ComplianceDecisionRecord } from '@shared/compliance/types'
-import type {
-  ComplianceAuditor,
-  ComplianceAuditInput,
-  ComplianceAuditResult
-} from './auditor'
+import type { ComplianceAuditor, ComplianceAuditInput, ComplianceAuditResult } from './auditor'
 import {
   createComplianceAuditQueue,
   type ComplianceAuditQueue,

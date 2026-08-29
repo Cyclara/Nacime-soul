@@ -32,6 +32,10 @@ describe('P3A-26 Live2dErrorOverlay', () => {
     expect(webgl.get('.error-overlay__hint').text()).not.toContain('设置 → 角色')
 
     // 未知/空错误码也不能变成死路一条。
-    expect(mount(Live2dErrorOverlay, { props: { code: null } }).get('.error-overlay__hint').text()).toContain('设置 → 角色')
+    expect(
+      mount(Live2dErrorOverlay, { props: { code: null } })
+        .get('.error-overlay__hint')
+        .text()
+    ).toContain('设置 → 角色')
   })
 })

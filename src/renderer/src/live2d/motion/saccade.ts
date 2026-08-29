@@ -77,10 +77,18 @@ export function createSaccadeController(options: SaccadeOptions): SaccadeControl
 
   reset()
   return {
-    get targetX() { return targetX },
-    get targetY() { return targetY },
-    get x() { return x },
-    get y() { return y },
+    get targetX() {
+      return targetX
+    },
+    get targetY() {
+      return targetY
+    },
+    get x() {
+      return x
+    },
+    get y() {
+      return y
+    },
     update,
     pauseForInteraction(durationMs = interactionPauseMs) {
       pausedFor = Math.max(pausedFor, durationMs)
@@ -90,7 +98,9 @@ export function createSaccadeController(options: SaccadeOptions): SaccadeControl
   }
 }
 
-export function createSaccadePlugin(options: SaccadeOptions): MotionPlugin & { readonly controller: SaccadeController } {
+export function createSaccadePlugin(
+  options: SaccadeOptions
+): MotionPlugin & { readonly controller: SaccadeController } {
   const controller = createSaccadeController(options)
   return {
     id: 'saccade',

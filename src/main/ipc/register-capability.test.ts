@@ -19,11 +19,21 @@ vi.mock('electron', () => ({
 
 function logger(): Logger {
   const result: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => result
   }
   return result
@@ -60,11 +70,21 @@ describe('P3A-05 IPC sender capability guard', () => {
   })
 
   it('stage 可调用 stage:ready，但 chat 即使受信也被拒绝', async () => {
-    const handler = vi.fn(() => ({ stageInstanceId: 'stage-1', status: 'loading-model' as const, initialModelUrl: null, cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 }))
+    const handler = vi.fn(() => ({
+      stageInstanceId: 'stage-1',
+      status: 'loading-model' as const,
+      initialModelUrl: null,
+      cubismCoreUrl: null,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0
+    }))
     registerValidatedHandler('companion:stage:ready', handler)
     const invoke = registered('companion:stage:ready')
 
-    await expect(invoke(event(2), { stageInstanceId: 'stage-1' })).resolves.toMatchObject({ ok: true })
+    await expect(invoke(event(2), { stageInstanceId: 'stage-1' })).resolves.toMatchObject({
+      ok: true
+    })
     const denied = await invoke(event(1), { stageInstanceId: 'stage-1' })
     expect(denied).toMatchObject({ ok: false, error: { code: 'IPC_UNAUTHORIZED' } })
     expect(handler).toHaveBeenCalledTimes(1)
@@ -85,9 +105,19 @@ describe('P3A-05 IPC sender capability guard', () => {
     removeIpcSenderCapability(2)
     expect(getIpcSenderCapabilities().has(2)).toBe(false)
 
-    const handler = vi.fn(() => ({ stageInstanceId: 'stage-1', status: 'loading-model' as const, initialModelUrl: null, cubismCoreUrl: null, zoom: 1, offsetX: 0, offsetY: 0 }))
+    const handler = vi.fn(() => ({
+      stageInstanceId: 'stage-1',
+      status: 'loading-model' as const,
+      initialModelUrl: null,
+      cubismCoreUrl: null,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0
+    }))
     registerValidatedHandler('companion:stage:ready', handler)
-    const result = await registered('companion:stage:ready')(event(2), { stageInstanceId: 'stage-1' })
+    const result = await registered('companion:stage:ready')(event(2), {
+      stageInstanceId: 'stage-1'
+    })
     expect(result).toMatchObject({ ok: false, error: { code: 'IPC_UNAUTHORIZED' } })
     expect(handler).not.toHaveBeenCalled()
   })
@@ -96,8 +126,12 @@ describe('P3A-05 IPC sender capability guard', () => {
     const webContents = {
       id: 1,
       isDestroyed: () => false,
-      send: vi.fn(() => { throw new Error('Object has been destroyed') })
+      send: vi.fn(() => {
+        throw new Error('Object has been destroyed')
+      })
     }
-    expect(() => sendEvent(webContents as never, 'companion:event:window-state', { maximized: true })).not.toThrow()
+    expect(() =>
+      sendEvent(webContents as never, 'companion:event:window-state', { maximized: true })
+    ).not.toThrow()
   })
 })

@@ -139,10 +139,7 @@ function makeCompliance(
   }
 }
 
-function makeChatService(
-  faux: LLMProvider,
-  compliance?: ChatComplianceIntegration
-): ChatService {
+function makeChatService(faux: LLMProvider, compliance?: ChatComplianceIntegration): ChatService {
   return createChatService({
     logger: noopLogger(),
     promptLoader: makeTestLoader(),

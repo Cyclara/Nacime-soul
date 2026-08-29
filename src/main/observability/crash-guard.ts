@@ -193,7 +193,10 @@ class CrashGuardImpl implements CrashGuard {
     details: Electron.RenderProcessGoneDetails
   ): void => {
     const { logger, createWindow, isQuitting, shouldHandleRendererCrash } = this.config
-    if (isQuitting?.() || (shouldHandleRendererCrash !== undefined && !shouldHandleRendererCrash(_webContents))) {
+    if (
+      isQuitting?.() ||
+      (shouldHandleRendererCrash !== undefined && !shouldHandleRendererCrash(_webContents))
+    ) {
       return
     }
 

@@ -34,7 +34,9 @@ export interface ExpressionControllerOptions {
   readonly onUnresolved?: (emotion: SemanticEmotion, available: readonly string[]) => void
 }
 
-export function createExpressionController(options: ExpressionControllerOptions): ExpressionController {
+export function createExpressionController(
+  options: ExpressionControllerOptions
+): ExpressionController {
   const aliases = options.aliases ?? DEFAULT_EXPRESSION_ALIASES
   const layer = options.parameterLayer ?? createParameterLayer(options.renderer)
   /**
@@ -92,8 +94,12 @@ export function createExpressionController(options: ExpressionControllerOptions)
   }
 
   return {
-    get current() { return current },
-    get activeExpression() { return activeExpression },
+    get current() {
+      return current
+    },
+    get activeExpression() {
+      return activeExpression
+    },
     setEmotion,
     refresh,
     update,

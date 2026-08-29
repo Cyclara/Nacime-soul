@@ -33,9 +33,15 @@ describe('P3A-32 Nacime tray', () => {
     for (const status of ['idle', 'unread', 'attention'] as const) tray.setStatus(status)
 
     expect(electronMocks.TrayMock).toHaveBeenCalledTimes(1)
-    expect(nativeImage.createFromPath).toHaveBeenCalledWith(expect.stringContaining('tray-idle-24.png'))
-    expect(nativeImage.createFromPath).toHaveBeenCalledWith(expect.stringContaining('tray-unread-24.png'))
-    expect(nativeImage.createFromPath).toHaveBeenCalledWith(expect.stringContaining('tray-attention-24.png'))
+    expect(nativeImage.createFromPath).toHaveBeenCalledWith(
+      expect.stringContaining('tray-idle-24.png')
+    )
+    expect(nativeImage.createFromPath).toHaveBeenCalledWith(
+      expect.stringContaining('tray-unread-24.png')
+    )
+    expect(nativeImage.createFromPath).toHaveBeenCalledWith(
+      expect.stringContaining('tray-attention-24.png')
+    )
     expect(electronMocks.setToolTip).toHaveBeenNthCalledWith(2, 'Nacime · 等待陪伴')
     expect(electronMocks.setToolTip).toHaveBeenNthCalledWith(3, 'Nacime · 有新的消息')
     expect(electronMocks.setToolTip).toHaveBeenNthCalledWith(4, 'Nacime · 需要你的注意')

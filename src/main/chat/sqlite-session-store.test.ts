@@ -71,7 +71,10 @@ describe('P2-43 SQLiteSessionStore：CRUD 与内存语义等价', () => {
     expect(store.hasCompletedTurn()).toBe(false)
 
     store.appendMessage(sid, makeMessage({ id: 'u1', sessionId: sid, turnId: 't1' }))
-    store.appendMessage(sid, makeMessage({ id: 'a1', sessionId: sid, role: 'assistant', turnId: 't1', status: 'failed' }))
+    store.appendMessage(
+      sid,
+      makeMessage({ id: 'a1', sessionId: sid, role: 'assistant', turnId: 't1', status: 'failed' })
+    )
     expect(store.hasCompletedTurn()).toBe(false)
 
     store.updateMessage(sid, 'a1', { status: 'complete', content: '回复' })

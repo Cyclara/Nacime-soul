@@ -12,20 +12,27 @@ import { createMemorySessionStore, type SessionStore } from '../chat/session-sto
 import type { ChatMessage } from '@shared/chat/types'
 import type { ChatFeedbackRequest } from '@shared/compliance/types'
 import { migration as m009 } from '../migrations/scripts/009_compliance_history'
-import {
-  createComplianceFeedbackService,
-  type ComplianceFeedbackOutcome
-} from './feedback'
+import { createComplianceFeedbackService, type ComplianceFeedbackOutcome } from './feedback'
 
 // === 测试辅助 ===
 
 function noopLogger(): Logger {
   const l: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => l
   }
   return l
@@ -151,7 +158,9 @@ function makeFixture(opts: FixtureOptions = {}): Fixture {
       }),
     rows: () =>
       db
-        .prepare(`SELECT turn_id, message_id, kind, created_at FROM compliance_feedback ORDER BY id`)
+        .prepare(
+          `SELECT turn_id, message_id, kind, created_at FROM compliance_feedback ORDER BY id`
+        )
         .all() as FeedbackRow[],
     rowCount: () =>
       (db.prepare(`SELECT COUNT(*) AS n FROM compliance_feedback`).get() as { n: number }).n

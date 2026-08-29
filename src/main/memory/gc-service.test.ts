@@ -11,15 +11,49 @@ import type { MigrationContext } from '../migrations/types'
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = 1_000 * DAY
-const logger: Logger = { fatal() { /* noop */ }, error() { /* noop */ }, warn() { /* noop */ }, info() { /* noop */ }, debug() { /* noop */ }, child() { return logger } }
+const logger: Logger = {
+  fatal() {
+    /* noop */
+  },
+  error() {
+    /* noop */
+  },
+  warn() {
+    /* noop */
+  },
+  info() {
+    /* noop */
+  },
+  debug() {
+    /* noop */
+  },
+  child() {
+    return logger
+  }
+}
 
 function memory(id: string, overrides: Partial<L2Memory> = {}): L2Memory {
   return {
     id,
-    evidenceIds: [], sourceMessageIds: [], triggerText: null, content: `content-${id}`, confidence: 0.9,
-    syncStatus: 'synced', lifecycleState: 'archived', isPinned: false, accessCount: 0, weight: 1,
-    type: 'one_off', importance: 5, archivedAt: NOW - 40 * DAY, softDeletedAt: null, lastAccessedAt: null,
-    extractionKey: null, source: 'user_explicit', importanceBeforePin: null, editedAt: null,
+    evidenceIds: [],
+    sourceMessageIds: [],
+    triggerText: null,
+    content: `content-${id}`,
+    confidence: 0.9,
+    syncStatus: 'synced',
+    lifecycleState: 'archived',
+    isPinned: false,
+    accessCount: 0,
+    weight: 1,
+    type: 'one_off',
+    importance: 5,
+    archivedAt: NOW - 40 * DAY,
+    softDeletedAt: null,
+    lastAccessedAt: null,
+    extractionKey: null,
+    source: 'user_explicit',
+    importanceBeforePin: null,
+    editedAt: null,
     ...overrides
   }
 }
@@ -28,35 +62,76 @@ function fixture(
   rows: L2Memory[],
   coldAppend: (records: readonly unknown[]) => string | null = () => 'cold/1972.jsonl.gz',
   db?: Database
-): { service: ReturnType<typeof createGcService>; map: Map<string, L2Memory>; removed: string[]; vectors: string[]; warnings: Array<{ msg: string; code?: string }> } {
+): {
+  service: ReturnType<typeof createGcService>
+  map: Map<string, L2Memory>
+  removed: string[]
+  vectors: string[]
+  warnings: Array<{ msg: string; code?: string }>
+} {
   const map = new Map(rows.map((row) => [row.id, row]))
   const removed: string[] = []
   const vectors: string[] = []
   const warnings: Array<{ msg: string; code?: string }> = []
   const l2Store: L2Store = {
-    add() { throw new Error('not used') }, insert() { /* noop */ }, get: (id) => map.get(id) ?? null, getByExtractionKey: () => null,
-    update: (id, patch) => { const current = map.get(id); if (current) map.set(id, { ...current, ...patch }) },
-    remove: (id) => { map.delete(id); removed.push(id) },
+    add() {
+      throw new Error('not used')
+    },
+    insert() {
+      /* noop */
+    },
+    get: (id) => map.get(id) ?? null,
+    getByExtractionKey: () => null,
+    update: (id, patch) => {
+      const current = map.get(id)
+      if (current) map.set(id, { ...current, ...patch })
+    },
+    remove: (id) => {
+      map.delete(id)
+      removed.push(id)
+    },
     list: (filter) => {
       const matching = [...map.values()].filter((entry) => {
         const wanted = filter?.lifecycleState
-        return wanted === undefined || (Array.isArray(wanted) ? wanted.includes(entry.lifecycleState) : entry.lifecycleState === wanted)
+        return (
+          wanted === undefined ||
+          (Array.isArray(wanted)
+            ? wanted.includes(entry.lifecycleState)
+            : entry.lifecycleState === wanted)
+        )
       })
       const offset = filter?.offset ?? 0
-      return filter?.limit === undefined ? matching.slice(offset) : matching.slice(offset, offset + filter.limit)
+      return filter?.limit === undefined
+        ? matching.slice(offset)
+        : matching.slice(offset, offset + filter.limit)
     },
-    count: (filter) => (l2Store.list(filter)).length,
-    touch() { /* noop */ }, on: () => () => {}, emitAdded() { /* noop */ }
+    count: (filter) => l2Store.list(filter).length,
+    touch() {
+      /* noop */
+    },
+    on: () => () => {},
+    emitAdded() {
+      /* noop */
+    }
   }
   const service = createGcService({
     l2Store,
-    vectorStore: { remove: (id) => { vectors.push(id) } } as never,
+    vectorStore: {
+      remove: (id) => {
+        vectors.push(id)
+      }
+    } as never,
     revisionClock: { next: vi.fn(() => 1), current: vi.fn(() => 1) },
     broadcaster: { notify: vi.fn(), flush: vi.fn(), dispose: vi.fn() },
     coldStore: { append: coldAppend as never, searchIndex: () => [], read: () => null },
     ...(db === undefined ? {} : { db }),
     getPolicy: () => DEFAULT_GC_POLICY,
-    logger: { ...logger, warn: (msg, fields) => { warnings.push({ msg, code: fields.code }) } },
+    logger: {
+      ...logger,
+      warn: (msg, fields) => {
+        warnings.push({ msg, code: fields.code })
+      }
+    },
     now: () => NOW
   })
   return { service, map, removed, vectors, warnings }
@@ -72,7 +147,9 @@ describe('P3G GC service', () => {
       memory('recent', { lastAccessedAt: NOW - 10 * DAY })
     ])
     const scan = service.scan()
-    expect(scan.candidates).toEqual([expect.objectContaining({ memoryId: 'old', action: 'soft_delete' })])
+    expect(scan.candidates).toEqual([
+      expect.objectContaining({ memoryId: 'old', action: 'soft_delete' })
+    ])
     expect(scan.skipped).toMatchObject({ typeStable: 1, pinned: 1, anchor: 1, recentAccess: 1 })
   })
 
@@ -102,11 +179,20 @@ describe('P3G GC service', () => {
       const report = service.run({ dryRun: true })
       expect(report).toMatchObject({ dryRun: true, scanned: 3, softDeleted: 0, purged: 0 })
 
-      const rows = db.prepare(`SELECT ran_at, report FROM gc_log`).all() as Array<{ ran_at: number; report: string }>
+      const rows = db.prepare(`SELECT ran_at, report FROM gc_log`).all() as Array<{
+        ran_at: number
+        report: string
+      }>
       expect(rows).toHaveLength(1)
       expect(rows[0]!.ran_at).toBe(NOW)
       const persisted = JSON.parse(rows[0]!.report) as typeof report
-      expect(persisted).toMatchObject({ dryRun: true, scanned: 3, softDeleted: 0, purged: 0, coldFile: null })
+      expect(persisted).toMatchObject({
+        dryRun: true,
+        scanned: 3,
+        softDeleted: 0,
+        purged: 0,
+        coldFile: null
+      })
       expect(persisted.skipped).toMatchObject({ pinned: 1, typeStable: 1 })
       // 红线：审计表只存计数与原因，绝不留记忆正文。
       expect(rows[0]!.report).not.toContain('content-')
@@ -123,7 +209,10 @@ describe('P3G GC service', () => {
   })
 
   it('purge 先成功写 cold store，才删除 L2 和向量；cold 写失败则保守不删', () => {
-    const expired = memory('expired', { lifecycleState: 'soft_deleted', softDeletedAt: NOW - 100 * DAY })
+    const expired = memory('expired', {
+      lifecycleState: 'soft_deleted',
+      softDeletedAt: NOW - 100 * DAY
+    })
     const good = fixture([expired])
     expect(good.service.run()).toMatchObject({ purged: 1, coldFile: 'cold/1972.jsonl.gz' })
     expect(good.removed).toEqual(['expired'])
@@ -149,8 +238,13 @@ describe('P3G GC service', () => {
 
   it('P3G-08 磁盘满：冷写抛错时整段跳过 purge 并报 MEM_WRITE_FAIL，soft-delete 段仍然生效', () => {
     const { service, map, removed, vectors, warnings } = fixture(
-      [memory('to-soft'), memory('expired', { lifecycleState: 'soft_deleted', softDeletedAt: NOW - 100 * DAY })],
-      () => { throw new Error('ENOSPC: no space left on device') }
+      [
+        memory('to-soft'),
+        memory('expired', { lifecycleState: 'soft_deleted', softDeletedAt: NOW - 100 * DAY })
+      ],
+      () => {
+        throw new Error('ENOSPC: no space left on device')
+      }
     )
     const report = service.run()
     expect(report).toMatchObject({ softDeleted: 1, purged: 0, coldFile: null })
@@ -179,7 +273,10 @@ describe('P3G GC service', () => {
       memory('b', { lifecycleState: 'soft_deleted', softDeletedAt: NOW - DAY }),
       memory('c')
     ])
-    expect(service.listRecycleBin(1, 0)).toMatchObject({ total: 2, items: [expect.objectContaining({ id: 'a' })] })
+    expect(service.listRecycleBin(1, 0)).toMatchObject({
+      total: 2,
+      items: [expect.objectContaining({ id: 'a' })]
+    })
     expect(service.restore('a')).toBe(true)
     expect(map.get('a')).toMatchObject({ lifecycleState: 'archived', softDeletedAt: null })
     expect(service.restore('c')).toBe(false)

@@ -25,7 +25,12 @@ describe('P3C1-06 audit-decision：送审决策', () => {
 
   it('sampleRate=1 恒采样送审', () => {
     expect(
-      decideComplianceAudit({ enabled: true, sampleRate: 1, wouldBlockHit: false, rng: () => 0.999 })
+      decideComplianceAudit({
+        enabled: true,
+        sampleRate: 1,
+        wouldBlockHit: false,
+        rng: () => 0.999
+      })
     ).toEqual({ audit: true, reason: 'sampled' })
   })
 
@@ -46,13 +51,23 @@ describe('P3C1-06 audit-decision：送审决策', () => {
 
   it('rng() 恰好等于 rate → 不送审（严格小于）', () => {
     expect(
-      decideComplianceAudit({ enabled: true, sampleRate: 0.25, wouldBlockHit: false, rng: () => 0.25 })
+      decideComplianceAudit({
+        enabled: true,
+        sampleRate: 0.25,
+        wouldBlockHit: false,
+        rng: () => 0.25
+      })
     ).toEqual({ audit: false })
   })
 
   it('sampleRate 越界防御 clamp：>1 按 1、<0 按 0', () => {
     expect(
-      decideComplianceAudit({ enabled: true, sampleRate: 1.5, wouldBlockHit: false, rng: () => 0.999 })
+      decideComplianceAudit({
+        enabled: true,
+        sampleRate: 1.5,
+        wouldBlockHit: false,
+        rng: () => 0.999
+      })
     ).toEqual({ audit: true, reason: 'sampled' })
     expect(
       decideComplianceAudit({ enabled: true, sampleRate: -0.5, wouldBlockHit: false, rng: () => 0 })

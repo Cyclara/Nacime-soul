@@ -12,7 +12,16 @@
 //   7. IPC handler 注册（app/window/config/chat/debug）
 //   8. 窗口创建 + IPC guard
 
-import { app, BrowserWindow, safeStorage, dialog, protocol, screen, session, type WebContents } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  safeStorage,
+  dialog,
+  protocol,
+  screen,
+  session,
+  type WebContents
+} from 'electron'
 import { mkdirSync } from 'node:fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -69,7 +78,11 @@ import { trackWindowState, type WindowState } from './windows/window-state'
 import { createLive2dModelRegistry } from './live2d/model-registry'
 import { createLive2dModelService } from './live2d/model-service'
 import { registerLive2dAssetProtocol, LIVE2D_ASSET_SCHEME } from './live2d/asset-protocol'
-import { CUBISM_CORE_FILE_NAME, createCubism2Url, createCubismCoreUrl } from './live2d/cubism-runtime'
+import {
+  CUBISM_CORE_FILE_NAME,
+  createCubism2Url,
+  createCubismCoreUrl
+} from './live2d/cubism-runtime'
 import {
   evaluateLive2dPerformance,
   failedLive2dPerformanceChecks
@@ -109,7 +122,13 @@ const appStartTime = Date.now()
 protocol.registerSchemesAsPrivileged([
   {
     scheme: LIVE2D_ASSET_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true
+    }
   }
 ])
 
@@ -431,7 +450,10 @@ app.whenReady().then(async () => {
     licenseDirectory: join(bundledLive2dRoot, 'licenses'),
     registry: live2dRegistry
   })
-  const live2dImporter = createLive2dModelImporter({ userModelsRoot: userLive2dRoot, registry: live2dRegistry })
+  const live2dImporter = createLive2dModelImporter({
+    userModelsRoot: userLive2dRoot,
+    registry: live2dRegistry
+  })
   let emitLive2dState: () => void = () => {}
   const live2dPublicState = createLive2dPublicState({
     listModels: () => live2dModelService.list(),
@@ -442,18 +464,22 @@ app.whenReady().then(async () => {
         : live2dModelService.selectedModelId()
     },
     loadedModelId: () => live2dWindowManagerRef?.getSnapshot().loadedModelId ?? null,
-    window: () => live2dWindowManagerRef?.getSnapshot() ?? {
-      stageInstanceId: null,
-      status: 'closed',
-      visible: false,
-      alwaysOnTop: true,
-      webContentsId: null,
-      loadedModelId: null
-    },
+    window: () =>
+      live2dWindowManagerRef?.getSnapshot() ?? {
+        stageInstanceId: null,
+        status: 'closed',
+        visible: false,
+        alwaysOnTop: true,
+        webContentsId: null,
+        loadedModelId: null
+      },
     loading: () => false,
     lastError: () => null,
     zoom: () => configStore.get().ui.live2d.zoom,
-    offset: () => ({ x: configStore.get().ui.live2d.offsetX, y: configStore.get().ui.live2d.offsetY })
+    offset: () => ({
+      x: configStore.get().ui.live2d.offsetX,
+      y: configStore.get().ui.live2d.offsetY
+    })
   })
   emitLive2dState = (): void => {
     const wc = chatWebContents()
@@ -468,12 +494,17 @@ app.whenReady().then(async () => {
   })
   const builtinSetup = live2dModelService.initializeBuiltins()
   const configuredLive2dModelId = configStore.get().ui.live2d.selectedModelId
-  if (configuredLive2dModelId !== undefined && live2dRegistry.get(configuredLive2dModelId) !== null) {
+  if (
+    configuredLive2dModelId !== undefined &&
+    live2dRegistry.get(configuredLive2dModelId) !== null
+  ) {
     live2dRegistry.select(configuredLive2dModelId)
   } else if (configuredLive2dModelId === undefined && live2dRegistry.getSelected() !== null) {
     // Additive config key: persist the chosen default once, with undefined placeholder already
     // present in defaults so legacy config files cannot silently lose it.
-    void configStore.update({ ui: { live2d: { selectedModelId: live2dRegistry.getSelected()!.id } } })
+    void configStore.update({
+      ui: { live2d: { selectedModelId: live2dRegistry.getSelected()!.id } }
+    })
   }
   if (builtinSetup.errors.length > 0) {
     getLogger('live2d').warn('some built-in Live2D models were unavailable', {
@@ -488,12 +519,16 @@ app.whenReady().then(async () => {
     onStageDestroyed: unregisterSenderCapability,
     getModelLoadPlan: () => live2dModelService.getLoadPlan(),
     getStageModelUrl: (modelId) => live2dModelService.getStageModelUrl(modelId),
-    getModelExpressionNames: (modelId) => live2dModelService.getRegistered(modelId)?.manifest.expressionNames ?? [],
+    getModelExpressionNames: (modelId) =>
+      live2dModelService.getRegistered(modelId)?.manifest.expressionNames ?? [],
     getLoadAttemptUrl: (attemptIndex) => live2dModelService.getLoadAttemptUrl(attemptIndex),
     getCubismCoreUrl: () => createCubismCoreUrl(join(bundledLive2dRoot, 'cubism')),
     getCubism2Url: () => createCubism2Url(join(bundledLive2dRoot, 'cubism')),
     getZoom: () => configStore.get().ui.live2d.zoom,
-    getOffset: () => ({ x: configStore.get().ui.live2d.offsetX, y: configStore.get().ui.live2d.offsetY }),
+    getOffset: () => ({
+      x: configStore.get().ui.live2d.offsetX,
+      y: configStore.get().ui.live2d.offsetY
+    }),
     getDisplayWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea,
     onPerformanceReport: (sender, report) => {
       const metrics = getMetrics()
@@ -818,7 +853,9 @@ app.whenReady().then(async () => {
     getAlwaysOnTop: () => configStore.get().ui.live2d.alwaysOnTop,
     setEnabled: async (enabled) => {
       try {
-        await configStore.update({ ui: { live2d: { enabled } } } as Parameters<typeof configStore.update>[0])
+        await configStore.update({ ui: { live2d: { enabled } } } as Parameters<
+          typeof configStore.update
+        >[0])
         return true
       } catch {
         return false

@@ -3,7 +3,11 @@
 
 import { statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
-import type { Live2dLoadError, Live2dModelCandidate, Live2dValidationResult } from '@shared/live2d/types'
+import type {
+  Live2dLoadError,
+  Live2dModelCandidate,
+  Live2dValidationResult
+} from '@shared/live2d/types'
 
 export interface Live2dModelValidationLimits {
   readonly maxTextureBytes: number
@@ -52,7 +56,13 @@ export function validateLive2dModel(
     const absolute = resolve(candidate.modelDirectory, resource)
     const metadata = safeStat(absolute)
     if (metadata === null || !metadata.isFile) {
-      errors.push(error(resource === candidate.manifest.mocFile ? 'MOC3_NOT_FOUND' : 'FILE_NOT_FOUND', true, 'choose-model'))
+      errors.push(
+        error(
+          resource === candidate.manifest.mocFile ? 'MOC3_NOT_FOUND' : 'FILE_NOT_FOUND',
+          true,
+          'choose-model'
+        )
+      )
       continue
     }
     totalResourceBytes += metadata.size

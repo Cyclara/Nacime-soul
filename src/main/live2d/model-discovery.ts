@@ -65,10 +65,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isRelativeResource(value: unknown, root: string): value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || isAbsolute(value)) return false
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || isAbsolute(value))
+    return false
   const resolved = resolve(root, value)
   const suffix = relative(root, resolved)
-  return suffix.length > 0 && suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix)
+  return (
+    suffix.length > 0 && suffix !== '..' && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix)
+  )
 }
 
 function toNormalizedRelativeFile(value: unknown, root: string): string {
@@ -118,14 +121,18 @@ function collectExpressions(value: unknown, root: string): { names: string[]; fi
   const names: string[] = []
   const files: string[] = []
   for (const expression of value) {
-    if (!isPlainObject(expression) || typeof expression['Name'] !== 'string') fail('MODEL_JSON_INVALID')
+    if (!isPlainObject(expression) || typeof expression['Name'] !== 'string')
+      fail('MODEL_JSON_INVALID')
     names.push(expression['Name'])
     files.push(toNormalizedRelativeFile(expression['File'], root))
   }
   return { names: [...new Set(names)].sort(), files }
 }
 
-function collectMotions(value: unknown, root: string): { groups: Record<string, number>; files: string[] } {
+function collectMotions(
+  value: unknown,
+  root: string
+): { groups: Record<string, number>; files: string[] } {
   if (value === undefined) return { groups: {}, files: [] }
   if (!isPlainObject(value)) fail('MODEL_JSON_INVALID')
   const groups: Record<string, number> = {}
@@ -164,7 +171,9 @@ function collectCdiParameters(displayInfoPath: string | null, root: string): str
     const parameters = parsed['Parameters']
     if (!Array.isArray(parameters)) return []
     return parameters
-      .flatMap((parameter) => (isPlainObject(parameter) && typeof parameter['Id'] === 'string' ? [parameter['Id']] : []))
+      .flatMap((parameter) =>
+        isPlainObject(parameter) && typeof parameter['Id'] === 'string' ? [parameter['Id']] : []
+      )
       .sort()
   } catch {
     // CDI 是可选元数据；坏 CDI 给验证器 warning，不阻止核心 .model3.json 发现。
@@ -197,20 +206,32 @@ export function discoverLive2dModel(options: DiscoverLive2dModelOptions): Live2d
   const modelJsonPath = modelJsonPaths[0]!
   const modelRoot = resolve(modelJsonPath, '..')
   const raw = parseJson(modelJsonPath) as ModelJson
-  if (!Number.isInteger(raw.Version) || Number(raw.Version) < 3 || !isPlainObject(raw.FileReferences)) {
+  if (
+    !Number.isInteger(raw.Version) ||
+    Number(raw.Version) < 3 ||
+    !isPlainObject(raw.FileReferences)
+  ) {
     fail('MODEL_JSON_INVALID')
   }
   const refs = raw.FileReferences as FileReferences
   const mocFile = toNormalizedRelativeFile(refs.Moc, modelRoot)
   if (!Array.isArray(refs.Textures) || refs.Textures.length === 0) fail('MODEL_JSON_INVALID')
   const textureFiles = refs.Textures.map((texture) => toNormalizedRelativeFile(texture, modelRoot))
-  const physicsFile = refs.Physics === undefined ? null : toNormalizedRelativeFile(refs.Physics, modelRoot)
+  const physicsFile =
+    refs.Physics === undefined ? null : toNormalizedRelativeFile(refs.Physics, modelRoot)
   const poseFile = refs.Pose === undefined ? null : toNormalizedRelativeFile(refs.Pose, modelRoot)
-  const userDataFile = refs.UserData === undefined ? null : toNormalizedRelativeFile(refs.UserData, modelRoot)
-  const displayInfoFile = refs.DisplayInfo === undefined ? null : toNormalizedRelativeFile(refs.DisplayInfo, modelRoot)
+  const userDataFile =
+    refs.UserData === undefined ? null : toNormalizedRelativeFile(refs.UserData, modelRoot)
+  const displayInfoFile =
+    refs.DisplayInfo === undefined ? null : toNormalizedRelativeFile(refs.DisplayInfo, modelRoot)
   const expressions = collectExpressions(refs.Expressions, modelRoot)
   const motions = collectMotions(refs.Motions, modelRoot)
-  const parameterIds = [...new Set([...collectGroupParameters(raw.Groups), ...collectCdiParameters(displayInfoFile, modelRoot)])].sort()
+  const parameterIds = [
+    ...new Set([
+      ...collectGroupParameters(raw.Groups),
+      ...collectCdiParameters(displayInfoFile, modelRoot)
+    ])
+  ].sort()
   const warnings: string[] = []
   if (!parameterIds.includes(LIVE2D_PARAMETER_IDS.mouthOpen)) {
     warnings.push('MOUTH_OPEN_PARAMETER_MISSING')

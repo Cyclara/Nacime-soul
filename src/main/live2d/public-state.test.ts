@@ -8,10 +8,32 @@ describe('P3A-23 public Live2D state', () => {
   it('snapshot 隔离 main 内部 window/model 对象，bump 产生单调 event', () => {
     let visible = false
     const source = {
-      listModels: () => [{ id: 'mao', displayName: 'Mao', source: 'builtin' as const, cubismVersion: 3, expressionCount: 8, motionCount: 8, hasMouthOpen: false, warnings: [] }],
-      selectedModelId: () => 'mao', loadedModelId: () => null,
-      window: () => ({ stageInstanceId: null, status: 'starting' as const, visible, alwaysOnTop: true, webContentsId: 2, loadedModelId: null }),
-      loading: () => false, lastError: () => null, zoom: () => 1, offset: () => ({ x: 0, y: 0 })
+      listModels: () => [
+        {
+          id: 'mao',
+          displayName: 'Mao',
+          source: 'builtin' as const,
+          cubismVersion: 3,
+          expressionCount: 8,
+          motionCount: 8,
+          hasMouthOpen: false,
+          warnings: []
+        }
+      ],
+      selectedModelId: () => 'mao',
+      loadedModelId: () => null,
+      window: () => ({
+        stageInstanceId: null,
+        status: 'starting' as const,
+        visible,
+        alwaysOnTop: true,
+        webContentsId: 2,
+        loadedModelId: null
+      }),
+      loading: () => false,
+      lastError: () => null,
+      zoom: () => 1,
+      offset: () => ({ x: 0, y: 0 })
     }
     const state = createLive2dPublicState(source)
     const first = state.bump()

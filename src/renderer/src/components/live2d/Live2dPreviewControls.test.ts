@@ -35,7 +35,9 @@ function createHarness(options?: { readonly saveFails?: boolean }): {
     resetFraming: vi.fn(),
     endPreview: vi.fn(),
     saveAndApply: options?.saveFails
-      ? vi.fn(async () => { throw new Error('save failed') })
+      ? vi.fn(async () => {
+          throw new Error('save failed')
+        })
       : vi.fn(async () => {}),
     discard: vi.fn()
   }
@@ -83,7 +85,9 @@ describe('P3A-25 Live2dPreviewControls', () => {
     await presets[1]!.trigger('click')
     expect(harness.orchestrator.applyFraming).toHaveBeenCalledWith('full-body')
     // 预设点完滑块要跟着跳到预设值，否则用户看到的数字与实际构图不一致。
-    expect(harness.wrapper.findAll<HTMLInputElement>('input[type="range"]')[2]!.element.value).toBe('50')
+    expect(harness.wrapper.findAll<HTMLInputElement>('input[type="range"]')[2]!.element.value).toBe(
+      '50'
+    )
   })
 
   it('保存失败时显示恢复文案，不伪造成功状态', async () => {

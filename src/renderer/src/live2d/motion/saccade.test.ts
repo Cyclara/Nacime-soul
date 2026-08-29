@@ -6,14 +6,59 @@ import { describe, expect, it } from 'vitest'
 import type { ILive2DRenderer } from '../ILive2DRenderer'
 import { createSaccadeController } from './saccade'
 
-function fakeRenderer(): { renderer: ILive2DRenderer; values: Array<{ id: string; value: number }> } {
+function fakeRenderer(): {
+  renderer: ILive2DRenderer
+  values: Array<{ id: string; value: number }>
+} {
   const values: Array<{ id: string; value: number }> = []
   const renderer = {
-    attach() { /* noop */ }, load: async () => { /* noop */ }, unload() { /* noop */ }, resize() { /* noop */ }, setZoom() { /* noop */ }, setOffset() { /* noop */ }, pause() { /* noop */ }, resume() { /* noop */ }, setFrameDriver() { /* noop */ },
-    setExpression: async () => true, playMotion: async () => true, setParameter(update: { id: string; value: number }) {
-      values.push(update); return true
-    }, setMouthOpen: () => true, setEyeOpen: () => true, hitTest: () => [],
-    getMetrics: () => ({ fps: 0, frameCount: 0, modelLoadMs: null, contextLossCount: 0, paused: false, hasModel: true }), dispose() { /* noop */ }
+    attach() {
+      /* noop */
+    },
+    load: async () => {
+      /* noop */
+    },
+    unload() {
+      /* noop */
+    },
+    resize() {
+      /* noop */
+    },
+    setZoom() {
+      /* noop */
+    },
+    setOffset() {
+      /* noop */
+    },
+    pause() {
+      /* noop */
+    },
+    resume() {
+      /* noop */
+    },
+    setFrameDriver() {
+      /* noop */
+    },
+    setExpression: async () => true,
+    playMotion: async () => true,
+    setParameter(update: { id: string; value: number }) {
+      values.push(update)
+      return true
+    },
+    setMouthOpen: () => true,
+    setEyeOpen: () => true,
+    hitTest: () => [],
+    getMetrics: () => ({
+      fps: 0,
+      frameCount: 0,
+      modelLoadMs: null,
+      contextLossCount: 0,
+      paused: false,
+      hasModel: true
+    }),
+    dispose() {
+      /* noop */
+    }
   } satisfies ILive2DRenderer
   return { renderer, values }
 }
@@ -35,7 +80,12 @@ describe('P3A-18 saccade controller', () => {
 
   it('用户交互期间不改变目标也不跳变，恢复后继续追踪', () => {
     const { renderer } = fakeRenderer()
-    const saccade = createSaccadeController({ renderer, random: () => 1, targetIntervalMs: 1, interactionPauseMs: 500 })
+    const saccade = createSaccadeController({
+      renderer,
+      random: () => 1,
+      targetIntervalMs: 1,
+      interactionPauseMs: 500
+    })
     saccade.update(1)
     const before = { x: saccade.x, y: saccade.y, targetX: saccade.targetX }
     saccade.pauseForInteraction()

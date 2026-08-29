@@ -53,7 +53,11 @@ export function createParameterLayer(renderer: ILive2DRenderer): ParameterLayer 
     multiply,
     apply,
     clear,
-    get activeLastFrame() { return [...lastFrame.keys()] },
-    get activeThisFrame() { return [...thisFrame.keys()] }
+    get activeLastFrame() {
+      return [...lastFrame.keys()]
+    },
+    get activeThisFrame() {
+      return [...thisFrame.keys()]
+    }
   }
 }

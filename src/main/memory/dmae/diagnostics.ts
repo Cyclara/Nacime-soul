@@ -56,7 +56,10 @@ export type {
 /** 面板唯一数据来源。F5-002 §3.7 */
 export interface DmaeDiagnosticsService {
   /** 面板首屏：概览 + 异常 + 建议，一次拉完。eligible 集合按稳定 cursor 分页。 */
-  getPanelSnapshot(input?: { eligibleCursor?: DmaeEligibleCursor; eligibleLimit?: number }): DmaePanelSnapshot
+  getPanelSnapshot(input?: {
+    eligibleCursor?: DmaeEligibleCursor
+    eligibleLimit?: number
+  }): DmaePanelSnapshot
   /** 最近一轮的最终预算真值；旧历史行缺列时返回 unknown，不伪造为 0。 */
   getPromptTruth(): {
     readonly selected: number
@@ -105,7 +108,9 @@ export function createDmaeDiagnosticsService(
   let lastBenchmark: DmaeBenchmarkReport | null = null
   let lastQualitative: DmaeQualitativeScores | null = null
 
-  function getPanelSnapshot(input: { eligibleCursor?: DmaeEligibleCursor; eligibleLimit?: number } = {}): DmaePanelSnapshot {
+  function getPanelSnapshot(
+    input: { eligibleCursor?: DmaeEligibleCursor; eligibleLimit?: number } = {}
+  ): DmaePanelSnapshot {
     const cfg = getMemoryConfig()
     const params = snapshotFromDmaeConfig(cfg.dmae)
     const stats = dmaeService.getStats()
@@ -117,7 +122,8 @@ export function createDmaeDiagnosticsService(
     const latestTurn = historyStore.queryTurns(90).at(-1)
 
     // P3X-03：15k 条时仅返回一个稳定 keyset page；不把全库列表塞进 IPC。
-    const eligibleCursorReset = input.eligibleCursor !== undefined && input.eligibleCursor.turn !== currentTurn
+    const eligibleCursorReset =
+      input.eligibleCursor !== undefined && input.eligibleCursor.turn !== currentTurn
     const activePage = buildActiveSet({
       threshold,
       currentTurn,
@@ -265,15 +271,18 @@ export function createDmaeDiagnosticsService(
     const limit = Math.max(1, Math.min(input.limit ?? 100, 200))
     const candidates: Array<{ id: string; activation: number; userSilence: number }> = []
     for (const [id, st] of dmaeService.states) {
-      if (st.activation >= input.threshold) candidates.push({ id, activation: st.activation, userSilence: st.userSilence })
+      if (st.activation >= input.threshold)
+        candidates.push({ id, activation: st.activation, userSilence: st.userSilence })
     }
     candidates.sort((a, b) => b.activation - a.activation || a.id.localeCompare(b.id))
-    const afterCursor = input.cursor === undefined
-      ? candidates
-      : candidates.filter((entry) =>
-          entry.activation < input.cursor!.activation ||
-          (entry.activation === input.cursor!.activation && entry.id > input.cursor!.memoryId)
-        )
+    const afterCursor =
+      input.cursor === undefined
+        ? candidates
+        : candidates.filter(
+            (entry) =>
+              entry.activation < input.cursor!.activation ||
+              (entry.activation === input.cursor!.activation && entry.id > input.cursor!.memoryId)
+          )
     const page = afterCursor.slice(0, limit)
     const selectedSet = new Set(input.selectedIds)
     const includedSet = new Set(input.includedIds)
@@ -299,14 +308,19 @@ export function createDmaeDiagnosticsService(
     const last = page.at(-1)
     return {
       entries,
-      nextCursor: last !== undefined && afterCursor.length > page.length
-        ? { turn: input.currentTurn, activation: last.activation, memoryId: last.id }
-        : null,
+      nextCursor:
+        last !== undefined && afterCursor.length > page.length
+          ? { turn: input.currentTurn, activation: last.activation, memoryId: last.id }
+          : null,
       paginated: candidates.length > limit
     }
   }
 
-  function getPromptTruth(): { readonly selected: number; readonly included: number | null; readonly trimmed: number | null } {
+  function getPromptTruth(): {
+    readonly selected: number
+    readonly included: number | null
+    readonly trimmed: number | null
+  } {
     const latest = historyStore.queryTurns(90).at(-1)
     return {
       selected: latest?.promptSelected ?? 0,

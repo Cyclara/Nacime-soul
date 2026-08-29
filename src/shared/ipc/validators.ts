@@ -205,7 +205,19 @@ function isMemoryUpdatedEvent(value: unknown): value is MemoryUpdatedEvent {
 /** P3A-23：Live2D state projection event（仅元数据，不含绝对路径/模型正文） */
 function isLive2dModelListItem(value: unknown): boolean {
   if (!isPlainObject(value)) return false
-  if (!hasOnlyKeys(value, ['id', 'displayName', 'source', 'cubismVersion', 'expressionCount', 'motionCount', 'hasMouthOpen', 'warnings'])) return false
+  if (
+    !hasOnlyKeys(value, [
+      'id',
+      'displayName',
+      'source',
+      'cubismVersion',
+      'expressionCount',
+      'motionCount',
+      'hasMouthOpen',
+      'warnings'
+    ])
+  )
+    return false
   return (
     isLive2dModelId(value.id) &&
     isString(value.displayName, { minLen: 1, maxLen: 128 }) &&
@@ -224,29 +236,69 @@ function isLive2dLoadError(value: unknown): boolean {
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['code', 'retryable', 'suggestedAction'])) return false
   return (
-    typeof value.code === 'string' && (LIVE2D_LOAD_ERROR_CODES as readonly string[]).includes(value.code) &&
+    typeof value.code === 'string' &&
+    (LIVE2D_LOAD_ERROR_CODES as readonly string[]).includes(value.code) &&
     isBoolean(value.retryable) &&
-    (value.suggestedAction === 'retry' || value.suggestedAction === 'choose-model' || value.suggestedAction === 'use-default' || value.suggestedAction === 'update-driver')
+    (value.suggestedAction === 'retry' ||
+      value.suggestedAction === 'choose-model' ||
+      value.suggestedAction === 'use-default' ||
+      value.suggestedAction === 'update-driver')
   )
 }
 
 function isLive2dStateEvent(value: unknown): value is Live2dStateEvent {
   if (!isPlainObject(value)) return false
-  if (!hasOnlyKeys(value, ['models', 'selectedModelId', 'loadedModelId', 'window', 'loading', 'lastError', 'revision', 'lastEventSequence', 'sequence'])) return false
-  if (!isNumber(value.revision, { min: 0, integer: true }) || !isNumber(value.lastEventSequence, { min: 0, integer: true }) || !isNumber(value.sequence, { min: 0, integer: true })) return false
-  if (!Array.isArray(value.models) || value.models.length > 512 || !value.models.every(isLive2dModelListItem)) return false
+  if (
+    !hasOnlyKeys(value, [
+      'models',
+      'selectedModelId',
+      'loadedModelId',
+      'window',
+      'loading',
+      'lastError',
+      'revision',
+      'lastEventSequence',
+      'sequence'
+    ])
+  )
+    return false
+  if (
+    !isNumber(value.revision, { min: 0, integer: true }) ||
+    !isNumber(value.lastEventSequence, { min: 0, integer: true }) ||
+    !isNumber(value.sequence, { min: 0, integer: true })
+  )
+    return false
+  if (
+    !Array.isArray(value.models) ||
+    value.models.length > 512 ||
+    !value.models.every(isLive2dModelListItem)
+  )
+    return false
   if (value.selectedModelId !== null && !isLive2dModelId(value.selectedModelId)) return false
   if (value.loadedModelId !== null && !isLive2dModelId(value.loadedModelId)) return false
   if (!isBoolean(value.loading)) return false
   if (value.lastError !== null && !isLive2dLoadError(value.lastError)) return false
-  if (!isPlainObject(value.window) || !hasOnlyKeys(value.window, ['visible', 'alwaysOnTop', 'zoom', 'offsetX', 'offsetY', 'stageStatus'])) return false
+  if (
+    !isPlainObject(value.window) ||
+    !hasOnlyKeys(value.window, [
+      'visible',
+      'alwaysOnTop',
+      'zoom',
+      'offsetX',
+      'offsetY',
+      'stageStatus'
+    ])
+  )
+    return false
   return (
     isBoolean(value.window.visible) &&
     isBoolean(value.window.alwaysOnTop) &&
     isNumber(value.window.zoom, { min: 0.25, max: 3 }) &&
     isNumber(value.window.offsetX, { min: -100, max: 100 }) &&
     isNumber(value.window.offsetY, { min: -100, max: 100 }) &&
-    ['closed', 'starting', 'loading-model', 'ready', 'degraded', 'error'].includes(String(value.window.stageStatus))
+    ['closed', 'starting', 'loading-model', 'ready', 'degraded', 'error'].includes(
+      String(value.window.stageStatus)
+    )
   )
 }
 
@@ -269,7 +321,12 @@ function isStageCommand(value: unknown): value is Live2dStageCommand {
         (value.expressionNames === undefined || isExpressionNameList(value.expressionNames))
       )
     case 'set-emotion':
-      return hasOnlyKeys(value, ['type', 'emotion']) && ['neutral', 'smile', 'happy', 'surprised', 'sad', 'angry', 'shy', 'confused'].includes(String(value.emotion))
+      return (
+        hasOnlyKeys(value, ['type', 'emotion']) &&
+        ['neutral', 'smile', 'happy', 'surprised', 'sad', 'angry', 'shy', 'confused'].includes(
+          String(value.emotion)
+        )
+      )
     case 'set-zoom':
       return hasOnlyKeys(value, ['type', 'zoom']) && isNumber(value.zoom, { min: 0.25, max: 3 })
     case 'set-offset':

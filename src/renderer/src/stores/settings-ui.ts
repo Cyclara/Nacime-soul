@@ -6,7 +6,8 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
-export type SettingsSection = 'model' | 'memory' | 'appearance' | 'live2d' | 'security' | 'about' | 'advanced'
+export type SettingsSection =
+  'model' | 'memory' | 'appearance' | 'live2d' | 'security' | 'about' | 'advanced'
 
 type VisibleSettingsSection = SettingsSection
 

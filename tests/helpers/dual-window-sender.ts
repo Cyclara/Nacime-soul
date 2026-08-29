@@ -61,9 +61,6 @@ export function makeDualWindowSenders(
 }
 
 /** 造一个"仿冒 sender"：ID 受信但 origin 被改（或反之），供负例测试 */
-export function makeForgedSender(
-  base: SenderInfo,
-  forge: Partial<SenderInfo>
-): SenderInfo {
+export function makeForgedSender(base: SenderInfo, forge: Partial<SenderInfo>): SenderInfo {
   return { ...base, ...forge }
 }

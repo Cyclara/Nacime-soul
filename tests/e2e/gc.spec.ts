@@ -48,7 +48,9 @@ test('P3G-08：软删进回收站→恢复→再清空时先落冷存储后删�
           )
           if (!list.ok) return `list failed: ${list.error.code}`
           memoryId = list.data.items.find((item) => item.content.includes(marker))?.id ?? null
-          return memoryId === null ? list.data.items.map((item) => item.content).join(' | ') : marker
+          return memoryId === null
+            ? list.data.items.map((item) => item.content).join(' | ')
+            : marker
         },
         { timeout: 40_000 }
       )

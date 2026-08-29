@@ -9,13 +9,54 @@ import { createBreathController } from './breath'
 function fakeRenderer(hasBreath: boolean): { renderer: ILive2DRenderer; values: number[] } {
   const values: number[] = []
   const renderer = {
-    attach() { /* noop */ }, load: async () => { /* noop */ }, unload() { /* noop */ }, resize() { /* noop */ }, setZoom() { /* noop */ }, setOffset() { /* noop */ }, pause() { /* noop */ }, resume() { /* noop */ }, setFrameDriver() { /* noop */ },
-    setExpression: async () => true, playMotion: async () => true,
+    attach() {
+      /* noop */
+    },
+    load: async () => {
+      /* noop */
+    },
+    unload() {
+      /* noop */
+    },
+    resize() {
+      /* noop */
+    },
+    setZoom() {
+      /* noop */
+    },
+    setOffset() {
+      /* noop */
+    },
+    pause() {
+      /* noop */
+    },
+    resume() {
+      /* noop */
+    },
+    setFrameDriver() {
+      /* noop */
+    },
+    setExpression: async () => true,
+    playMotion: async () => true,
     setParameter(update: { id: string; value: number }) {
       if (update.id === 'ParamBreath' && !hasBreath) return false
-      values.push(update.value); return true
-    }, setMouthOpen: () => true, setEyeOpen: () => true, hitTest: () => [],
-    getMetrics: () => ({ fps: 0, frameCount: 0, modelLoadMs: null, contextLossCount: 0, paused: false, hasModel: true }), dispose() { /* noop */ }
+      values.push(update.value)
+      return true
+    },
+    setMouthOpen: () => true,
+    setEyeOpen: () => true,
+    hitTest: () => [],
+    getMetrics: () => ({
+      fps: 0,
+      frameCount: 0,
+      modelLoadMs: null,
+      contextLossCount: 0,
+      paused: false,
+      hasModel: true
+    }),
+    dispose() {
+      /* noop */
+    }
   } satisfies ILive2DRenderer
   return { renderer, values }
 }

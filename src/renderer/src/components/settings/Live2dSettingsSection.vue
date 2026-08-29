@@ -33,7 +33,9 @@ onBeforeUnmount(() => {
       <div>
         <p class="live2d-settings__kicker">她的存在感</p>
         <h2 id="live2d-settings-title">Live2D 形象</h2>
-        <p class="live2d-settings__intro">让她安静地待在桌面上。模型出问题时，文字聊天仍然可以继续。</p>
+        <p class="live2d-settings__intro">
+          让她安静地待在桌面上。模型出问题时，文字聊天仍然可以继续。
+        </p>
       </div>
       <span class="live2d-settings__spark" aria-hidden="true">✦</span>
     </header>
@@ -42,15 +44,57 @@ onBeforeUnmount(() => {
     <Live2dPreviewControls :orchestrator="orchestrator" />
     <ModelList />
     <ModelImportDropzone />
-    <ModelValidationResult :error="live2d.state.lastError" :warnings="live2d.currentModel?.warnings" />
+    <ModelValidationResult
+      :error="live2d.state.lastError"
+      :warnings="live2d.currentModel?.warnings"
+    />
   </section>
 </template>
 
 <style scoped>
-.live2d-settings { display: grid; gap: 0.8rem; max-width: 38rem; padding: 0.25rem 0; color: var(--color-text-primary, white); }
-.live2d-settings__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.25rem 0 0.35rem; }
-.live2d-settings__kicker { margin: 0 0 0.3rem; color: rgb(193 177 255 / 82%); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; }
-.live2d-settings h2 { margin: 0; color: var(--color-text-primary, white); font-size: 1.35rem; letter-spacing: -0.02em; }
-.live2d-settings__intro { max-width: 29rem; margin: 0.45rem 0 0; color: var(--color-text-secondary, rgb(255 255 255 / 62%)); font-size: 0.78rem; line-height: 1.55; }
-.live2d-settings__spark { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border: 1px solid rgb(193 177 255 / 20%); border-radius: 0.8rem; background: rgb(193 177 255 / 9%); color: rgb(219 211 255); font-size: 1.15rem; }
+.live2d-settings {
+  display: grid;
+  gap: 0.8rem;
+  max-width: 38rem;
+  padding: 0.25rem 0;
+  color: var(--color-text-primary, white);
+}
+.live2d-settings__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.25rem 0 0.35rem;
+}
+.live2d-settings__kicker {
+  margin: 0 0 0.3rem;
+  color: rgb(193 177 255 / 82%);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.live2d-settings h2 {
+  margin: 0;
+  color: var(--color-text-primary, white);
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+.live2d-settings__intro {
+  max-width: 29rem;
+  margin: 0.45rem 0 0;
+  color: var(--color-text-secondary, rgb(255 255 255 / 62%));
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.live2d-settings__spark {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 1px solid rgb(193 177 255 / 20%);
+  border-radius: 0.8rem;
+  background: rgb(193 177 255 / 9%);
+  color: rgb(219 211 255);
+  font-size: 1.15rem;
+}
 </style>

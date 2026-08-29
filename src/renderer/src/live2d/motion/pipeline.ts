@@ -29,7 +29,9 @@ export interface MotionPipeline {
   readonly pluginIds: readonly string[]
 }
 
-export function createMotionPipeline(options?: { readonly onPluginError?: (pluginId: string) => void }): MotionPipeline {
+export function createMotionPipeline(options?: {
+  readonly onPluginError?: (pluginId: string) => void
+}): MotionPipeline {
   const plugins = new Map<string, MotionPlugin>()
 
   const ordered = (): MotionPlugin[] =>

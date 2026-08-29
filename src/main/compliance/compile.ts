@@ -50,7 +50,9 @@ export function compileComplianceRules(
     const reasons: string[] = []
 
     if (!COMPLIANCE_RULE_ID_PATTERN.test(rule.id)) {
-      reasons.push(`id 格式非法（期望 ${COMPLIANCE_RULE_ID_PATTERN.source}）：${JSON.stringify(rule.id)}`)
+      reasons.push(
+        `id 格式非法（期望 ${COMPLIANCE_RULE_ID_PATTERN.source}）：${JSON.stringify(rule.id)}`
+      )
     } else if (seenIds.has(rule.id)) {
       reasons.push(`id 重复：${rule.id}（保留首条，拒绝本条）`)
     }
@@ -62,7 +64,9 @@ export function compileComplianceRules(
     }
 
     if (rule.pattern.global || rule.pattern.sticky) {
-      reasons.push(`pattern 带 g/y 标志（${rule.pattern.flags}），有状态 lastIndex 会破坏重复匹配确定性`)
+      reasons.push(
+        `pattern 带 g/y 标志（${rule.pattern.flags}），有状态 lastIndex 会破坏重复匹配确定性`
+      )
     }
 
     if (hasNestedUnboundedQuantifier(rule.pattern.source)) {
@@ -165,7 +169,9 @@ export function hasNestedUnboundedQuantifier(source: string): boolean {
 
     // 量词
     if (ch === '*' || ch === '+' || ch === '?') {
-      if (applyQuantifier(stack, lastClosedGroup, /* variable */ true, /* unbounded */ ch !== '?')) {
+      if (
+        applyQuantifier(stack, lastClosedGroup, /* variable */ true, /* unbounded */ ch !== '?')
+      ) {
         return true
       }
       lastClosedGroup = null

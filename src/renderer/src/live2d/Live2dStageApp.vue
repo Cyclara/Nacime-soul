@@ -93,7 +93,10 @@ onBeforeUnmount(disposeStage)
 </script>
 
 <template>
-  <main class="live2d-stage" :aria-busy="stageState.status === 'starting' || stageState.status === 'loading-model'">
+  <main
+    class="live2d-stage"
+    :aria-busy="stageState.status === 'starting' || stageState.status === 'loading-model'"
+  >
     <canvas ref="canvas" class="live2d-canvas" aria-label="Nacime 的 Live2D 形象" />
 
     <Live2dErrorOverlay

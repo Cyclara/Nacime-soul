@@ -16,7 +16,10 @@ describe('P3A-20 expression map', () => {
   })
 
   it('缺失目标 expression 回 neutral；连 neutral 也缺失则安全空结果', () => {
-    expect(resolveExpression('angry', ['normal'])).toMatchObject({ resolved: 'normal', fallback: true })
+    expect(resolveExpression('angry', ['normal'])).toMatchObject({
+      resolved: 'normal',
+      fallback: true
+    })
     expect(resolveExpression('angry', [])).toMatchObject({ resolved: '', fallback: true })
   })
 
@@ -31,12 +34,12 @@ describe('P3A-20 expression map', () => {
     const mao = aliasesForModel('mao')
     const names = ['exp_01', 'exp_02', 'exp_03', 'exp_04', 'exp_05', 'exp_06', 'exp_07', 'exp_08']
     expect(resolveExpression('neutral', names, mao).resolved).toBe('exp_01')
-    expect(resolveExpression('smile', names, mao).resolved).toBe('exp_02')   // 闭眼笑
-    expect(resolveExpression('happy', names, mao).resolved).toBe('exp_04')   // 睁大眼+笑眼
-    expect(resolveExpression('sad', names, mao).resolved).toBe('exp_05')     // 眉尾/嘴角下垂
-    expect(resolveExpression('shy', names, mao).resolved).toBe('exp_06')     // 脸红
+    expect(resolveExpression('smile', names, mao).resolved).toBe('exp_02') // 闭眼笑
+    expect(resolveExpression('happy', names, mao).resolved).toBe('exp_04') // 睁大眼+笑眼
+    expect(resolveExpression('sad', names, mao).resolved).toBe('exp_05') // 眉尾/嘴角下垂
+    expect(resolveExpression('shy', names, mao).resolved).toBe('exp_06') // 脸红
     expect(resolveExpression('confused', names, mao).resolved).toBe('exp_07')
-    expect(resolveExpression('angry', names, mao).resolved).toBe('exp_08')   // 怒纹
+    expect(resolveExpression('angry', names, mao).resolved).toBe('exp_08') // 怒纹
     // exp_03 是纯闭眼、不是情绪，任何语义情绪都不该映射到它。
     expect(names.filter((n) => Object.values(mao).flat().includes(n))).not.toContain('exp_03')
   })
@@ -50,7 +53,9 @@ describe('P3A-20 expression map', () => {
 
   it('从受控 URL 取模型 id，非法 URL 返回 null', () => {
     expect(modelIdFromStageUrl('nacime-live2d://model/mao/Mao.model3.json')).toBe('mao')
-    expect(modelIdFromStageUrl(`nacime-live2d://model/${encodeURIComponent('我的模型')}/a.model3.json`)).toBe('我的模型')
+    expect(
+      modelIdFromStageUrl(`nacime-live2d://model/${encodeURIComponent('我的模型')}/a.model3.json`)
+    ).toBe('我的模型')
     expect(modelIdFromStageUrl('nacime-live2d://runtime/cubism-core')).toBeNull()
     expect(modelIdFromStageUrl('https://example.com/a.json')).toBeNull()
   })

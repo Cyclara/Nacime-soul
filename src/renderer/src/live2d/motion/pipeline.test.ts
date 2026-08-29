@@ -4,7 +4,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createMotionPipeline, type MotionPlugin } from './pipeline'
 
-function plugin(id: string, priority: number, phases: MotionPlugin['phases'], log: string[], action?: MotionPlugin['onFrame']): MotionPlugin {
+function plugin(
+  id: string,
+  priority: number,
+  phases: MotionPlugin['phases'],
+  log: string[],
+  action?: MotionPlugin['onFrame']
+): MotionPlugin {
   return { id, priority, phases, onFrame: action ?? ((ctx) => log.push(`${id}:${ctx.phase}`)) }
 }
 
@@ -23,7 +29,12 @@ describe('P3A-16 MotionPipeline', () => {
   it('handled 只短路当前阶段后续插件，不跳过 native/post/final', () => {
     const log: string[] = []
     const pipeline = createMotionPipeline()
-    pipeline.add(plugin('first', 1, ['pre'], log, (ctx) => { log.push('first:pre'); ctx.markHandled() }))
+    pipeline.add(
+      plugin('first', 1, ['pre'], log, (ctx) => {
+        log.push('first:pre')
+        ctx.markHandled()
+      })
+    )
     pipeline.add(plugin('second', 2, ['pre'], log))
     pipeline.add(plugin('post', 3, ['post'], log))
     pipeline.run({ deltaMs: 16, nowMs: 16 }, () => log.push('native'))
@@ -34,7 +45,11 @@ describe('P3A-16 MotionPipeline', () => {
     const errors: string[] = []
     const log: string[] = []
     const pipeline = createMotionPipeline({ onPluginError: (id) => errors.push(id) })
-    pipeline.add(plugin('bad', 1, ['pre'], log, () => { throw new Error('bad') }))
+    pipeline.add(
+      plugin('bad', 1, ['pre'], log, () => {
+        throw new Error('bad')
+      })
+    )
     pipeline.add(plugin('good', 2, ['pre'], log))
     pipeline.run({ deltaMs: 16, nowMs: 16 }, () => log.push('native'))
     expect(errors).toEqual(['bad'])

@@ -83,7 +83,10 @@ export function createStageController(deps: StageControllerDeps): StageControlle
         stageInstanceId,
         status,
         ...(status === 'ready'
-          ? { fps: metrics.fps, ...(metrics.modelLoadMs === null ? {} : { modelLoadMs: metrics.modelLoadMs }) }
+          ? {
+              fps: metrics.fps,
+              ...(metrics.modelLoadMs === null ? {} : { modelLoadMs: metrics.modelLoadMs })
+            }
           : {}),
         ...(nextErrorCode === undefined ? {} : { errorCode: nextErrorCode })
       })
@@ -101,8 +104,16 @@ export function createStageController(deps: StageControllerDeps): StageControlle
     motionPipeline?.dispose()
     const random = deps.random
     const pluginPipeline = createMotionPipeline()
-    pluginPipeline.add(createBlinkPlugin({ renderer: deps.renderer, ...(random === undefined ? {} : { random }), ...(deps.reduceMotion === undefined ? {} : { reduceMotion: deps.reduceMotion }) }))
-    pluginPipeline.add(createSaccadePlugin({ renderer: deps.renderer, ...(random === undefined ? {} : { random }) }))
+    pluginPipeline.add(
+      createBlinkPlugin({
+        renderer: deps.renderer,
+        ...(random === undefined ? {} : { random }),
+        ...(deps.reduceMotion === undefined ? {} : { reduceMotion: deps.reduceMotion })
+      })
+    )
+    pluginPipeline.add(
+      createSaccadePlugin({ renderer: deps.renderer, ...(random === undefined ? {} : { random }) })
+    )
     pluginPipeline.add(createBreathPlugin({ renderer: deps.renderer }))
     motionPipeline = pluginPipeline
     deps.renderer.setFrameDriver((frame, nativeUpdate) => pluginPipeline.run(frame, nativeUpdate))
@@ -110,7 +121,8 @@ export function createStageController(deps: StageControllerDeps): StageControlle
 
   const loadErrorCode = (error: unknown): string => {
     const message = error instanceof Error ? error.message.toLowerCase() : ''
-    if (message.includes('fetch') || message.includes('404') || message.includes('not found')) return 'FILE_NOT_FOUND'
+    if (message.includes('fetch') || message.includes('404') || message.includes('not found'))
+      return 'FILE_NOT_FOUND'
     if (message.includes('texture') && message.includes('upload')) return 'TEXTURE_UPLOAD_FAILED'
     if (message.includes('texture')) return 'TEXTURE_TOO_LARGE'
     if (message.includes('webgl') || message.includes('context')) return 'WEBGL_UNSUPPORTED'
@@ -136,14 +148,17 @@ export function createStageController(deps: StageControllerDeps): StageControlle
         // 内置模型的 expression 编号与情绪没有约定关系，必须按模型走显式表（见 map.ts）。
         aliases: aliasesForModel(modelIdFromStageUrl(modelUrl)),
         onUnresolved: (emotion, available) => {
-          console.warn(`[live2d] emotion "${emotion}" has no expression on this model; falling back to neutral. available=${available.length}`)
+          console.warn(
+            `[live2d] emotion "${emotion}" has no expression on this model; falling back to neutral. available=${available.length}`
+          )
         }
       })
       motionPipeline?.add({
         id: 'expression-controller',
         priority: 130,
         phases: ['final'],
-        onFrame: (context) => expressionController?.update(context.frame.deltaMs, context.frame.nowMs)
+        onFrame: (context) =>
+          expressionController?.update(context.frame.deltaMs, context.frame.nowMs)
       })
       // P3A-07：至少让一个 rAF/ticker 帧发生后才承认 ready，避免透明空窗提前 show。
       await waitForFrame()
@@ -157,7 +172,11 @@ export function createStageController(deps: StageControllerDeps): StageControlle
         }, 1_100)
       }
     } catch (error) {
-      if (!firstLoad && error instanceof Error && error.message === 'Live2D renderer is not attached') {
+      if (
+        !firstLoad &&
+        error instanceof Error &&
+        error.message === 'Live2D renderer is not attached'
+      ) {
         return
       }
       const code = loadErrorCode(error)

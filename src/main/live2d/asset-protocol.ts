@@ -16,7 +16,10 @@ export function parseLive2dAssetRequest(url: string): { modelId: string; path: s
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== `${LIVE2D_ASSET_SCHEME}:`) return null
-    if (parsed.hostname === 'runtime' && (parsed.pathname === '/cubism-core' || parsed.pathname === '/cubism2')) {
+    if (
+      parsed.hostname === 'runtime' &&
+      (parsed.pathname === '/cubism-core' || parsed.pathname === '/cubism2')
+    ) {
       return { modelId: 'runtime', path: parsed.pathname.slice(1) }
     }
     if (parsed.hostname !== 'model') return null
@@ -24,7 +27,8 @@ export function parseLive2dAssetRequest(url: string): { modelId: string; path: s
     if (empty !== '' || encodedModelId === undefined || encodedPath.length === 0) return null
     const modelId = decodeURIComponent(encodedModelId)
     const path = encodedPath.map((segment) => decodeURIComponent(segment)).join('/')
-    if (modelId.length === 0 || path.length === 0 || modelId.includes('/') || path.includes('\0')) return null
+    if (modelId.length === 0 || path.length === 0 || modelId.includes('/') || path.includes('\0'))
+      return null
     return { modelId, path }
   } catch {
     return null
@@ -52,23 +56,43 @@ export function createLive2dAssetProtocolHandler(options: {
   return async (request: Request): Promise<Response> => {
     const parsed = parseLive2dAssetRequest(request.url)
     if (parsed === null) return new Response('Not found', { status: 404 })
-    if (parsed.modelId === 'runtime' && parsed.path === 'cubism-core' && existsSync(options.cubismCorePath)) {
+    if (
+      parsed.modelId === 'runtime' &&
+      parsed.path === 'cubism-core' &&
+      existsSync(options.cubismCorePath)
+    ) {
       const content = await readFile(options.cubismCorePath)
       return assetResponse(content, 'application/javascript; charset=utf-8')
     }
-    if (parsed.modelId === 'runtime' && parsed.path === 'cubism2' && options.cubism2Path !== undefined && existsSync(options.cubism2Path)) {
+    if (
+      parsed.modelId === 'runtime' &&
+      parsed.path === 'cubism2' &&
+      options.cubism2Path !== undefined &&
+      existsSync(options.cubism2Path)
+    ) {
       const content = await readFile(options.cubism2Path)
       return assetResponse(content, 'application/javascript; charset=utf-8')
     }
     const filePath = options.service.resolveAssetPath(parsed.modelId, parsed.path)
     if (filePath === null) return new Response('Not found', { status: 404 })
-    if (extname(filePath).toLowerCase() === '.json' || filePath.toLowerCase().endsWith('.model3.json')) {
+    if (
+      extname(filePath).toLowerCase() === '.json' ||
+      filePath.toLowerCase().endsWith('.model3.json')
+    ) {
       const content = await readFile(filePath)
       return assetResponse(content, 'application/json; charset=utf-8')
     }
     const content = await readFile(filePath)
     const lower = filePath.toLowerCase()
-    const contentType = lower.endsWith('.moc3') ? 'application/octet-stream' : lower.endsWith('.mp3') ? 'audio/mpeg' : lower.endsWith('.wav') ? 'audio/wav' : lower.endsWith('.png') ? 'image/png' : 'application/octet-stream'
+    const contentType = lower.endsWith('.moc3')
+      ? 'application/octet-stream'
+      : lower.endsWith('.mp3')
+        ? 'audio/mpeg'
+        : lower.endsWith('.wav')
+          ? 'audio/wav'
+          : lower.endsWith('.png')
+            ? 'image/png'
+            : 'application/octet-stream'
     return assetResponse(content, contentType)
   }
 }
@@ -76,7 +100,11 @@ export function createLive2dAssetProtocolHandler(options: {
 /** defaultSession 和 stage WebContents 同 session，注册一次即可；重复时 Electron 自行替换 handler。 */
 export function registerLive2dAssetProtocol(
   session: Session,
-  options: { readonly service: Live2dModelService; readonly cubismCorePath: string; readonly cubism2Path?: string }
+  options: {
+    readonly service: Live2dModelService
+    readonly cubismCorePath: string
+    readonly cubism2Path?: string
+  }
 ): void {
   session.protocol.handle(LIVE2D_ASSET_SCHEME, createLive2dAssetProtocolHandler(options))
 }

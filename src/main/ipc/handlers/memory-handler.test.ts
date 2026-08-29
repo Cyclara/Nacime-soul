@@ -174,25 +174,48 @@ describe('P3G recycle-bin handlers', () => {
   beforeEach(() => {
     vi.mocked(ipcMain.handle).mockClear()
     vi.mocked(ipcMain.removeHandler).mockClear()
-    configureIpcGuard({ trustedOrigins: new Set(['http://localhost:5173']), trustedWebContentsIds: new Set([1]) }, noopLogger())
+    configureIpcGuard(
+      { trustedOrigins: new Set(['http://localhost:5173']), trustedWebContentsIds: new Set([1]) },
+      noopLogger()
+    )
   })
 
   it('分页/恢复/清空均只经 GC service，确认载荷由 validator 限死', async () => {
     const gc = {
-      listRecycleBin: vi.fn(() => ({ items: [makeMemory({ lifecycleState: 'soft_deleted', softDeletedAt: 100 })], total: 1 })),
+      listRecycleBin: vi.fn(() => ({
+        items: [makeMemory({ lifecycleState: 'soft_deleted', softDeletedAt: 100 })],
+        total: 1
+      })),
       restore: vi.fn(() => true),
       emptyRecycleBin: vi.fn(() => 1)
     }
     registerMemoryHandlers({
       logger: noopLogger(),
-      services: { l0Store: {} as never, l2Store: {} as never, dmaeService: null, dmaeDiagnostics: null, gcService: gc as never, revisionClock: { current: () => 7, next: () => 8 }, broadcaster: { notify: vi.fn(), flush: vi.fn(), dispose: vi.fn() } },
+      services: {
+        l0Store: {} as never,
+        l2Store: {} as never,
+        dmaeService: null,
+        dmaeDiagnostics: null,
+        gcService: gc as never,
+        revisionClock: { current: () => 7, next: () => 8 },
+        broadcaster: { notify: vi.fn(), flush: vi.fn(), dispose: vi.fn() }
+      },
       getMemoryConfig: () => ({ enabled: true }) as never
     })
-    const list = await getHandler('companion:memory:list-recycle-bin')(trustedEvent(), { limit: 50, offset: 0 }) as { ok: boolean; data?: { total: number; items: unknown[] } }
+    const list = (await getHandler('companion:memory:list-recycle-bin')(trustedEvent(), {
+      limit: 50,
+      offset: 0
+    })) as { ok: boolean; data?: { total: number; items: unknown[] } }
     expect(list).toMatchObject({ ok: true, data: { total: 1 } })
     expect(gc.listRecycleBin).toHaveBeenCalledWith(50, 0)
-    expect(await getHandler('companion:memory:restore-from-recycle-bin')(trustedEvent(), { memoryId: 'l2_1710000000000_a1' })).toMatchObject({ ok: true })
-    expect(await getHandler('companion:memory:empty-recycle-bin')(trustedEvent(), { confirm: true })).toMatchObject({ ok: true, data: { purged: 1 } })
+    expect(
+      await getHandler('companion:memory:restore-from-recycle-bin')(trustedEvent(), {
+        memoryId: 'l2_1710000000000_a1'
+      })
+    ).toMatchObject({ ok: true })
+    expect(
+      await getHandler('companion:memory:empty-recycle-bin')(trustedEvent(), { confirm: true })
+    ).toMatchObject({ ok: true, data: { purged: 1 } })
   })
 })
 

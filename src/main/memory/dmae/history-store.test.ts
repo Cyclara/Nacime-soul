@@ -230,7 +230,9 @@ describe('P2-31.5F: HistoryStore recordTurn', () => {
 
   it('200 轮只批写 turns 与分层 samples，不会退化成全库 15k×轮的写放大', () => {
     const store = createDmaeHistoryStore({ db, logger: noopLogger })
-    const activeEntries = Array.from({ length: 15 }, (_, index) => makeEntryDiag(`active-${index}`, 50))
+    const activeEntries = Array.from({ length: 15 }, (_, index) =>
+      makeEntryDiag(`active-${index}`, 50)
+    )
     for (let turn = 0; turn < 200; turn++) recordNthTurn(store, turn, activeEntries)
     expect(store.queryTurns(90)).toHaveLength(200)
     const rows = db.prepare(`SELECT COUNT(*) AS count FROM dmae_samples`).get() as { count: number }

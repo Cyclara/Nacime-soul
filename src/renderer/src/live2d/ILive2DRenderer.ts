@@ -30,10 +30,7 @@ export interface Live2DRendererFrame {
  * renderer 保持 native 求值的单一控制权：插件不得跳过它（P3A-16 冻结条款），driver 抛错时
  * fail-open 补跑且整帧只跑一次。
  */
-export type Live2DFrameDriver = (
-  frame: Live2DRendererFrame,
-  nativeUpdate: () => void
-) => void
+export type Live2DFrameDriver = (frame: Live2DRendererFrame, nativeUpdate: () => void) => void
 
 /** 供 main/调试面板投影的纯数值运行指标；不携带模型路径或任何用户数据。 */
 export interface Live2DRendererMetrics {

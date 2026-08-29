@@ -7,7 +7,24 @@ import { migration as m005 } from './005_dmae_turn_stats'
 import { migration as m010 } from './010_dmae_prompt_truth'
 
 const noop = {
-  fatal() { /* noop */ }, error() { /* noop */ }, warn() { /* noop */ }, info() { /* noop */ }, debug() { /* noop */ }, child() { return this }
+  fatal() {
+    /* noop */
+  },
+  error() {
+    /* noop */
+  },
+  warn() {
+    /* noop */
+  },
+  info() {
+    /* noop */
+  },
+  debug() {
+    /* noop */
+  },
+  child() {
+    return this
+  }
 }
 
 describe('010_dmae_prompt_truth', () => {
@@ -16,11 +33,19 @@ describe('010_dmae_prompt_truth', () => {
     const context = { db, dataDir: '', log: noop, dryRun: false }
     await m003.up(context)
     await m005.up(context)
-    db.prepare(`INSERT INTO dmae_turns (turn, ts, eligible_active, retrieval_hits, prompt_selected, max_active, user_hits, model_hits, model_hits_gated, model_reward_raw_sum, model_reward_effective_sum, total_decay, floor_revivals, true_floor_revivals, params_hash) VALUES (1,1,1,1,1,15,0,0,0,0,0,0,0,0,'hash')`).run()
+    db.prepare(
+      `INSERT INTO dmae_turns (turn, ts, eligible_active, retrieval_hits, prompt_selected, max_active, user_hits, model_hits, model_hits_gated, model_reward_raw_sum, model_reward_effective_sum, total_decay, floor_revivals, true_floor_revivals, params_hash) VALUES (1,1,1,1,1,15,0,0,0,0,0,0,0,0,'hash')`
+    ).run()
 
     await m010.up(context)
     expect((await m010.validate(context)).ok).toBe(true)
-    expect(db.prepare(`SELECT prompt_included, prompt_trimmed, prompt_included_ids_json, prompt_trimmed_ids_json FROM dmae_turns WHERE turn=1`).get()).toEqual({
+    expect(
+      db
+        .prepare(
+          `SELECT prompt_included, prompt_trimmed, prompt_included_ids_json, prompt_trimmed_ids_json FROM dmae_turns WHERE turn=1`
+        )
+        .get()
+    ).toEqual({
       prompt_included: null,
       prompt_trimmed: null,
       prompt_included_ids_json: null,

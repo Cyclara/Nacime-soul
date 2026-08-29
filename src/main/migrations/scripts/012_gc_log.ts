@@ -15,7 +15,11 @@ export const migration: Migration = {
     `)
   },
   validate({ db }) {
-    const columns = new Set((db.prepare(`PRAGMA table_info(gc_log)`).all() as Array<{ name: string }>).map((row) => row.name))
+    const columns = new Set(
+      (db.prepare(`PRAGMA table_info(gc_log)`).all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
+    )
     return columns.has('ran_at') && columns.has('report')
       ? { ok: true }
       : { ok: false, detail: 'gc_log schema missing after migration 012' }

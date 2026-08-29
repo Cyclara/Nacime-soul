@@ -18,7 +18,12 @@ function copiedFixture(): ReturnType<typeof discoverLive2dModel> {
   roots.push(root)
   const directory = join(root, 'model')
   cpSync(join(process.cwd(), 'tests/fixtures/live2d/fake-model'), directory, { recursive: true })
-  return discoverLive2dModel({ modelDirectory: directory, id: 'fake', displayName: 'Fake', source: 'user' })
+  return discoverLive2dModel({
+    modelDirectory: directory,
+    id: 'fake',
+    displayName: 'Fake',
+    source: 'user'
+  })
 }
 
 describe('P3A-10 model validator', () => {
@@ -39,7 +44,11 @@ describe('P3A-10 model validator', () => {
 
   it('单纹理或纹理总量超限返回 TEXTURE_TOO_LARGE', () => {
     const candidate = copiedFixture()
-    writeFileSync(join(candidate.modelDirectory, candidate.manifest.textureFiles[0]!), '0123456789', 'utf8')
+    writeFileSync(
+      join(candidate.modelDirectory, candidate.manifest.textureFiles[0]!),
+      '0123456789',
+      'utf8'
+    )
     const result = validateLive2dModel(candidate, {
       maxTextureBytes: 4,
       maxTotalTextureBytes: 4,

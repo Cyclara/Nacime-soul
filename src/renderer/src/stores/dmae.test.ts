@@ -9,19 +9,56 @@ import type { DmaePanelSnapshot } from '@shared/memory/dmae-types'
 function snapshot(overrides: Partial<DmaePanelSnapshot> = {}): DmaePanelSnapshot {
   return {
     enabled: true,
-    params: { maxScore: 100, promptThreshold: 30, userRewardBase: 20, wakeGamma: 0.5, modelRewardBase: 8, wakeLambda: 0.3, decayAlpha: 1.5, decayBeta: 0.3 },
+    params: {
+      maxScore: 100,
+      promptThreshold: 30,
+      userRewardBase: 20,
+      wakeGamma: 0.5,
+      modelRewardBase: 8,
+      wakeLambda: 0.3,
+      decayAlpha: 1.5,
+      decayBeta: 0.3
+    },
     maxActive: 15,
     currentTurn: 1,
     counts: { eligibleActive: 250, dormant: 0, archived: 0, l2Total: 250 },
-    selection: { eligibleActiveCount: 250, lastRetrievalHits: 2, lastPromptSelectedCount: 2, lastPromptIncludedCount: 1, lastPromptTrimmedCount: 1, lastPromptSelectedIds: ['m1'], maxActive: 15 },
-    activeSet: [{ memoryId: 'm1', contentPreview: 'one', activation: 50, importance: 5, userSilence: 0, spark: [], trend: 'stable', decayExempt: false, selectedLastTurn: true, injectedLastTurn: true }],
+    selection: {
+      eligibleActiveCount: 250,
+      lastRetrievalHits: 2,
+      lastPromptSelectedCount: 2,
+      lastPromptIncludedCount: 1,
+      lastPromptTrimmedCount: 1,
+      lastPromptSelectedIds: ['m1'],
+      maxActive: 15
+    },
+    activeSet: [
+      {
+        memoryId: 'm1',
+        contentPreview: 'one',
+        activation: 50,
+        importance: 5,
+        userSilence: 0,
+        spark: [],
+        trend: 'stable',
+        decayExempt: false,
+        selectedLastTurn: true,
+        injectedLastTurn: true
+      }
+    ],
     nextEligibleCursor: { turn: 1, activation: 50, memoryId: 'm1' },
     activeSetPaginated: true,
     eligibleCursorReset: false,
     anomalies: [],
     lastBenchmark: null,
     lastQualitative: null,
-    stateFile: { path: '', entries: 250, lastSaveOk: true, lastSaveAt: 1, lastLoadReset: 'none', saveFailures7d: 0 },
+    stateFile: {
+      path: '',
+      entries: 250,
+      lastSaveOk: true,
+      lastSaveAt: 1,
+      lastLoadReset: 'none',
+      saveFailures7d: 0
+    },
     ...overrides
   }
 }
@@ -40,7 +77,10 @@ describe('P3X-03 DMAE paging store', () => {
     vi.stubGlobal('window', {
       companion: {
         dmae: {
-          getPanel: vi.fn().mockResolvedValueOnce({ ok: true, data: first }).mockResolvedValueOnce({ ok: true, data: second }),
+          getPanel: vi
+            .fn()
+            .mockResolvedValueOnce({ ok: true, data: first })
+            .mockResolvedValueOnce({ ok: true, data: second }),
           getTrend: vi.fn(async () => ({ ok: true, data: [] }))
         }
       }
@@ -62,7 +102,10 @@ describe('P3X-03 DMAE paging store', () => {
     vi.stubGlobal('window', {
       companion: {
         dmae: {
-          getPanel: vi.fn().mockResolvedValueOnce({ ok: true, data: first }).mockResolvedValueOnce({ ok: true, data: reset }),
+          getPanel: vi
+            .fn()
+            .mockResolvedValueOnce({ ok: true, data: first })
+            .mockResolvedValueOnce({ ok: true, data: reset }),
           getTrend: vi.fn(async () => ({ ok: true, data: [] }))
         }
       }

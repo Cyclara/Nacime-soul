@@ -42,8 +42,12 @@ export function createBreathController(options: BreathOptions): BreathController
 
   reset()
   return {
-    get phase() { return phase },
-    get enabled() { return enabled },
+    get phase() {
+      return phase
+    },
+    get enabled() {
+      return enabled
+    },
     update,
     reset,
     dispose() {
@@ -53,7 +57,9 @@ export function createBreathController(options: BreathOptions): BreathController
   }
 }
 
-export function createBreathPlugin(options: BreathOptions): MotionPlugin & { readonly controller: BreathController } {
+export function createBreathPlugin(
+  options: BreathOptions
+): MotionPlugin & { readonly controller: BreathController } {
   const controller = createBreathController(options)
   return {
     id: 'auto-breath',

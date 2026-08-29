@@ -68,7 +68,12 @@ describe('compileComplianceRules：硬约束拒绝（单条硬失败，整批不
 
   it("action 'block' + confidence<0.95 → 拒绝；critical+0.95 的 block → 放行", () => {
     const bad = makeRule({ id: 'R-XX-98', action: 'block', confidence: 0.94 })
-    const good = makeRule({ id: 'R-XX-99', action: 'block', severity: 'critical', confidence: 0.95 })
+    const good = makeRule({
+      id: 'R-XX-99',
+      action: 'block',
+      severity: 'critical',
+      confidence: 0.95
+    })
     const { rules, rejected } = compileComplianceRules([bad, good])
     expect(rejected.map((r) => r.ruleId)).toEqual(['R-XX-98'])
     expect(rules.map((r) => r.rule.id)).toEqual(['R-XX-99'])
@@ -149,7 +154,7 @@ describe('hasNestedUnboundedQuantifier：ReDoS 静态防线', () => {
     '(?:ab|cd)+', // 组内无量词（star height 1）
     '(?:首先|第一)[，,][^\\n]{0,200}?(?:其次|总之)[，,]',
     '^[\\s　]*(?:作为|以下是)',
-    '(?:I(?:\'m|\\s+am)\\s+)?AI',
+    "(?:I(?:'m|\\s+am)\\s+)?AI",
     '(?<=foo)bar+', // 后顾 + 顶层量词
     '\\d[.、)]',
     'a{2}', // 顶层定宽

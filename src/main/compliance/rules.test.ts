@@ -53,10 +53,16 @@ describe('P3C1-02 examples 全量自校验（C1 验收①：全部出厂规则 h
     expect(rule.examples.hit.length, `${rule.id} 至少一条 hit 样本`).toBeGreaterThan(0)
     expect(rule.examples.miss.length, `${rule.id} 至少一条 miss 样本`).toBeGreaterThan(0)
     for (const sample of rule.examples.hit) {
-      expect(rule.pattern.test(sample), `${rule.id} hit 样本未命中：${JSON.stringify(sample)}`).toBe(true)
+      expect(
+        rule.pattern.test(sample),
+        `${rule.id} hit 样本未命中：${JSON.stringify(sample)}`
+      ).toBe(true)
     }
     for (const sample of rule.examples.miss) {
-      expect(rule.pattern.test(sample), `${rule.id} miss 样本误命中：${JSON.stringify(sample)}`).toBe(false)
+      expect(
+        rule.pattern.test(sample),
+        `${rule.id} miss 样本误命中：${JSON.stringify(sample)}`
+      ).toBe(false)
     }
   })
 })
@@ -144,7 +150,11 @@ describe('P3C1-02 影子策略常量集（裁定 1.5 #3）', () => {
     expect(shadowTargetAction(byId('R-AP-05'))).toBe('flag')
     expect(shadowTargetAction(byId('R-DC-05'))).toBe('flag')
     // lecturing 永不 block（§3.2 类型级资格）：即使数值达标也不入
-    const lecturingMax: ComplianceRule = { ...byId('R-LC-01'), severity: 'critical', confidence: 0.99 }
+    const lecturingMax: ComplianceRule = {
+      ...byId('R-LC-01'),
+      severity: 'critical',
+      confidence: 0.99
+    }
     expect(shadowTargetAction(lecturingMax)).toBe('flag')
   })
 })

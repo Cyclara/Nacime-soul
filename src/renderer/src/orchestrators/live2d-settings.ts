@@ -43,7 +43,9 @@ export function createLive2dSettingsOrchestrator(deps: {
   readonly live2d: {
     readonly state: Pick<Live2dState, 'window'>
     hydrate(): Promise<void>
-    previewFraming(framing: { zoom: number; offsetX: number; offsetY: number } | null): Promise<void>
+    previewFraming(
+      framing: { zoom: number; offsetX: number; offsetY: number } | null
+    ): Promise<void>
   }
   /** 合并同一帧内的连续滑动；缺省用 rAF，测试注入同步实现。 */
   readonly scheduleFrame?: (callback: () => void) => void

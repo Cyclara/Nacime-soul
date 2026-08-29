@@ -31,11 +31,21 @@ import type { TurnEndData } from '../chat/service'
 
 function noopLogger(): Logger {
   const l: Logger = {
-    fatal() { /* noop */ },
-    error() { /* noop */ },
-    warn() { /* noop */ },
-    info() { /* noop */ },
-    debug() { /* noop */ },
+    fatal() {
+      /* noop */
+    },
+    error() {
+      /* noop */
+    },
+    warn() {
+      /* noop */
+    },
+    info() {
+      /* noop */
+    },
+    debug() {
+      /* noop */
+    },
     child: () => l
   }
   return l
@@ -43,7 +53,9 @@ function noopLogger(): Logger {
 
 const FACTORY_COMPILED = compileComplianceRules(COMPLIANCE_RULES).rules
 
-function syntheticRules(...overridesList: Partial<ComplianceRule>[]): readonly CompiledComplianceRule[] {
+function syntheticRules(
+  ...overridesList: Partial<ComplianceRule>[]
+): readonly CompiledComplianceRule[] {
   const raw: ComplianceRule[] = overridesList.map((overrides, i) => ({
     id: `R-XX-9${i}`,
     type: 'meta-reference',
@@ -354,7 +366,9 @@ describe('C1 验收⑦：出厂 42 条规则 examples.hit 回放，反事实字�
       gate.flush()
       const own = gate.takeRecords().filter((r) => r.ruleId === rule.id)
       // 样本经门控（EOF 段）必须命中本规则
-      expect(own.length, `rule ${rule.id} sample ${JSON.stringify(sample)}`).toBeGreaterThanOrEqual(1)
+      expect(own.length, `rule ${rule.id} sample ${JSON.stringify(sample)}`).toBeGreaterThanOrEqual(
+        1
+      )
       const expectedAction = SHADOW_TARGET_ACTIONS[rule.id]
       for (const r of own) {
         expect(r.counterfactualAction).toBe(expectedAction)

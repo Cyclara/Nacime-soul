@@ -212,10 +212,22 @@ export function createMemorySessionStore(): SessionStore {
       for (const messages of sessions.values()) {
         const completedAssistantTurnIds = new Set(
           messages
-            .filter((message) => message.role === 'assistant' && message.status === 'complete' && message.turnId !== undefined)
+            .filter(
+              (message) =>
+                message.role === 'assistant' &&
+                message.status === 'complete' &&
+                message.turnId !== undefined
+            )
             .map((message) => message.turnId!)
         )
-        if (messages.some((message) => message.role === 'user' && message.turnId !== undefined && completedAssistantTurnIds.has(message.turnId))) {
+        if (
+          messages.some(
+            (message) =>
+              message.role === 'user' &&
+              message.turnId !== undefined &&
+              completedAssistantTurnIds.has(message.turnId)
+          )
+        ) {
           return true
         }
       }

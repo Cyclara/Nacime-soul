@@ -25,10 +25,13 @@ export const migration: Migration = {
   },
   validate({ db }) {
     const columns = new Set(
-      (db.prepare(`PRAGMA table_info(dmae_turns)`).all() as Array<{ name: string }>).map((row) => row.name)
+      (db.prepare(`PRAGMA table_info(dmae_turns)`).all() as Array<{ name: string }>).map(
+        (row) => row.name
+      )
     )
     for (const column of REQUIRED_COLUMNS) {
-      if (!columns.has(column)) return { ok: false, detail: `dmae_turns.${column} missing after migration 010` }
+      if (!columns.has(column))
+        return { ok: false, detail: `dmae_turns.${column} missing after migration 010` }
     }
     return { ok: true }
   }
