@@ -6,6 +6,7 @@ import type { ErrorCode } from '../errors'
 import type { DmaeAnomalyConfig, UserDmaePreset } from '../memory/dmae-config'
 import type { ComplianceGateScope } from '../compliance/types'
 import type { GcPolicy } from '../memory/gc-types'
+import type { AsrEngineId } from '../voice/asr-settings-types'
 import type { ThemeSetting } from './themes'
 
 // === 协议与枚举 ===
@@ -18,7 +19,15 @@ export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high'
  * ConfigDomain 由本常量派生；detectChangedDomain、reset-domain 域白名单、
  * renderer 侧域遍历一律从本常量派生，禁止再维护人工域数组。
  */
-export const CONFIG_DOMAINS = ['model', 'tts', 'memory', 'ui', 'security', 'persona'] as const
+export const CONFIG_DOMAINS = [
+  'model',
+  'tts',
+  'memory',
+  'ui',
+  'security',
+  'persona',
+  'voice'
+] as const
 export type ConfigDomain = (typeof CONFIG_DOMAINS)[number]
 
 // === Model ===
@@ -99,7 +108,12 @@ export interface MemoryConfig {
 // === UI ===
 
 export type OnboardingStage =
-  'provider-setup' | 'connection-test' | 'first-conversation' | 'complete'
+  | 'provider-setup'
+  | 'connection-test'
+  /** P3V-14：模型连接成功后、第一次见面前的可跳过语音资源设置。 */
+  | 'voice-setup'
+  | 'first-conversation'
+  | 'complete'
 
 export interface OnboardingConfigV1 {
   /** 引导内容版本；后续文案升级据此决定是否提示，不重跑首次见面。 */
@@ -200,6 +214,32 @@ export interface PersonaConfig {
   compliance: ComplianceConfig
 }
 
+// === Voice（P3B-14；S-Phase3 语音设置；配置键走账本流程登记）===
+
+export interface VoiceConfig {
+  /**
+   * ASR 引擎（闭集，全本地，无云选项；默认 SenseVoice）。
+   * 切换 = 丢弃旧引擎实例 + 新引擎完整重载（P3B-11 冻结政策）。
+   *
+   * P3V-09 起本键是「当前生效引擎」的**兼容读法**：主选择的新写法是
+   * `asrPrimaryEngineId`，写路径两键同写保持一致；旧配置只有本键时，
+   * 主引擎由它迁移（读侧 `asrPrimaryEngineId ?? asrEngineId`）。
+   */
+  asrEngineId: AsrEngineId
+  /**
+   * P3V-09：主要模型。undefined 占位（旧配置迁移语义），不给实值默认——
+   * 否则 deepMerge 会把只有 asrEngineId 的旧用户顶回默认引擎。
+   */
+  asrPrimaryEngineId?: AsrEngineId
+  /**
+   * P3V-09：备用模型（识别失败时回退一次）。持久层用 **空串** 而非 null 表达
+   * 「不设备用」：deepMergeWithDefaults 会把 null 补丁顶回默认值，null 会让
+   * 「清除备用」静默失效（tts.voiceId 空串同款先例）。engine-manager 的 API
+   * 边界仍以 null 表达，两态映射只发生在 config 接线处。
+   */
+  asrFallbackEngineId: AsrEngineId | ''
+}
+
 // === 根配置 ===
 
 export interface AppConfigV1 {
@@ -210,6 +250,7 @@ export interface AppConfigV1 {
   ui: UiConfig
   security: SecurityConfig
   persona: PersonaConfig
+  voice: VoiceConfig
 }
 
 /**
@@ -256,6 +297,7 @@ export interface PublicConfigSnapshot {
   memory: MemoryConfig
   security: PublicSecurityConfig
   persona: PersonaConfig
+  voice: VoiceConfig
 }
 
 // === IPC 请求/响应 ===
@@ -270,6 +312,7 @@ export interface ConfigUpdateRequest {
     security: Partial<SecurityConfig>
     // persona 接受深层局部 patch（S-005-补充 §1.2）；既有五域顶层 Partial 合同不由 C0 改写
     persona: DeepPartial<PersonaConfig>
+    voice: Partial<VoiceConfig>
   }>
 }
 

@@ -34,6 +34,8 @@ export const IPC_INVOKE_CHANNELS = [
   'companion:chat:feedback',
   // ── P3C1-08：合规调试快照（F5-001 §3.10，additive 新增；仅调试面板用，聚合量无正文）──
   'companion:compliance:get-snapshot',
+  // ── P3B-15A：chat paint ack（F5-007 §1.5；chat capability only，stage 无权调用）──
+  'companion:chat:ack-rendered',
   // ── P3A-05/06：仅 Live2D stage capability 可调用（不向 chat preload 暴露）──
   'companion:stage:ready',
   'companion:stage:report-state',
@@ -80,7 +82,41 @@ export const IPC_INVOKE_CHANNELS = [
   // ── M-50：自动更新检测（2026-08-24 用户需求，additive 新增）──
   'companion:app:check-for-updates',
   'companion:app:get-update-status',
-  'companion:app:quit-and-install'
+  'companion:app:quit-and-install',
+  // ── P3B-14：语音设置（ASR 引擎管理/模型下载；chat capability；台账已登记）──
+  'companion:voice:get-asr-overview',
+  'companion:voice:asr-download-model',
+  'companion:voice:asr-cancel-download',
+  'companion:voice:asr-pause-download',
+  'companion:voice:asr-resume-download',
+  'companion:voice:asr-delete-model',
+  'companion:voice:asr-select-engine',
+  // ── P3V-09/10：主备选择 + 大资源根目录（chat capability；台账登记 2026-09-03）──
+  'companion:voice:asr-set-fallback-engine',
+  'companion:voice:get-asset-root',
+  'companion:voice:choose-asset-root',
+  'companion:voice:reset-asset-root',
+  // ── P3V-16：GPT-SoVITS 运行时一键安装（8GB 级；install 即发即回，进度走事件）──
+  'companion:voice:get-gpt-runtime',
+  'companion:voice:gpt-runtime-install',
+  'companion:voice:gpt-runtime-pause-download',
+  'companion:voice:gpt-runtime-resume-download',
+  'companion:voice:gpt-runtime-cancel-download',
+  'companion:voice:gpt-runtime-delete',
+  // ── P3V-17：选择/清除用户已有的 GPT-SoVITS 目录（重启后生效）──
+  'companion:voice:choose-gpt-runtime-dir',
+  'companion:voice:clear-gpt-runtime-dir',
+  // ── P3V-20：本地导入音色（首版不分发角色音色；三个文件在 main 侧挑选与暂存）──
+  'companion:voice:pick-gpt-voice-file',
+  'companion:voice:import-gpt-voice',
+  'companion:voice:delete-gpt-voice',
+  // ── P3B-14：语音输入（P3-00D 冻结通道名，测试录音先落地；P3B-18 扩全编排）──
+  'companion:voice:start-listening',
+  'companion:voice:stop-listening',
+  // ── P3B-18：TTS 编排（P3-00D 冻结名落地；VoiceOrchestrator）──
+  'companion:voice:get-state',
+  'companion:voice:test-tts',
+  'companion:voice:cancel-speaking'
 ] as const
 
 /** Phase 1 + Phase 2 的 main->renderer event 通道 */
@@ -95,7 +131,13 @@ export const IPC_EVENT_CHANNELS = [
   // ── P3A-05/06：main → stage；只承载枚举命令，不接受任意 JSON 指令 ──
   'companion:event:stage-command',
   // ── P3A-23：main → chat renderer Live2D projection ──
-  'companion:event:live2d-state'
+  'companion:event:live2d-state',
+  // ── P3B-14：main → chat renderer 语音输入状态（冻结通道名；载荷 VoiceEvent）──
+  'companion:event:voice-state',
+  // ── P3B-14：main → chat renderer ASR 模型下载/状态（设置页刷新源）──
+  'companion:event:asr-model-state',
+  // ── P3V-16：main → chat renderer 大资产下载进度（GPT runtime / 音色包）──
+  'companion:event:asset-download'
 ] as const
 
 export type IpcInvokeChannel = (typeof IPC_INVOKE_CHANNELS)[number]

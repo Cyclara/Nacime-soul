@@ -9,7 +9,7 @@
 //   4. toIpcFailure 把 AppError/未知错误转为安全 IpcError（不含 stack/cause）
 //   5. HMR 安全：注册前先 removeHandler
 
-import { ipcMain, type WebContents, type IpcMainInvokeEvent } from 'electron'
+import { ipcMain, type WebContents, type IpcMainInvokeEvent, type MessagePortMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from '@shared/observability/types'
 import { isAppError, type IpcError } from '@shared/errors'
@@ -275,6 +275,43 @@ export function sendEvent<K extends IpcEventChannel>(
       detail: error instanceof Error ? error.message : String(error)
     })
   }
+}
+
+/**
+ * P3B-13/14：接收 renderer 经 `ipcRenderer.postMessage(channel, msg, [port])`
+ * 转交的 MessagePortMain（麦克风 PCM 数据面专用；通道名不登记账本，与 TTS PCM
+ * 同红线）。复用 sender 信任 + capability（chat）校验；无端口或越权 sender
+ * 直接拒绝。listener 只拿到已过校验的 port。
+ */
+export function registerPortReceiver(
+  channel: string,
+  listener: (port: MessagePortMain) => void
+): void {
+  ipcMain.removeAllListeners(channel)
+  ipcMain.on(channel, (event) => {
+    const senderId = event.sender.id
+    const senderUrl = event.senderFrame?.url ?? ''
+    if (
+      !isTrustedSender({ url: senderUrl, webContentsId: senderId }, guardConfig) ||
+      !hasChannelCapability(senderId, channel as IpcInvokeChannel, 'invoke')
+    ) {
+      ipcLogger.warn('IPC port receiver rejected', {
+        scope: 'ipc',
+        tags: { channel, senderId: String(senderId), reason: 'IPC_UNAUTHORIZED' }
+      })
+      event.ports[0]?.close()
+      return
+    }
+    const port = event.ports[0]
+    if (port === undefined) {
+      ipcLogger.warn('IPC port receiver missing port', {
+        scope: 'ipc',
+        tags: { channel, senderId: String(senderId) }
+      })
+      return
+    }
+    listener(port)
+  })
 }
 
 /** 注销所有已注册的 invoke handler。测试/清理时调用。 */

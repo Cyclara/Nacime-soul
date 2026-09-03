@@ -230,6 +230,27 @@ check('electron-builder.yml files 含 resources/live2d', () =>
     : 'resources/live2d/** 不在 files 列表（打包版 stage 无模型资源）'
 )
 
+check('GPT-SoVITS 桥接资源使用 extraResources 真文件', () => {
+  const configured =
+    builderYml.includes('extraResources:') &&
+    /from:\s*resources\/voice(?:\r?\n|$)/.test(builderYml) &&
+    /to:\s*voice(?:\r?\n|$)/.test(builderYml)
+  return configured
+    ? { ok: true, detail: '安装版外部 Python 可直接读取 resources/voice' }
+    : 'resources/voice 必须经 extraResources 复制，不能只塞进 app.asar'
+})
+
+check('源码 GPT-SoVITS launcher 与 jieba 资源齐全', () => {
+  const required = [
+    'resources/voice/gpt-sovits-launcher.py',
+    'resources/voice/jieba-fast/dict.txt',
+    'resources/voice/jieba-fast/analyse/idf.txt',
+    'resources/voice/jieba-fast/LICENSE'
+  ]
+  const missing = required.filter((file) => !existsSync(join(root, file)))
+  return missing.length === 0 ? { ok: true } : `缺少资源: ${missing.join(', ')}`
+})
+
 check('源码 Live2D 资产与许可清单存在', () => {
   const required = [
     'resources/live2d/models/mao/Mao.model3.json',
@@ -271,6 +292,22 @@ check('asar 内含 resources/prompts/seeds/growth/live2d（M-09/P3A-11）', () =
     return `app.asar 中缺失运行时资源: ${missing.join(', ')}（请重新打包后再发布）`
   }
   return { ok: true, detail: 'prompts/seeds/growth/live2d/tray 均在 app.asar 内' }
+})
+
+check('打包产物含 Python 可直接读取的 GPT-SoVITS 桥接资源', () => {
+  if (!existsSync(distDir)) return { skip: 'dist-electron/ 不存在' }
+  const voiceRoot = join(distDir, 'win-unpacked', 'resources', 'voice')
+  if (!existsSync(voiceRoot)) return 'win-unpacked/resources/voice 不存在（extraResources 未生效）'
+  const required = [
+    'gpt-sovits-launcher.py',
+    'jieba-fast/dict.txt',
+    'jieba-fast/analyse/idf.txt',
+    'jieba-fast/LICENSE'
+  ]
+  const missing = required.filter((file) => !existsSync(join(voiceRoot, file)))
+  return missing.length === 0
+    ? { ok: true, detail: 'launcher/dict/idf/LICENSE 均为 ASAR 外真实文件' }
+    : `打包资源缺失: ${missing.join(', ')}`
 })
 
 // --- 7d. 自动更新打包闭环（M-50） ---

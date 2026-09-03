@@ -167,11 +167,21 @@ const DOMAIN_DEFAULTS = {
       // 默认 false；仅开发构建允许实际生效（F5-001 §5 隐私红线）
       debugCaptureText: false
     }
+  },
+  // ── P3B-14：voice 域（S-Phase3 语音设置；asrEngineId 闭集全本地）──
+  // P3V-09：主/备双键。asrPrimaryEngineId 以 undefined 占位——旧配置只有
+  // asrEngineId，给实值默认会把用户旧选择顶回 SenseVoice，读侧用兼容键迁移；
+  // asrFallbackEngineId 空串=不设备用（null 会被 deepMerge 顶回默认，见
+  // shared/config/types.ts 注释——「清除备用」必须写空串才落得了盘）。
+  voice: {
+    asrEngineId: 'sherpa-sensevoice',
+    asrPrimaryEngineId: undefined,
+    asrFallbackEngineId: ''
   }
 } satisfies DomainDefaults
 
 /**
- * Phase 1 默认配置。schemaVersion + 六域，全部值来自 DOMAIN_DEFAULTS。
+ * Phase 1 默认配置。schemaVersion + 全部域，全部值来自 DOMAIN_DEFAULTS。
  */
 export const DEFAULT_CONFIG_V1: Readonly<AppConfigV1> = deepFreeze({
   schemaVersion: 1,

@@ -25,7 +25,7 @@
   --color-text: #282c31;
   --color-text-secondary: #51565d;
   --color-text-muted: #676b70;
-  --color-text-tertiary: #75777a;
+  --color-text-tertiary: #6f7276;
   --color-text-on-accent: #f9fcfc;
 
   /* === 强调与语义色：雨后青蓝 + 晒干玫瑰 === */
@@ -112,7 +112,7 @@
   --color-text: #f0ede7;
   --color-text-secondary: #c4c2bd;
   --color-text-muted: #a4a4a1;
-  --color-text-tertiary: #8e9298;
+  --color-text-tertiary: #979ba2;
   --color-text-on-accent: #10232a;
 
   --color-accent: #91c5cd;
@@ -239,7 +239,7 @@
   --color-text: #f1ebde;
   --color-text-secondary: #cec2af;
   --color-text-muted: #ab9e8a;
-  --color-text-tertiary: #938573;
+  --color-text-tertiary: #aa9c88;
   --color-text-on-accent: #2b1d0e;
 
   --color-accent: #e5ad61;
@@ -280,6 +280,18 @@
   --shadow-lg: 0 28px 76px rgba(6, 4, 2, 0.42);
   --shadow-drawer: -18px 0 70px rgba(6, 4, 2, 0.5);
   --shadow-glow: 0 0 0 1px rgba(229, 173, 97, 0.1), 0 20px 52px rgba(30, 16, 4, 0.36);
+}
+
+/*
+ * Phase 3 组件最初用了 text-primary/surface-raised/danger 这套命名，而 P2-46 全局主题
+ * 真源使用 text/surface-elevated/error。此前别名缺失后，组件 fallback 为 `white`，导致
+ * light/light2 下角色、语音等设置页文字几乎消失。别名放在 :root、值继续引用动态主题
+ * token，切换四主题时无需每块重复声明。
+ */
+:root {
+  --color-text-primary: var(--color-text);
+  --color-surface-raised: var(--color-surface-elevated);
+  --color-danger: var(--color-error);
 }
 
 * {
@@ -354,7 +366,8 @@ button {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.48;
+  /* 旧 0.48 在四主题的小字号控件上接近不可读；禁用态仍需让用户理解为何不可操作。 */
+  opacity: 0.72;
 }
 
 button:active:not(:disabled) {

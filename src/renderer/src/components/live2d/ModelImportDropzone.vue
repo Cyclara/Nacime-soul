@@ -67,18 +67,18 @@ function onDrop(event: DragEvent): void {
   gap: 0.7rem;
   min-height: 4.6rem;
   padding: 0.85rem 1rem;
-  border: 1px dashed rgb(193 177 255 / 46%);
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 52%, var(--color-border));
   border-radius: 0.9rem;
-  background: linear-gradient(105deg, rgb(193 177 255 / 9%), rgb(255 255 255 / 3%));
-  color: var(--color-text-secondary, rgb(255 255 255 / 78%));
+  background: linear-gradient(105deg, var(--color-accent-soft), var(--color-surface));
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: 160ms ease;
 }
 .dropzone:hover,
 .dropzone:focus-visible,
 .dropzone--dragging {
-  border-color: rgb(193 177 255 / 92%);
-  background: rgb(193 177 255 / 16%);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft-hover);
   outline: none;
 }
 .dropzone--loading {
@@ -91,8 +91,8 @@ function onDrop(event: DragEvent): void {
   height: 2rem;
   place-items: center;
   border-radius: 0.65rem;
-  background: rgb(193 177 255 / 18%);
-  color: rgb(219 211 255);
+  background: var(--color-accent-soft-hover);
+  color: var(--color-accent);
   font-size: 1.4rem;
 }
 .dropzone > span:nth-child(2) {

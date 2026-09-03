@@ -68,7 +68,7 @@ onBeforeUnmount(() => {
 }
 .live2d-settings__kicker {
   margin: 0 0 0.3rem;
-  color: rgb(193 177 255 / 82%);
+  color: var(--color-accent);
   font-size: 0.7rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -91,10 +91,10 @@ onBeforeUnmount(() => {
   width: 2.5rem;
   height: 2.5rem;
   place-items: center;
-  border: 1px solid rgb(193 177 255 / 20%);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
   border-radius: 0.8rem;
-  background: rgb(193 177 255 / 9%);
-  color: rgb(219 211 255);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
   font-size: 1.15rem;
 }
 </style>

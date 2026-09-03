@@ -59,32 +59,32 @@ async function toggle(): Promise<void> {
 }
 
 .presence-button:hover {
-  background: rgb(255 255 255 / 12%);
-  border-color: rgb(193 177 255 / 48%);
+  border-color: color-mix(in srgb, var(--color-accent) 52%, var(--color-border));
+  background: var(--color-accent-soft);
 }
 .presence-button:active {
   transform: translateY(1px);
 }
 .presence-button:focus-visible {
-  outline: 2px solid rgb(193 177 255);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 .presence-dot {
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 50%;
-  background: rgb(156 156 168);
+  background: var(--color-text-tertiary);
 }
 .presence-dot--ready {
-  background: rgb(133 226 174);
-  box-shadow: 0 0 0.45rem rgb(133 226 174 / 70%);
+  background: var(--color-success);
+  box-shadow: 0 0 0.45rem color-mix(in srgb, var(--color-success) 70%, transparent);
 }
 .presence-dot--loading-model,
 .presence-dot--starting {
-  background: rgb(255 208 126);
+  background: var(--color-warning);
 }
 .presence-dot--error,
 .presence-dot--degraded {
-  background: rgb(255 139 139);
+  background: var(--color-error);
 }
 </style>

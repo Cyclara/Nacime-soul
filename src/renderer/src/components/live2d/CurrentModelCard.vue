@@ -34,9 +34,13 @@ const current = computed(() => live2d.currentModel)
 <style scoped>
 .model-card {
   padding: 1rem;
-  border: 1px solid var(--color-border, rgb(255 255 255 / 12%));
+  border: 1px solid var(--color-border);
   border-radius: 1rem;
-  background: linear-gradient(135deg, rgb(255 255 255 / 8%), rgb(255 255 255 / 3%));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-surface-elevated) 82%, transparent),
+    var(--color-surface)
+  );
 }
 .model-card__eyebrow {
   margin-bottom: 0.7rem;
@@ -56,10 +60,10 @@ const current = computed(() => live2d.currentModel)
   height: 2.75rem;
   place-items: center;
   border-radius: 0.8rem;
-  background: linear-gradient(145deg, rgb(193 177 255 / 55%), rgb(137 117 212 / 40%));
-  color: white;
+  background: linear-gradient(145deg, var(--color-accent), var(--color-companion));
+  color: var(--color-text-on-accent);
   font-size: 1.25rem;
-  box-shadow: inset 0 1px rgb(255 255 255 / 24%);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--color-surface-elevated) 38%, transparent);
 }
 .model-card__body {
   min-width: 0;
@@ -80,16 +84,18 @@ const current = computed(() => live2d.currentModel)
   flex: 0 0 auto;
   padding: 0.25rem 0.5rem;
   border-radius: 999px;
-  background: rgb(133 226 174 / 14%);
-  color: rgb(133 226 174);
+  background: var(--color-success-bg);
+  color: var(--color-success);
   font-size: 0.7rem;
+  font-weight: 650;
 }
 .model-card__warning {
   margin: 0.75rem 0 0;
   padding: 0.6rem 0.7rem;
+  border: 1px solid var(--color-warning-border);
   border-radius: 0.65rem;
-  background: rgb(255 208 126 / 10%);
-  color: rgb(255 208 126 / 88%);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
   font-size: 0.75rem;
   line-height: 1.45;
 }

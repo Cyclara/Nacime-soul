@@ -120,8 +120,22 @@ export type MetricName =
   | 'tts.synth.latencyMs'
   | 'tts.cache.hit'
   | 'tts.cache.miss'
+  // ── P3B-21（F5-007 §1.17 冻结清单）：早期播放收益与降级观测 ──
+  | 'tts.early.turns'
+  | 'tts.early.committed'
+  | 'tts.early.played'
+  | 'tts.early.firstCommitMs'
+  | 'tts.early.firstAudioMs'
+  | 'tts.early.selfCorrections'
+  | 'tts.early.textOnlyFallbacks'
+  | 'tts.early.queueHighWater'
+  // ── P3B-19/21：barge-in、文字绘制→音频开始偏差与 ASR 资源基线 ──
+  | 'voice.bargeIn.latencyMs'
+  | 'voice.paintToAudioMs'
   | 'asr.latencyMs'
   | 'asr.errors'
+  /** main 进程承载本地 ASR，采样识别引擎就绪后的进程 RSS（含 native 分配）。 */
+  | 'asr.processRssMb'
   | 'memory.l2.count'
   | 'memory.extract.candidates'
   | 'memory.conflicts'

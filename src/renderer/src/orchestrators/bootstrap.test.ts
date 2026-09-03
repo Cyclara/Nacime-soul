@@ -7,6 +7,9 @@ import { useAppStore } from '../stores/app'
 import { useChatStore } from '../stores/chat'
 import type { ChatStreamEvent } from '@shared/chat/types'
 import type { PublicAppError } from '@shared/errors'
+import type { AsrOverview } from '@shared/voice/asr-settings-types'
+import type { AssetDownloadStatus } from '@shared/voice/asset-root-types'
+import type { VoiceEvent } from '@shared/voice/voice-events'
 
 type Callback<T> = (event: T) => void
 
@@ -16,13 +19,24 @@ function setupCompanion(opts: { configFails?: boolean } = {}): {
     window: Record<string, ReturnType<typeof vi.fn>>
     config: Record<string, ReturnType<typeof vi.fn>>
     chat: Record<string, ReturnType<typeof vi.fn>>
+    voice: Record<string, ReturnType<typeof vi.fn>>
   }
-  counts: () => { appErrors: number; windowStates: number; chatStreams: number }
+  counts: () => {
+    appErrors: number
+    windowStates: number
+    chatStreams: number
+    asrOverviews: number
+    voiceStates: number
+    assetDownloads: number
+  }
   emitStream: (event: ChatStreamEvent) => void
 } {
   const appErrors = new Set<Callback<PublicAppError>>()
   const windowStates = new Set<Callback<{ maximized: boolean }>>()
   const chatStreams = new Set<Callback<ChatStreamEvent>>()
+  const asrOverviews = new Set<Callback<AsrOverview>>()
+  const voiceStates = new Set<Callback<VoiceEvent>>()
+  const assetDownloads = new Set<Callback<AssetDownloadStatus>>()
 
   const add = <T>(set: Set<Callback<T>>, cb: Callback<T>): (() => void) => {
     set.add(cb)
@@ -63,6 +77,29 @@ function setupCompanion(opts: { configFails?: boolean } = {}): {
         data: { sessionId, messages: [] }
       })),
       onStream: vi.fn((cb: Callback<ChatStreamEvent>) => add(chatStreams, cb))
+    },
+    voice: {
+      getAsrOverview: vi.fn(async () => ({
+        ok: true,
+        data: {
+          selectedEngineId: 'sherpa-sensevoice',
+          fallbackEngineId: null,
+          engines: [],
+          vadModel: { state: 'not-downloaded' }
+        }
+      })),
+      getAssetRoot: vi.fn(async () => ({
+        ok: true,
+        data: {
+          isDefault: true,
+          freeBytes: 1_000_000_000,
+          totalRequiredBytes: 163_646_737,
+          state: 'ok'
+        }
+      })),
+      onAsrOverview: vi.fn((cb: Callback<AsrOverview>) => add(asrOverviews, cb)),
+      onVoiceState: vi.fn((cb: Callback<VoiceEvent>) => add(voiceStates, cb)),
+      onAssetDownload: vi.fn((cb: Callback<AssetDownloadStatus>) => add(assetDownloads, cb))
     }
   }
 
@@ -72,7 +109,10 @@ function setupCompanion(opts: { configFails?: boolean } = {}): {
     counts: () => ({
       appErrors: appErrors.size,
       windowStates: windowStates.size,
-      chatStreams: chatStreams.size
+      chatStreams: chatStreams.size,
+      asrOverviews: asrOverviews.size,
+      voiceStates: voiceStates.size,
+      assetDownloads: assetDownloads.size
     }),
     emitStream(event) {
       for (const cb of [...chatStreams]) cb(event)
@@ -93,10 +133,24 @@ describe('C-β bootstrap lifecycle', () => {
     const teardown2 = (await bootstrapApp()) as unknown as () => void
 
     expect(api.chat.createSession).toHaveBeenCalledTimes(1)
-    expect(counts()).toEqual({ appErrors: 1, windowStates: 1, chatStreams: 1 })
+    expect(counts()).toEqual({
+      appErrors: 1,
+      windowStates: 1,
+      chatStreams: 1,
+      asrOverviews: 1,
+      voiceStates: 1,
+      assetDownloads: 1
+    })
 
     teardown1()
-    expect(counts()).toEqual({ appErrors: 1, windowStates: 1, chatStreams: 1 })
+    expect(counts()).toEqual({
+      appErrors: 1,
+      windowStates: 1,
+      chatStreams: 1,
+      asrOverviews: 1,
+      voiceStates: 1,
+      assetDownloads: 1
+    })
 
     emitStream({
       type: 'started',
@@ -108,7 +162,14 @@ describe('C-β bootstrap lifecycle', () => {
     expect(chatStore.state.messages.map((m) => m.id)).toEqual(['a1'])
 
     teardown2()
-    expect(counts()).toEqual({ appErrors: 0, windowStates: 0, chatStreams: 0 })
+    expect(counts()).toEqual({
+      appErrors: 0,
+      windowStates: 0,
+      chatStreams: 0,
+      asrOverviews: 0,
+      voiceStates: 0,
+      assetDownloads: 0
+    })
     emitStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: '不应写入' })
     expect(chatStore.state.messages[0].content).toBe('')
   })
@@ -120,7 +181,14 @@ describe('C-β bootstrap lifecycle', () => {
     const teardown = (await bootstrapApp()) as unknown as () => void
 
     expect(appStore.state.bootStage).toBe('blocked')
-    expect(counts()).toEqual({ appErrors: 0, windowStates: 0, chatStreams: 0 })
+    expect(counts()).toEqual({
+      appErrors: 0,
+      windowStates: 0,
+      chatStreams: 0,
+      asrOverviews: 0,
+      voiceStates: 0,
+      assetDownloads: 0
+    })
     expect(() => teardown()).not.toThrow()
   })
 })

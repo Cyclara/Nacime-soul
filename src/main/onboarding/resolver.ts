@@ -41,7 +41,10 @@ export function createOnboardingResolver(): OnboardingResolver {
       if (history.hasCompletedTurn()) {
         return { stage: 'complete', reason: 'existing-user', persisted: true }
       }
-      return { stage: 'first-conversation', reason: 'configured-empty-history', persisted: true }
+      // P3V-14：已有可读 Key 但从未完成真实对话，仍属于尚未完成首次体验的新用户；
+      // 先给可跳过的本地语音设置，再进入第一次见面。已有 completed turn 的老用户
+      // 已在上方 healing 为 complete，不会被强迫重走。
+      return { stage: 'voice-setup', reason: 'configured-empty-history', persisted: true }
     }
   }
 }

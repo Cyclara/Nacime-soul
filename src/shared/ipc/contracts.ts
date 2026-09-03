@@ -33,6 +33,7 @@ import type {
   ChatFeedbackResponse,
   ComplianceSnapshot
 } from '../compliance/types'
+import type { ChatRenderAckRequest } from '../chat/types'
 import type {
   Live2dStageBootstrap,
   Live2dStageReadyRequest,
@@ -45,6 +46,30 @@ import type {
   Live2dStateEvent,
   Live2dFramingPreviewRequest
 } from '../live2d/public-types'
+import type {
+  AsrOverview,
+  AsrEngineRequest,
+  AsrSelectEngineRequest,
+  AsrSetFallbackEngineRequest
+} from '../voice/asr-settings-types'
+import type {
+  AssetDownloadStatus,
+  AssetRootChangeResult,
+  AssetRootStatus
+} from '../voice/asset-root-types'
+import type {
+  GptRuntimeOverview,
+  GptRuntimeSourceResult,
+  GptRuntimeVariantRequest,
+  GptVoiceDeleteRequest,
+  GptVoiceDeleteResult,
+  GptVoiceFilePickRequest,
+  GptVoiceFilePickResult,
+  GptVoiceImportRequest,
+  GptVoiceImportResult
+} from '../voice/gpt-runtime-types'
+import type { VoiceEvent, VoicePublicSnapshot } from '../voice/voice-events'
+import type { VoiceTestTtsRequest } from '../voice/voice-events'
 import type {
   DmaeBenchmarkReport,
   DmaeDailyAggregate,
@@ -131,6 +156,8 @@ export interface IpcInvokeMap {
   'companion:chat:search': { req: ChatSearchRequest; res: ChatSearchHit[] }
   // P3C1-07：合规用户反馈（F5-001 §3.7；UNIQUE(message_id,kind) 幂等，只作复核优先级）
   'companion:chat:feedback': { req: ChatFeedbackRequest; res: ChatFeedbackResponse }
+  // P3B-15A：chat paint ack（F5-007 §1.5；applyStream+rAF 后回报最高已绘制 sequence）
+  'companion:chat:ack-rendered': { req: ChatRenderAckRequest; res: void }
   // P3C1-08：合规调试快照（F5-001 §3.10；仅调试面板，聚合量无正文；无 event 通道）
   'companion:compliance:get-snapshot': { req: undefined; res: ComplianceSnapshot }
   // P3A-05：仅 stage preload 可见；capability guard 会拒绝 chat sender。
@@ -180,6 +207,64 @@ export interface IpcInvokeMap {
   'companion:app:check-for-updates': { req: undefined; res: void }
   'companion:app:get-update-status': { req: undefined; res: UpdateStatus }
   'companion:app:quit-and-install': { req: undefined; res: void }
+  // ── P3B-14：语音设置（ASR 引擎管理/模型下载；台账已登记）──
+  'companion:voice:get-asr-overview': { req: undefined; res: AsrOverview }
+  'companion:voice:asr-download-model': { req: AsrEngineRequest; res: { ok: true } }
+  'companion:voice:asr-cancel-download': {
+    req: AsrEngineRequest
+    res: { ok: true; cancelled: boolean }
+  }
+  'companion:voice:asr-pause-download': {
+    req: AsrEngineRequest
+    res: { ok: true; paused: boolean }
+  }
+  'companion:voice:asr-resume-download': {
+    req: AsrEngineRequest
+    res: { ok: true; resumed: boolean }
+  }
+  'companion:voice:asr-delete-model': { req: AsrEngineRequest; res: { ok: true } }
+  'companion:voice:asr-select-engine': { req: AsrSelectEngineRequest; res: { ok: true } }
+  // ── P3V-09/10：主备选择 + 大资源根目录（重启生效语义见 asset-root-types）──
+  'companion:voice:asr-set-fallback-engine': {
+    req: AsrSetFallbackEngineRequest
+    res: { ok: true }
+  }
+  'companion:voice:get-asset-root': { req: undefined; res: AssetRootStatus }
+  'companion:voice:choose-asset-root': { req: undefined; res: AssetRootChangeResult }
+  'companion:voice:reset-asset-root': { req: undefined; res: AssetRootChangeResult }
+  // ── P3V-16：GPT-SoVITS 运行时一键安装（install 即发即回；进度走 asset-download）──
+  'companion:voice:get-gpt-runtime': { req: undefined; res: GptRuntimeOverview }
+  'companion:voice:gpt-runtime-install': { req: GptRuntimeVariantRequest; res: { ok: true } }
+  'companion:voice:gpt-runtime-pause-download': {
+    req: GptRuntimeVariantRequest
+    res: { ok: true; paused: boolean }
+  }
+  'companion:voice:gpt-runtime-resume-download': {
+    req: GptRuntimeVariantRequest
+    res: { ok: true; resumed: boolean }
+  }
+  'companion:voice:gpt-runtime-cancel-download': {
+    req: GptRuntimeVariantRequest
+    res: { ok: true; cancelled: boolean }
+  }
+  'companion:voice:gpt-runtime-delete': { req: undefined; res: { ok: true } }
+  // ── P3V-17：选择/清除已有安装目录（响应无路径；重启后生效）──
+  'companion:voice:choose-gpt-runtime-dir': { req: undefined; res: GptRuntimeSourceResult }
+  'companion:voice:clear-gpt-runtime-dir': { req: undefined; res: GptRuntimeSourceResult }
+  // ── P3V-20：本地导入音色（pick 只回文件名；import 只带用户确认过的元信息）──
+  'companion:voice:pick-gpt-voice-file': {
+    req: GptVoiceFilePickRequest
+    res: GptVoiceFilePickResult
+  }
+  'companion:voice:import-gpt-voice': { req: GptVoiceImportRequest; res: GptVoiceImportResult }
+  'companion:voice:delete-gpt-voice': { req: GptVoiceDeleteRequest; res: GptVoiceDeleteResult }
+  // ── P3B-14：语音输入（P3-00D 冻结通道名；测试录音先落地）──
+  'companion:voice:start-listening': { req: undefined; res: { ok: true } }
+  'companion:voice:stop-listening': { req: undefined; res: { ok: true } }
+  // P3B-18：TTS 编排（VoiceOrchestrator；投影无正文/无路径，voice-events.ts 真源）
+  'companion:voice:get-state': { req: undefined; res: VoicePublicSnapshot }
+  'companion:voice:test-tts': { req: VoiceTestTtsRequest; res: void }
+  'companion:voice:cancel-speaking': { req: undefined; res: void }
 }
 
 export interface IpcEventMap {
@@ -193,6 +278,12 @@ export interface IpcEventMap {
   // ── P3A-05/06：main → Live2D stage 独占命令 ──
   'companion:event:stage-command': Live2dStageCommand
   'companion:event:live2d-state': Live2dStateEvent
+  // ── P3B-14：main → chat renderer 语音输入状态（冻结通道名）──
+  'companion:event:voice-state': VoiceEvent
+  // ── P3B-14：main → chat renderer ASR 模型下载/状态（设置页刷新源）──
+  'companion:event:asr-model-state': AsrOverview
+  // ── P3V-16：main → chat renderer 大资产下载进度（assetId 分流到对应卡片）──
+  'companion:event:asset-download': AssetDownloadStatus
 }
 
 // re-export 通道类型，供外部使用

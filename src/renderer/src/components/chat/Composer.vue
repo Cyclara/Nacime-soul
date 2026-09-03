@@ -10,17 +10,97 @@
 //   - 厂商不支持时（supportsThinking=false）禁用：如 Moonshot（thinkingFormat='none'）
 //   - 依据：https://api-docs.deepseek.com/zh-cn/guides/thinking_mode
 
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../../stores/chat'
 import { useConfigStore } from '../../stores/config'
+import { useVoiceStore } from '../../stores/voice'
+import { createVoiceChatOrchestrator } from '../../orchestrators/voice-chat'
 
 const chatStore = useChatStore()
 const configStore = useConfigStore()
+const voiceStore = useVoiceStore()
 const { canSend, isStreaming } = storeToRefs(chatStore)
 const { state: configState } = storeToRefs(configStore)
 
 const toggleError = ref<string | null>(null)
+
+// ── P3B-18/19 语音输入闭环（S-006-补充 §1.7.6）：麦克风 → VAD → ASR → draft/send ──
+// 跨 store 流程在 orchestrators/voice-chat.ts；组件只读状态、发指令。
+// 发送模式真源：config ui.onboarding.voiceSendMode（未设 = 确认后发送）。
+const voiceChat = createVoiceChatOrchestrator({
+  voice: voiceStore,
+  chat: chatStore,
+  getSendMode: () =>
+    (configState.value.saved?.ui.onboarding.voiceSendMode ??
+      configState.value.draft?.ui.onboarding.voiceSendMode ??
+      'draft') as 'draft' | 'send'
+})
+const micListening = ref(false)
+const micError = ref<string | null>(null)
+const micBusy = ref(false)
+let unsubscribeVoice: (() => void) | null = null
+
+/** ASR 就绪（选中引擎模型 ready）才让麦克风可点；未就绪时按钮给出去设置页的提示。 */
+const micAvailable = computed(() => voiceStore.canListen)
+const micTitle = computed(() => {
+  if (micListening.value) return '停止语音输入'
+  if (!micAvailable.value) return '语音识别模型还没准备好，去「设置 → 语音」下载'
+  return '按一下开始说话，说完停顿会自动转成文字'
+})
+const speaking = computed(() => voiceStore.state.speaking)
+
+async function onToggleMic(): Promise<void> {
+  if (micBusy.value) return
+  micBusy.value = true
+  micError.value = null
+  try {
+    if (micListening.value) {
+      await voiceChat.stop()
+      micListening.value = false
+    } else {
+      if (!micAvailable.value) {
+        micError.value = '语音识别模型还没准备好，先去「设置 → 语音」下载'
+        return
+      }
+      await voiceChat.start(voiceStore.state.inputDeviceId)
+      micListening.value = voiceChat.listening
+      if (!voiceChat.listening) micError.value = voiceChat.lastError
+    }
+  } finally {
+    micBusy.value = false
+  }
+}
+
+async function onStopSpeaking(): Promise<void> {
+  await voiceChat.interruptSpeech()
+}
+
+onMounted(() => {
+  // voice store 的 overview/事件订阅：canListen 与 speaking 依赖它。
+  // 语音是增强通道：preload 缺 voice 命名空间（旧测试夹具/未来裁剪构建）时静默跳过，
+  // 麦克风按钮保持「未就绪」态，文字输入零影响。
+  if (window.companion?.voice === undefined) return
+  void voiceStore.hydrate().catch(() => {})
+  unsubscribeVoice = voiceStore.subscribe()
+})
+
+onBeforeUnmount(() => {
+  unsubscribeVoice?.()
+  unsubscribeVoice = null
+  voiceChat.dispose()
+})
+
+// 采集端异常（设备拔出/权限撤销）会让 orchestrator 自行停止；把按钮状态跟回来
+watch(
+  () => voiceStore.state.listening,
+  (value) => {
+    if (!value && micListening.value && !voiceChat.listening) {
+      micListening.value = false
+      micError.value = voiceChat.lastError
+    }
+  }
+)
 
 // 思考模式开关：从 config.model.reasoningEffort 派生
 // 2026-08-20（用户拍板）：开启时恢复"上次使用的档位"，不再一律回 high——
@@ -137,15 +217,64 @@ async function onToggleShowReasoning(): Promise<void> {
       >
         显示思考
       </button>
+      <button
+        v-if="speaking"
+        type="button"
+        class="speaking-pill"
+        title="让她停下来（文字会继续显示）"
+        @click="onStopSpeaking"
+      >
+        <span class="speaking-pill__wave" aria-hidden="true"> <i /><i /><i /> </span>
+        她在说话 · 点一下让她停下
+      </button>
       <span id="composer-shortcut-hint" class="shortcut-hint">Enter 发送 · Shift+Enter 换行</span>
       <span v-if="toggleError" class="toggle-error">{{ toggleError }}</span>
+      <span v-if="micError" class="toggle-error" role="alert">{{ micError }}</span>
     </div>
-    <div class="composer">
+    <div class="composer" :class="{ 'is-listening': micListening }">
+      <button
+        type="button"
+        class="mic-btn"
+        :class="{
+          'is-on': micListening,
+          'is-speaking': micListening && voiceStore.state.vadActive,
+          'is-unavailable': !micAvailable && !micListening
+        }"
+        :aria-pressed="micListening"
+        :aria-label="micTitle"
+        :title="micTitle"
+        :disabled="micBusy"
+        @click="onToggleMic"
+      >
+        <svg class="mic-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M6 11a6 6 0 0 0 12 0" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <path
+            d="M12 17v3M9 20h6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span
+          v-if="micListening"
+          class="mic-btn__level"
+          :style="{ '--level': Math.min(1, voiceStore.state.micLevel) }"
+          aria-hidden="true"
+        />
+      </button>
       <textarea
         class="input"
         aria-label="输入给 Nacime 的消息"
         aria-describedby="composer-shortcut-hint"
-        placeholder="想和 Nacime 说些什么……"
+        :placeholder="
+          micListening
+            ? voiceStore.state.vadActive
+              ? '在听你说……'
+              : '说吧，我听着'
+            : '想和 Nacime 说些什么……'
+        "
         :value="chatStore.state.draft"
         rows="2"
         @input="onInput"
@@ -316,6 +445,163 @@ async function onToggleShowReasoning(): Promise<void> {
     var(--shadow-md);
 }
 
+/* 语音输入中：整条输入区带一圈柔和呼吸光，提示「她在听」 */
+.composer.is-listening {
+  border-color: color-mix(in srgb, var(--color-accent) 56%, var(--color-border));
+  animation: composer-listening 2.4s ease-in-out infinite;
+}
+
+@keyframes composer-listening {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--color-accent-soft),
+      var(--shadow-md);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in srgb, var(--color-accent) 22%, transparent),
+      var(--shadow-md);
+  }
+}
+
+/* ── 麦克风按钮（P3B-18 语音输入入口）── */
+.mic-btn {
+  position: relative;
+  display: grid;
+  align-self: stretch;
+  width: 48px;
+  min-height: 48px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.mic-btn:hover:not(:disabled) {
+  background: var(--color-accent-soft);
+  color: var(--color-text-secondary);
+}
+
+.mic-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.mic-btn:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.mic-btn.is-unavailable {
+  color: var(--color-text-muted);
+  opacity: 0.55;
+}
+
+.mic-btn.is-on {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: var(--color-accent-soft-hover);
+  color: var(--color-accent);
+}
+
+.mic-btn.is-speaking {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+}
+
+.mic-btn__icon {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+/* 输入电平：从底部升起的软填充，随 --level(0..1) 变化 */
+.mic-btn__level {
+  position: absolute;
+  inset: auto 0 0;
+  height: calc(var(--level, 0) * 100%);
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  transition: height 0.08s linear;
+  pointer-events: none;
+}
+
+/* ── 她在说话 pill（P3B-18 speaking 状态 + cancel-speaking 入口）── */
+.speaking-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 12px 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.speaking-pill:hover {
+  background: var(--color-accent-soft-hover);
+}
+
+.speaking-pill__wave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.speaking-pill__wave i {
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: speaking-wave 0.9s ease-in-out infinite;
+}
+
+.speaking-pill__wave i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.speaking-pill__wave i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes speaking-wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer.is-listening {
+    animation: none;
+  }
+
+  .speaking-pill__wave i {
+    animation: none;
+    transform: scaleY(0.7);
+  }
+}
+
 .input {
   flex: 1;
   min-width: 0;
@@ -382,12 +668,16 @@ async function onToggleShowReasoning(): Promise<void> {
   }
 
   .input {
-    flex-basis: calc(100% - 96px);
+    flex-basis: calc(100% - 150px);
   }
 
   .send-btn,
   .stop-btn {
     min-width: 70px;
+  }
+
+  .mic-btn {
+    width: 44px;
   }
 }
 </style>

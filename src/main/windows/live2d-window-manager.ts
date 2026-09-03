@@ -24,6 +24,8 @@ export interface Live2dWindowSnapshot {
   readonly alwaysOnTop: boolean
   readonly webContentsId: number | null
   readonly loadedModelId: string | null
+  /** P3B-15：stage 是否以 audio-only 轻量模式运行（TTS 开而 Live2D 关）。 */
+  readonly audioOnly: boolean
 }
 
 interface ManagedStageWindow {
@@ -63,8 +65,18 @@ export interface Live2dWindowManagerDeps {
   readonly sendStageCommand?: (webContents: WebContents, command: Live2dStageCommand) => void
   readonly scheduleResume?: (callback: () => void) => void
   readonly cancelScheduledResume?: () => void
+  /**
+   * S-006-补充 §1.7.7：stage 崩溃后的有界重建调度。生产默认 setTimeout(0)（让
+   * Chromium 先完成 render-process-gone 的清理）；测试注入同步/可控 timer。
+   */
+  readonly scheduleCrashRebuild?: (callback: () => void) => void
   /** 状态变化时由 main 投影一份 metadata-only event 到 chat renderer。 */
   readonly onStateChange?: () => void
+  /**
+   * P3B-15（F5-007 §1.14）：stage ready(stageInstanceId) 后、转交 audio port 前调用。
+   * 此刻 stage renderer 已启动（preload 就绪），main 可以安全地 postMessage 专用 port。
+   */
+  readonly onStageReady?: (webContents: WebContents) => void
 }
 
 /**
@@ -84,8 +96,17 @@ export class Live2dWindowManager {
   private resumeTimer: ReturnType<typeof setTimeout> | null = null
   /** 取景预览进行中：stage 显示草稿构图，config 未变；窗口重建或结束预览即归位。 */
   private previewing = false
+  /** P3B-15：audio-only 轻量模式（不建 Pixi/模型、窗口保持隐藏、只跑 PlaybackHost）。 */
+  private audioOnly = false
   /** 建窗时记下的 webContents id；窗口销毁后不可再读 window.webContents。 */
   private webContentsId: number | null = null
+  /**
+   * S-006-补充 §1.7.7「有界重建 1 次」：本 stage 会话内 renderer 崩溃后自动重建的次数。
+   * 一次成功 ready 即归零（连续崩溃才受限；隔很久再崩仍可重建）；第二次连续崩溃保持
+   * error 交给用户的显式恢复入口（设置页重开）。
+   */
+  private crashRebuilds = 0
+  private crashRebuildTimer: ReturnType<typeof setTimeout> | null = null
   /**
    * 本次 stage 会话已发起过的模型加载次数（bootstrap 首个候选 + 每次 load-model）。
    * P3A-28 的内存预算只在「单模型稳态」下判定，需要它来区分「刚开机」与「换过装」。
@@ -100,6 +121,8 @@ export class Live2dWindowManager {
     const existing = this.window
     if (existing !== null && !existing.isDestroyed()) {
       try {
+        // 从 audio-only 升到可见模式：隐藏着的声音宿主不切换为可视形象
+        if (this.audioOnly) this.audioOnly = false
         existing.setAlwaysOnTop(this.alwaysOnTop)
         if (!existing.isVisible()) {
           existing.show()
@@ -116,6 +139,7 @@ export class Live2dWindowManager {
       alwaysOnTop: this.alwaysOnTop
     }) as unknown as ManagedStageWindow
     this.window = window
+    this.audioOnly = false
     this.webContentsId = window.webContents.id
     this.stageInstanceId = null
     this.status = 'starting'
@@ -130,10 +154,7 @@ export class Live2dWindowManager {
     this.deps.onStateChange?.()
 
     window.on('closed', () => this.releaseWindow(window))
-    window.on('render-process-gone', () => {
-      // renderer crash 不重建 chat；上层按 snapshot 选择一次有界重试（P3A-26/27）。
-      if (this.window === window) this.status = 'error'
-    })
+    window.on('render-process-gone', () => this.handleRendererGone(window, 'visible'))
     // page visibility 在透明 BrowserWindow 上不能准确表达“用户主动隐藏/最小化”；
     // 生命周期真源留在 main，只有真正不显示给用户时才停 ticker。
     window.on('hide', () => this.sendStageCommand({ type: 'pause' }))
@@ -142,6 +163,71 @@ export class Live2dWindowManager {
     window.on('restore', () => this.scheduleStageResume())
 
     return this.snapshot()
+  }
+
+  /**
+   * P3B-15（F5-007 §1.14）：`tts.enabled=true` 且 `ui.live2d.enabled=false` 时的
+   * audio-only-hidden stage——创建/保留 `show:false` 的轻量 stage，只初始化 preload +
+   * PlaybackHost（不创建 Pixi Application/模型，窗口从不显示给用户）。已有窗口
+   * （无论哪种模式）直接复用，不重复建窗。
+   */
+  ensureAudioOnlyStage(): Live2dWindowSnapshot {
+    const existing = this.window
+    if (existing !== null && !existing.isDestroyed()) return this.snapshot()
+    if (existing !== null) this.releaseWindow(existing)
+
+    const window = this.deps.createWindow({
+      alwaysOnTop: false
+    }) as unknown as ManagedStageWindow
+    this.window = window
+    this.audioOnly = true
+    this.webContentsId = window.webContents.id
+    this.stageInstanceId = null
+    this.status = 'starting'
+    this.lastReport = null
+    this.loadPlan = null
+    this.pendingLoadAttemptIndex = 0
+    this.activeModelId = null
+    this.loadedModelId = null
+    this.modelsLoadedThisSession = 0
+    this.deps.onStageCreated(window.webContents.id)
+    this.deps.onStateChange?.()
+
+    window.on('closed', () => this.releaseWindow(window))
+    window.on('render-process-gone', () => this.handleRendererGone(window, 'audio-only'))
+
+    return this.snapshot()
+  }
+
+  /**
+   * S-006-补充 §1.7.7 stage 崩溃恢复：
+   *   render-process-gone → 标 error（旧 webContentsId 随 releaseWindow 出 trust set）
+   *   → 有界重建 1 次（新 stageInstanceId + 新 webContentsId，按原模式重建）
+   *   → 成功 ready 计数归零；再崩保持 error，交给用户显式恢复。
+   * 绝不重建 chat window（chat CrashGuard 是另一条独立回路）。
+   */
+  private handleRendererGone(window: ManagedStageWindow, mode: 'visible' | 'audio-only'): void {
+    if (this.window !== window) return
+    this.status = 'error'
+    this.deps.onStateChange?.()
+    if (this.crashRebuilds >= 1) return // 有界：连续第二次崩溃不再自动重建
+    this.crashRebuilds += 1
+    const schedule =
+      this.deps.scheduleCrashRebuild ??
+      ((callback: () => void) => {
+        this.crashRebuildTimer = setTimeout(callback, 0)
+      })
+    schedule(() => {
+      this.crashRebuildTimer = null
+      // 期间用户可能已主动关闭/切换（window 已不是崩溃那个）——不重建
+      if (this.window !== window) return
+      const rebuilds = this.crashRebuilds
+      this.destroy()
+      // destroy → releaseWindow 会复位计数；重建属于同一「连续崩溃」序列，恢复计数
+      this.crashRebuilds = rebuilds
+      if (mode === 'audio-only') this.ensureAudioOnlyStage()
+      else this.show()
+    })
   }
 
   destroy(): void {
@@ -249,6 +335,23 @@ export class Live2dWindowManager {
     } else if (this.stageInstanceId !== input.stageInstanceId) {
       throw invalidStageInstance()
     }
+    // P3B-15：audio-only 宿主没有模型可加载；bootstrap 只带 mode 标志，不推进降级链。
+    if (this.audioOnly) {
+      this.status = 'starting'
+      this.deps.onStateChange?.()
+      this.deps.onStageReady?.(sender)
+      return {
+        stageInstanceId: this.stageInstanceId,
+        status: this.status,
+        mode: 'audio-only',
+        initialModelUrl: null,
+        cubismCoreUrl: null,
+        zoom: 1,
+        offsetX: 0,
+        offsetY: 0,
+        expressionNames: []
+      }
+    }
     this.status = 'loading-model'
     this.loadPlan ??= this.deps.getModelLoadPlan()
     this.pendingLoadAttemptIndex = 0
@@ -257,6 +360,7 @@ export class Live2dWindowManager {
     // bootstrap 自带的首个候选也是一次真实加载，同样计入「已加载模型数」。
     if (firstAttempt !== undefined) this.modelsLoadedThisSession++
     this.deps.onStateChange?.()
+    this.deps.onStageReady?.(sender)
 
     return {
       stageInstanceId: this.stageInstanceId,
@@ -282,9 +386,12 @@ export class Live2dWindowManager {
     this.status = report.status
     this.lastReport = report
     if (report.status === 'ready') {
+      // 一次成功 ready = 崩溃序列结束；后续再崩仍允许一次重建（§1.7.7 有界的是「连续」）
+      this.crashRebuilds = 0
       this.deps.onPerformanceReport?.(sender, report)
       this.loadedModelId = this.activeModelId
-      if (!window.isDestroyed() && !window.isVisible()) {
+      // P3B-15：audio-only 宿主永远不显示（屏幕上看不见她，声音仍由 PlaybackHost 播放）。
+      if (!this.audioOnly && !window.isDestroyed() && !window.isVisible()) {
         try {
           // show 事件会统一走 scheduleStageResume()：先让 Chromium 提交可见状态，
           // 再由 stage 显式恢复唯一的 Pixi ticker。
@@ -405,6 +512,9 @@ export class Live2dWindowManager {
     if (this.window !== window) return
     if (this.resumeTimer !== null) clearTimeout(this.resumeTimer)
     this.resumeTimer = null
+    if (this.crashRebuildTimer !== null) clearTimeout(this.crashRebuildTimer)
+    this.crashRebuildTimer = null
+    this.crashRebuilds = 0
     this.deps.cancelScheduledResume?.()
     // 'closed' 触发时 BrowserWindow 已销毁，此时读 window.webContents 会抛
     // "Object has been destroyed"——那是 main 的未捕获异常，会弹致命错误框并占住
@@ -413,6 +523,7 @@ export class Live2dWindowManager {
     this.webContentsId = null
     // 窗口没了，预览也就没有承载体；不清标志会让下一个 stage 永远收不到 config 变更。
     this.previewing = false
+    this.audioOnly = false
     this.window = null
     this.stageInstanceId = null
     this.status = 'closed'
@@ -432,7 +543,8 @@ export class Live2dWindowManager {
       visible: window !== null && !window.isDestroyed() && window.isVisible(),
       alwaysOnTop: this.alwaysOnTop,
       webContentsId: window !== null && !window.isDestroyed() ? this.webContentsId : null,
-      loadedModelId: this.loadedModelId
+      loadedModelId: this.loadedModelId,
+      audioOnly: this.audioOnly
     }
   }
 }

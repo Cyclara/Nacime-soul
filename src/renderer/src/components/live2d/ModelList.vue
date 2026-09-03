@@ -83,29 +83,29 @@ async function select(id: string): Promise<void> {
   gap: 0.65rem;
   width: 100%;
   padding: 0.7rem;
-  border: 1px solid var(--color-border, rgb(255 255 255 / 10%));
+  border: 1px solid var(--color-border);
   border-radius: 0.75rem;
-  background: rgb(255 255 255 / 3%);
+  background: color-mix(in srgb, var(--color-surface-elevated) 58%, transparent);
   color: inherit;
   text-align: left;
   cursor: pointer;
   transition: 160ms ease;
 }
 .model-item:hover {
-  border-color: rgb(193 177 255 / 44%);
-  background: rgb(255 255 255 / 7%);
+  border-color: color-mix(in srgb, var(--color-accent) 58%, var(--color-border));
+  background: var(--color-surface-elevated);
 }
 .model-item--selected {
-  border-color: rgb(193 177 255 / 66%);
-  background: linear-gradient(100deg, rgb(193 177 255 / 15%), rgb(255 255 255 / 4%));
+  border-color: var(--color-accent);
+  background: linear-gradient(100deg, var(--color-accent-soft), var(--color-surface-elevated));
 }
 .model-item:focus-visible {
-  outline: 2px solid rgb(193 177 255);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 .model-item__mark {
   width: 1.35rem;
-  color: rgb(193 177 255);
+  color: var(--color-accent);
   font-size: 1.05rem;
   text-align: center;
 }
@@ -130,8 +130,9 @@ async function select(id: string): Promise<void> {
   white-space: nowrap;
 }
 .model-item__badge {
-  color: rgb(255 208 126);
+  color: var(--color-warning);
   font-size: 0.68rem;
+  font-weight: 650;
 }
 .model-list__empty {
   margin: 0;

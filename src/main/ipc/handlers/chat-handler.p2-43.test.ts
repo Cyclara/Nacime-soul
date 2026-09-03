@@ -6,6 +6,7 @@ import { ipcMain } from 'electron'
 import type { Logger } from '@shared/observability/types'
 import type { ChatService } from '../../chat/service'
 import { configureIpcGuard } from '../register'
+import { createChatRenderAckTracker } from '../../voice/playback/ack-gate'
 import { registerChatHandlers } from './chat'
 
 vi.mock('electron', () => ({
@@ -74,7 +75,9 @@ describe('P2-43 chat:get-last-session handler', () => {
       logger: noopLogger(),
       searchMessages: () => [],
       // P3C1-07：feedback handler 在专属测试文件覆盖；此处仅需满足依赖形状
-      recordFeedback: () => ({ status: 'ignored', reason: 'turn-row-missing' })
+      recordFeedback: () => ({ status: 'ignored', reason: 'turn-row-missing' }),
+      // P3B-15A：ack 通道在专属测试文件覆盖
+      ackTracker: createChatRenderAckTracker()
     })
 
     const handler = getHandler('companion:chat:get-last-session')

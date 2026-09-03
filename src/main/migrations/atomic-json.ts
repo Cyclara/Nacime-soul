@@ -13,6 +13,7 @@ import * as path from 'node:path'
 export function atomicWriteJson(filePath: string, data: unknown): void {
   const tmpPath = filePath + '.tmp'
   const json = JSON.stringify(data, null, 2) + '\n'
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
   const fd = fs.openSync(tmpPath, 'w', 0o600)
   try {
     fs.writeFileSync(fd, json, 'utf8')

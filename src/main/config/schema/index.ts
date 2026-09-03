@@ -9,6 +9,7 @@ import { MemoryConfigSchema } from './memory'
 import { UiConfigSchema } from './ui'
 import { SecurityConfigSchema } from './security'
 import { PersonaConfigSchema } from './persona'
+import { VoiceConfigSchema } from './voice'
 
 /**
  * 根配置 schema。config.json 的结构契约。
@@ -21,7 +22,8 @@ export const AppConfigSchema = v.object({
   memory: MemoryConfigSchema,
   ui: UiConfigSchema,
   security: SecurityConfigSchema,
-  persona: PersonaConfigSchema
+  persona: PersonaConfigSchema,
+  voice: VoiceConfigSchema
 })
 
 /** schema 的输入类型（用户提供的原始数据，可能含 unknown key） */
@@ -37,3 +39,4 @@ export { MemoryConfigSchema } from './memory'
 export { UiConfigSchema } from './ui'
 export { SecurityConfigSchema } from './security'
 export { PersonaConfigSchema, ComplianceGateScopeSchema } from './persona'
+export { VoiceConfigSchema, AsrEngineIdSchema } from './voice'

@@ -26,9 +26,9 @@ describe('P1-11 IPC_VALIDATORS 全覆盖', () => {
     }
   })
 
-  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（P3A-25 取景预览通道后 = 60）', () => {
-    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(60)
-    expect(IPC_INVOKE_CHANNELS).toHaveLength(60)
+  it('IPC_VALIDATORS 的 key 数量与 IPC_INVOKE_CHANNELS 一致（P3V-16..20 GPT 组后 = 88）', () => {
+    expect(Object.keys(IPC_VALIDATORS)).toHaveLength(88)
+    expect(IPC_INVOKE_CHANNELS).toHaveLength(88)
   })
 
   it('IPC_VALIDATORS 没有多余的 key', () => {
@@ -63,7 +63,19 @@ describe('P1-11 undefined 通道 validator', () => {
     // M-50：自动更新（undefined 载荷）
     'companion:app:check-for-updates',
     'companion:app:get-update-status',
-    'companion:app:quit-and-install'
+    'companion:app:quit-and-install',
+    // P3B-14：语音（undefined 载荷）
+    'companion:voice:get-asr-overview',
+    'companion:voice:start-listening',
+    'companion:voice:stop-listening',
+    // P3B-18：TTS 编排（undefined 载荷）
+    'companion:voice:get-state',
+    'companion:voice:cancel-speaking',
+    // P3V-16/17：GPT runtime（undefined 载荷；目录选择的路径不入参）
+    'companion:voice:get-gpt-runtime',
+    'companion:voice:gpt-runtime-delete',
+    'companion:voice:choose-gpt-runtime-dir',
+    'companion:voice:clear-gpt-runtime-dir'
   ]
 
   for (const channel of undefinedChannels) {
@@ -89,6 +101,152 @@ describe('P1-11 undefined 通道 validator', () => {
       })
     })
   }
+})
+
+describe('P3B-14 voice 引擎请求 validator（闭集 engineId）', () => {
+  const channels: IpcInvokeChannel[] = [
+    'companion:voice:asr-download-model',
+    'companion:voice:asr-cancel-download',
+    'companion:voice:asr-pause-download',
+    'companion:voice:asr-resume-download',
+    'companion:voice:asr-delete-model',
+    'companion:voice:asr-select-engine'
+  ]
+
+  for (const channel of channels) {
+    describe(`${channel}`, () => {
+      it('合法 engineId 通过', () => {
+        expect(validateIpcPayload(channel, { engineId: 'sherpa-sensevoice' })).toBe(true)
+        expect(validateIpcPayload(channel, { engineId: 'funasr-paraformer' })).toBe(true)
+      })
+      it('未知/非字符串/多余字段/缺字段拒绝（无云选项：外部 id 一律拒）', () => {
+        expect(validateIpcPayload(channel, { engineId: 'whisper-cloud' })).toBe(false)
+        expect(validateIpcPayload(channel, { engineId: 123 })).toBe(false)
+        expect(validateIpcPayload(channel, {})).toBe(false)
+        expect(validateIpcPayload(channel, { engineId: 'sherpa-sensevoice', extra: 1 })).toBe(false)
+        expect(validateIpcPayload(channel, null)).toBe(false)
+      })
+    })
+  }
+})
+
+describe('P3V-16 gpt-runtime 变体 validator（闭集 variant）', () => {
+  const channels: IpcInvokeChannel[] = [
+    'companion:voice:gpt-runtime-install',
+    'companion:voice:gpt-runtime-pause-download',
+    'companion:voice:gpt-runtime-resume-download',
+    'companion:voice:gpt-runtime-cancel-download'
+  ]
+
+  for (const channel of channels) {
+    describe(`${channel}`, () => {
+      it('两个官方变体通过', () => {
+        expect(validateIpcPayload(channel, { variant: 'standard' })).toBe(true)
+        expect(validateIpcPayload(channel, { variant: 'rtx50' })).toBe(true)
+      })
+      it('未知变体/非字符串/多余字段/缺字段拒绝', () => {
+        expect(validateIpcPayload(channel, { variant: 'rtx40' })).toBe(false)
+        expect(validateIpcPayload(channel, { variant: 1 })).toBe(false)
+        expect(validateIpcPayload(channel, {})).toBe(false)
+        expect(validateIpcPayload(channel, { variant: 'standard', extra: 1 })).toBe(false)
+        expect(validateIpcPayload(channel, null)).toBe(false)
+      })
+    })
+  }
+})
+
+describe('P3V-20 导入音色 validator（闭集版本/语言；提示词必填；无路径入参）', () => {
+  const validImport = {
+    displayName: '樱羽艾玛1.0',
+    version: 'v2ProPlus',
+    promptText: 'おはようございます',
+    promptLang: 'ja',
+    defaultTextLang: 'ja'
+  }
+
+  it('pick-gpt-voice-file 只接受三种 kind', () => {
+    for (const kind of ['gpt-weights', 'sovits-weights', 'ref-audio']) {
+      expect(validateIpcPayload('companion:voice:pick-gpt-voice-file', { kind })).toBe(true)
+    }
+    expect(validateIpcPayload('companion:voice:pick-gpt-voice-file', { kind: 'anything' })).toBe(
+      false
+    )
+    // 路径不能作为入参偷偷传进来
+    expect(
+      validateIpcPayload('companion:voice:pick-gpt-voice-file', {
+        kind: 'ref-audio',
+        path: 'E:/x.wav'
+      })
+    ).toBe(false)
+  })
+
+  it('import-gpt-voice 合法请求通过', () => {
+    expect(validateIpcPayload('companion:voice:import-gpt-voice', validImport)).toBe(true)
+  })
+
+  it('未知版本/未知语言/空提示词/空显示名/多余路径字段一律拒绝', () => {
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', { ...validImport, version: 'v9' })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', {
+        ...validImport,
+        promptLang: 'klingon'
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', {
+        ...validImport,
+        defaultTextLang: ''
+      })
+    ).toBe(false)
+    // 提示词必须由用户确认填写：空白不算
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', { ...validImport, promptText: '   ' })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', { ...validImport, displayName: '' })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', {
+        ...validImport,
+        refAudioPath: 'E:/voices/ref.wav'
+      })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:voice:import-gpt-voice', {
+        ...validImport,
+        promptText: 'x'.repeat(201)
+      })
+    ).toBe(false)
+  })
+
+  it('delete-gpt-voice 只接受非空 voiceId', () => {
+    expect(
+      validateIpcPayload('companion:voice:delete-gpt-voice', { voiceId: 'gpt-sovits:abc123' })
+    ).toBe(true)
+    expect(validateIpcPayload('companion:voice:delete-gpt-voice', { voiceId: '' })).toBe(false)
+    expect(validateIpcPayload('companion:voice:delete-gpt-voice', {})).toBe(false)
+    expect(validateIpcPayload('companion:voice:delete-gpt-voice', { voiceId: 'a', extra: 1 })).toBe(
+      false
+    )
+  })
+})
+
+describe('P3B-18 voice:test-tts validator', () => {
+  it('合法文本通过', () => {
+    expect(validateIpcPayload('companion:voice:test-tts', { text: '你好呀' })).toBe(true)
+    expect(validateIpcPayload('companion:voice:test-tts', { text: 'a'.repeat(2_000) })).toBe(true)
+  })
+
+  it('空文本/超界/非字符串/多余字段/非对象拒绝', () => {
+    expect(validateIpcPayload('companion:voice:test-tts', { text: '' })).toBe(false)
+    expect(validateIpcPayload('companion:voice:test-tts', { text: 'a'.repeat(2_001) })).toBe(false)
+    expect(validateIpcPayload('companion:voice:test-tts', { text: 123 })).toBe(false)
+    expect(validateIpcPayload('companion:voice:test-tts', { text: 'x', extra: 1 })).toBe(false)
+    expect(validateIpcPayload('companion:voice:test-tts', {})).toBe(false)
+    expect(validateIpcPayload('companion:voice:test-tts', null)).toBe(false)
+  })
 })
 
 // === S-004 #6：多余字段、超长 ID、NaN、数组伪装对象 ===
@@ -247,6 +405,52 @@ describe('P1-11 ChatCancelRequest validator', () => {
         extra: 'bad'
       })
     ).toBe(false)
+  })
+})
+
+describe('P3B-15A ChatRenderAckRequest validator', () => {
+  it('合法 payload 通过', () => {
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', {
+        requestId: 'req_abc123',
+        sequence: 0
+      })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', {
+        requestId: 'req_abc123',
+        sequence: 42
+      })
+    ).toBe(true)
+  })
+
+  it('负/非整数/超界 sequence 被拒绝', () => {
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', { requestId: 'req_abc', sequence: -1 })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', { requestId: 'req_abc', sequence: 1.5 })
+    ).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', { requestId: 'req_abc', sequence: '3' })
+    ).toBe(false)
+  })
+
+  it('缺失 requestId / 多余字段 / 坏 requestId 被拒绝', () => {
+    expect(validateIpcPayload('companion:chat:ack-rendered', { sequence: 3 })).toBe(false)
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', {
+        requestId: 'req_abc',
+        sequence: 3,
+        extra: true
+      })
+    ).toBe(false)
+    expect(validateIpcPayload('companion:chat:ack-rendered', { requestId: '', sequence: 3 })).toBe(
+      false
+    )
+    expect(
+      validateIpcPayload('companion:chat:ack-rendered', { requestId: 'req_abc', sequence: 0 })
+    ).toBe(true)
   })
 })
 
@@ -638,6 +842,39 @@ describe('P1-11 ConfigUpdateRequest validator', () => {
         }
       })
     ).toBe(false)
+  })
+
+  it('voice 域合法通过；非闭集引擎 id 拒绝（无云选项）', () => {
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { voice: { asrEngineId: 'funasr-paraformer' } }
+      })
+    ).toBe(true)
+    expect(
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { voice: { asrEngineId: 'groq-whisper' } }
+      })
+    ).toBe(false)
+  })
+
+  it('P3V-09：主/备双键——新引擎 id、空串清除备用通过；主备同体/未知 id 拒绝', () => {
+    const update = (voice: Record<string, unknown>): boolean =>
+      validateIpcPayload('companion:config:update', {
+        expectedSchemaVersion: 1,
+        domains: { voice }
+      })
+    // 主引擎：四个新引擎 id 都是合法值（6 引擎闭集，不再是旧 2 引擎硬编码）
+    expect(update({ asrPrimaryEngineId: 'zipformer-bilingual-zh-en' })).toBe(true)
+    expect(update({ asrPrimaryEngineId: 'parakeet-tdt-v2' })).toBe(true)
+    expect(update({ asrPrimaryEngineId: 'groq-whisper' })).toBe(false)
+    // 备用：空串 = 清除（持久层编码，见 VoiceConfig 注释）
+    expect(update({ asrFallbackEngineId: 'sherpa-sensevoice' })).toBe(true)
+    expect(update({ asrFallbackEngineId: '' })).toBe(true)
+    expect(update({ asrFallbackEngineId: 'groq-whisper' })).toBe(false)
+    expect(update({ asrFallbackEngineId: undefined })).toBe(false)
+    expect(update({ unknownKey: 1 })).toBe(false)
   })
 
   it('expectedSchemaVersion 非整数被拒绝', () => {
@@ -2046,6 +2283,61 @@ describe('P2-29 memory-updated event validator', () => {
         hint: 'l2',
         ts: 0,
         extra: 1
+      })
+    ).toBe(false)
+  })
+})
+
+describe('P3V-16 asset-download event validator', () => {
+  it('合法下载状态通过（GPT runtime 8GB 级进度）', () => {
+    expect(
+      validateEventPayload('companion:event:asset-download', {
+        assetId: 'gpt-runtime-standard',
+        state: 'downloading',
+        receivedBytes: 1_048_576,
+        totalBytes: 8_185_086_602,
+        currentFile: 'GPT-SoVITS-v2pro-20250604.7z',
+        phase: 'receiving',
+        speedBytesPerSec: 5_000_000,
+        resumable: true
+      })
+    ).toBe(true)
+    expect(
+      validateEventPayload('companion:event:asset-download', {
+        assetId: 'gpt-runtime-rtx50',
+        state: 'error',
+        receivedBytes: 0,
+        totalBytes: 8_835_144_925,
+        errorCode: 'hash-mismatch'
+      })
+    ).toBe(true)
+  })
+
+  it('带路径的 currentFile / 未知错误码 / 收超总量被拒绝', () => {
+    expect(
+      validateEventPayload('companion:event:asset-download', {
+        assetId: 'gpt-runtime-standard',
+        state: 'downloading',
+        receivedBytes: 1,
+        totalBytes: 2,
+        currentFile: 'D:/assets/GPT-SoVITS-v2pro-20250604.7z'
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:asset-download', {
+        assetId: 'gpt-runtime-standard',
+        state: 'error',
+        receivedBytes: 0,
+        totalBytes: 2,
+        errorCode: 'boom'
+      })
+    ).toBe(false)
+    expect(
+      validateEventPayload('companion:event:asset-download', {
+        assetId: 'gpt-runtime-standard',
+        state: 'downloading',
+        receivedBytes: 3,
+        totalBytes: 2
       })
     ).toBe(false)
   })

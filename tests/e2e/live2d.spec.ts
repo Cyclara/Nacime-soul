@@ -380,9 +380,18 @@ for (const modelId of ['mao', 'hiyori'] as const) {
 
       // 完成定义第 3 条的端到端证据：聊天说完一轮 → main 分类 → stage 收到 set-emotion。
       // 这一环此前完全缺失（stage 侧全实现，但 main 从未发过这条命令），单测覆盖不了跨进程。
-      await chat.waitForSelector('textarea', { timeout: 30_000 })
-      await chat.fill('textarea', '今天顺利吗')
-      await chat.click('button:text("发送")')
+      // Electron E2E 窗口对用户可见；若测试期间设置被打开，先收起这个域外模态，且把
+      // 输入/发送选择器限定在 Composer，避免宽泛 textarea 误命中语音试听框。
+      const settingsBackdrop = chat.locator('.settings-backdrop')
+      if (await settingsBackdrop.isVisible()) {
+        await chat.getByRole('button', { name: '关闭设置' }).click()
+        const discard = chat.getByRole('button', { name: '放弃修改' })
+        if (await discard.isVisible()) await discard.click()
+        await expect(settingsBackdrop).toHaveCount(0)
+      }
+      const composer = chat.locator('.composer')
+      await composer.getByRole('textbox', { name: '输入给 Nacime 的消息' }).fill('今天顺利吗')
+      await composer.getByRole('button', { name: '发送', exact: true }).click()
       await expect
         .poll(
           () =>

@@ -3,7 +3,7 @@
 // P1-24 chat store 测试
 // 依据：S-004 #28-#30（旧 requestId 丢弃、重复/逆序 sequence 丢弃、completed/failed/cancelled 清 activeTurn）
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from './chat'
@@ -772,5 +772,119 @@ describe('chat store 选择模式（验收反馈⑦：批量按轮删除）', ()
 
     expect(store.selectionMode).toBe(false)
     expect(store.selectedIds.size).toBe(0)
+  })
+})
+
+// P3B-15A（F5-007 §1.5）：applyStream 应用后等一次 rAF，回报该 request 已绘制的最高
+// sequence。rAF 把同帧多个 chunk 合并成一次回报；只 ack 被应用的事件。
+describe('chat store P3B-15A paint ack', () => {
+  let rafCallbacks: FrameRequestCallback[]
+  let ackRendered: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    rafCallbacks = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb)
+      return rafCallbacks.length
+    })
+    ackRendered = vi.fn(async () => ({ ok: true, data: undefined }))
+    Object.defineProperty(window, 'companion', {
+      value: {
+        chat: { ackRendered }
+      },
+      writable: true,
+      configurable: true
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function flushRaf(): void {
+    const callbacks = rafCallbacks.splice(0)
+    for (const cb of callbacks) cb(0)
+  }
+
+  function started(store: ReturnType<typeof useChatStore>): void {
+    store.applyStream({
+      type: 'started',
+      requestId: 'r1',
+      sessionId: 's1',
+      assistantMessageId: 'a1',
+      sequence: 0
+    })
+  }
+
+  it('chunk 应用后经一次 rAF 回报该 sequence', () => {
+    const store = useChatStore()
+    started(store)
+    expect(ackRendered).not.toHaveBeenCalled() // rAF 未到不发送
+
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: '你' })
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 2, delta: '好' })
+    flushRaf()
+
+    expect(rafCallbacks).toHaveLength(0)
+    expect(ackRendered).toHaveBeenCalledTimes(1) // 两个 chunk 合并成一次
+    expect(ackRendered).toHaveBeenCalledWith({ requestId: 'r1', sequence: 2 }) // 只发最高值
+  })
+
+  it('分帧回报递增：第二次 rAF 只发新增量', () => {
+    const store = useChatStore()
+    started(store)
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: 'a' })
+    flushRaf()
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 2, delta: 'b' })
+    flushRaf()
+
+    expect(ackRendered).toHaveBeenCalledTimes(2)
+    expect(ackRendered).toHaveBeenNthCalledWith(1, { requestId: 'r1', sequence: 1 })
+    expect(ackRendered).toHaveBeenNthCalledWith(2, { requestId: 'r1', sequence: 2 })
+  })
+
+  it('终端事件（completed）也回报——终局后的尾段 ack 不丢', () => {
+    const store = useChatStore()
+    started(store)
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: 'a' })
+    store.applyStream({ type: 'completed', requestId: 'r1', sequence: 2 })
+    flushRaf()
+
+    expect(ackRendered).toHaveBeenCalledWith({ requestId: 'r1', sequence: 2 })
+  })
+
+  it('丢弃的旧/逆序事件不回报对应 sequence（只报应用过的）', () => {
+    const store = useChatStore()
+    started(store)
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: 'a' })
+    // 旧 requestId：应用层丢弃，不该被 ack
+    store.applyStream({ type: 'chunk', requestId: 'old', sequence: 5, delta: 'x' })
+    // 逆序：丢弃
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: 'dup' })
+    store.applyStream({
+      type: 'started',
+      requestId: 'r1',
+      sessionId: 's1',
+      assistantMessageId: 'a1',
+      sequence: 0
+    })
+    flushRaf()
+
+    // 只报 r1 的应用序列（started seq=0 之后 chunk seq=1），最高 = 1
+    expect(ackRendered).toHaveBeenCalledWith({ requestId: 'r1', sequence: 1 })
+  })
+
+  it('window.companion 缺失 / ackRendered 未暴露时静默（不炸不 send）', () => {
+    Object.defineProperty(window, 'companion', {
+      value: undefined,
+      writable: true,
+      configurable: true
+    })
+    const store = useChatStore()
+    started(store)
+    store.applyStream({ type: 'chunk', requestId: 'r1', sequence: 1, delta: 'a' })
+    expect(() => flushRaf()).not.toThrow()
+    expect(ackRendered).not.toHaveBeenCalled()
   })
 })

@@ -22,13 +22,17 @@ import {
   session,
   type WebContents
 } from 'electron'
-import { mkdirSync } from 'node:fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, statfsSync } from 'node:fs'
+import { delimiter, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
 
 // 安全
-import { installGlobalAgentGuard, createSecureFetch } from './security/network-policy'
+import {
+  installGlobalAgentGuard,
+  createSecureFetch,
+  createLocalServiceOriginRegistry
+} from './security/network-policy'
 
 // 可观测性
 import { configureLogger, getLogger, createElectronLogSink } from './observability/logger'
@@ -99,10 +103,47 @@ import { registerAppHandlers } from './ipc/handlers/app'
 import { registerWindowHandlers, attachWindowStateListeners } from './ipc/handlers/window'
 import { registerConfigHandlers } from './ipc/handlers/config'
 import { registerChatHandlers } from './ipc/handlers/chat'
+import { createChatRenderAckTracker } from './voice/playback/ack-gate'
+import {
+  createMessageChannelStagePort,
+  createPlaybackHostManager
+} from './voice/playback/stage-host-manager'
 import { registerDebugHandlers } from './ipc/handlers/debug'
 import { registerMemoryHandlers } from './ipc/handlers/memory'
 import { registerGrowthHandlers } from './ipc/handlers/growth'
 import { registerDmaeHandlers } from './ipc/handlers/dmae'
+import { registerVoiceHandlers } from './ipc/handlers/voice'
+import { createAssetRootService } from './voice/asset-root-service'
+import { createModelDownloader, createTarExtractor } from './voice/asr/model-downloader'
+import { asrEngineDirName } from './voice/asr/download-catalog'
+import { totalAsrDownloadBytes } from '@shared/voice/asr-catalog'
+import { createAsrEngineManager } from './voice/asr/engine-manager'
+import { createNodeSherpaBinding } from './voice/asr/sherpa-binding'
+import { createNodeSileroVadBinding } from './voice/vad/silero-binding'
+import { createVadProcessor } from './voice/vad/vad-processor'
+import { createVoiceListeningService } from './voice/listening-service'
+import { createTtsRegistry, type TtsRegistry } from './voice/tts/registry'
+import {
+  createEdgeTtsProviderFactory,
+  EDGE_TTS_CAPABILITIES,
+  EDGE_TTS_PROVIDER_ID
+} from './voice/tts/edge-provider'
+import { runEdgeSapiSynthesis } from './voice/tts/edge-sapi-runner'
+import {
+  createGptSovitsProviderFactory,
+  GPT_SOVITS_CAPABILITIES,
+  GPT_SOVITS_PROVIDER_ID
+} from './voice/tts/gpt-sovits-provider'
+import { createGptSovitsService, type GptSovitsService } from './voice/tts/gpt-sovits-service'
+import { createGptRuntimeManager } from './voice/tts/gpt-runtime-manager'
+import { createGptRuntimeSourceService } from './voice/tts/gpt-runtime-source'
+import { createVoiceProfileRegistry } from './voice/tts/voice-profile-registry'
+import { GPT_RUNTIME_INSTALL_DIR_NAME } from './voice/tts/gpt-runtime-catalog'
+import { createGpuNameProbe } from './voice/tts/gpu-info'
+import { createVoiceOrchestrator, type VoiceOrchestrator } from './voice/orchestrator'
+import type { VoiceEvent, VoiceTtsProviderOption } from '@shared/voice/voice-events'
+import type { AssetDownloadStatus } from '@shared/voice/asset-root-types'
+import type { GptVoiceFileKind } from '@shared/voice/gpt-runtime-types'
 import { registerComplianceHandlers } from './ipc/handlers/compliance'
 import { registerLive2dStageHandlers } from './ipc/handlers/live2d-stage'
 import { registerLive2dHandlers } from './ipc/handlers/live2d'
@@ -165,6 +206,14 @@ let mainWindow: BrowserWindow | null = null
 let appIsQuitting = false
 // P3A-04：独立 stage 生命周期；不复用 chat CrashGuard，也不把 Pixi 状态塞进 chat window。
 let live2dWindowManagerRef: Live2dWindowManager | null = null
+// P3B-15：stage PlaybackHost 的 main 侧（TTS 专用 audio port）；before-quit 先于窗口关。
+let stagePlaybackHostRef: ReturnType<typeof createPlaybackHostManager> | null = null
+// P3B-18：VoiceOrchestrator + TTS registry（before-quit 先停声再 disposeAll provider）。
+let voiceOrchestratorRef: VoiceOrchestrator | null = null
+let asrEngineManagerRef: ReturnType<typeof createAsrEngineManager> | null = null
+let ttsRegistryRef: TtsRegistry | null = null
+let gptSovitsServiceRef: GptSovitsService | null = null
+let gptSovitsConfigCleanupRef: (() => void) | null = null
 
 let live2dConfigCleanupRef: (() => void) | null = null
 let trayRef: { destroy(): void } | null = null
@@ -471,7 +520,8 @@ app.whenReady().then(async () => {
         visible: false,
         alwaysOnTop: true,
         webContentsId: null,
-        loadedModelId: null
+        loadedModelId: null,
+        audioOnly: false
       },
     loading: () => false,
     lastError: () => null,
@@ -513,10 +563,232 @@ app.whenReady().then(async () => {
     })
   }
 
+  // P3B-15（F5-007 §1.14）：唯一 PlaybackHost = Live2D stage renderer。main 建
+  // MessageChannelMain 专用 port 转交 stage（普通 invoke/event 不承载 PCM）；
+  // 每次 stage ready 生成新 generation；stage 销毁/崩溃 -> current 作废 ->
+  // 播放侧 host-unavailable（当前轮 text-only），直到下一 stage ready 重建。
+  const stagePlaybackHost = createPlaybackHostManager({
+    logger: getLogger('tts'),
+    createStageChannel: (webContents, generation) =>
+      createMessageChannelStagePort(webContents, generation)
+  })
+  stagePlaybackHostRef = stagePlaybackHost
+
+  // === 5.5 P3V-10：大资源根目录（可自选其他盘）===
+  // 默认根 Windows 放 %LOCALAPPDATA%（Roaming 同步不该背 GB 级模型），其余平台
+  // userData；偏好持久化在 main 私有 asset-root.json（renderer 拿不到路径）；旧版
+  // data/models/asr 一次性迁入。setup 必须先于语音栈（ASR 与 GPT runtime 都用它）：
+  // 引擎/下载器的 rootDir 本会话内固定，换根重启生效。
+  const assetRootDefault =
+    process.platform === 'win32' && typeof process.env['LOCALAPPDATA'] === 'string'
+      ? join(process.env['LOCALAPPDATA'], app.getName(), 'assets')
+      : join(userDataPath, 'assets')
+  const assetRoot = createAssetRootService({
+    prefPath: join(userDataPath, 'asset-root.json'),
+    defaultRoot: assetRootDefault,
+    legacyAsrRoot: join(dataDir, 'models/asr'),
+    // P3V-03：当前 ASR 主/备 + 必需 VAD 总下载量；算法来自 shared catalog 单真源。
+    // P3V-16/20 接 GPT runtime/音色选择时在这里 additive 相加。
+    getTotalRequiredBytes: () => {
+      const voice = configStore.get().voice
+      const primary = voice.asrPrimaryEngineId ?? voice.asrEngineId
+      const fallback = voice.asrFallbackEngineId === '' ? null : voice.asrFallbackEngineId
+      return totalAsrDownloadBytes(fallback === null ? [primary] : [primary, fallback])
+    }
+  })
+  await assetRoot.setup()
+
+  // === P3B-18：TTS Registry + VoiceOrchestrator（组合根） ===
+  // Edge = dev/test 占位音色（Windows SAPI 本地合成）；packaged-production 由 Registry
+  // 资格门拒绝 → 该轮纯文字（裁定二：绝不降级通用音色）。
+  const ttsRegistry = createTtsRegistry(getLogger('tts'))
+  ttsRegistryRef = ttsRegistry
+  ttsRegistry.register({
+    id: EDGE_TTS_PROVIDER_ID,
+    capabilities: EDGE_TTS_CAPABILITIES,
+    factory: createEdgeTtsProviderFactory({
+      logger: getLogger('tts'),
+      synthesizeToWav: runEdgeSapiSynthesis
+    })
+  })
+
+  // GPT-SoVITS：只读发现用户现有整合包。P3V-17 起来源有三层优先级——用户指定目录 >
+  // Nacime 一键安装 > 环境变量/常见目录扫描（见 gpt-runtime-source）。外部目录绝不改；
+  // Nacime 自有 launcher 负责等 api_v2 端口真正 ready 后打印握手。
+  // renderer 只见 provider/voice id 与显示名，权重/参考音频绝对路径留在 main。
+  const gptRuntimeSource = createGptRuntimeSourceService({
+    prefPath: join(userDataPath, 'gpt-runtime-source.json'),
+    nacimeInstallRoot: () => join(assetRoot.gptRuntimeRoot(), GPT_RUNTIME_INSTALL_DIR_NAME)
+  })
+  // 本会话定格：运行中的 api_v2 子进程与已注册 provider 不热切换，改选择重启后生效
+  const gptInstallation = gptRuntimeSource.resolveInstallation()
+  // P3V-18：多音色注册表 = 安装 custom 配置里的那一个 + 用户导入的若干个。
+  // 不做 checkpoint 笛卡尔积；权重/参考音频路径只留在这里。
+  const voiceProfiles = createVoiceProfileRegistry({
+    storePath: join(userDataPath, 'gpt-voice-profiles.json'),
+    installation: () => gptInstallation
+  })
+  let gptSovitsService: GptSovitsService | null = null
+  if (gptInstallation !== null) {
+    getLogger('tts').info('local GPT-SoVITS installation discovered', {
+      scope: 'tts',
+      tags: { provider: GPT_SOVITS_PROVIDER_ID, version: gptInstallation.version },
+      metrics: { voices: voiceProfiles.list().length }
+    })
+    // 外部 Python 不能读取 app.asar 虚拟路径：安装版由 electron-builder extraResources
+    // 把 Nacime 自有 launcher/词典复制成 process.resourcesPath/voice 下的真实文件。
+    const bundledVoiceRoot = app.isPackaged
+      ? join(process.resourcesPath, 'voice')
+      : join(__dirname, '../../resources/voice')
+    const launcherPath = join(bundledVoiceRoot, 'gpt-sovits-launcher.py')
+    if (existsSync(launcherPath)) {
+      const localOrigins = createLocalServiceOriginRegistry()
+      const gptFetch = createSecureFetch(
+        {
+          isDev: is.dev,
+          allowHttpLocalhostInDev: false,
+          localServiceOrigins: localOrigins
+        },
+        getLogger('network')
+      )
+      gptSovitsService = createGptSovitsService(
+        {
+          command: gptInstallation.pythonPath,
+          buildArgs: (port) => [
+            '-I',
+            launcherPath,
+            '--api-script',
+            gptInstallation.apiScriptPath,
+            '--config',
+            gptInstallation.ttsConfigPath,
+            '--port',
+            String(port),
+            '--root',
+            gptInstallation.rootDir,
+            '--jieba-resources',
+            join(bundledVoiceRoot, 'jieba-fast')
+          ],
+          cwd: gptInstallation.rootDir,
+          env: {
+            ...process.env,
+            PATH: `${join(gptInstallation.rootDir, 'runtime')}${delimiter}${process.env['PATH'] ?? ''}`
+          },
+          handshakeTimeoutMs: 5 * 60_000,
+          healthIntervalMs: 15_000,
+          healthTimeoutMs: 5_000,
+          maxConsecutiveStartFailures: 2,
+          maxRestartsInWindow: 3,
+          restartWindowMs: 10 * 60_000,
+          healthFailureThreshold: 2,
+          restartBackoffBaseMs: 2_000,
+          restartBackoffMaxMs: 30_000
+        },
+        {
+          logger: getLogger('tts'),
+          originRegistry: localOrigins,
+          fetch: (url, init) => gptFetch(url, init)
+        }
+      )
+      gptSovitsServiceRef = gptSovitsService
+      ttsRegistry.register({
+        id: GPT_SOVITS_PROVIDER_ID,
+        capabilities: GPT_SOVITS_CAPABILITIES,
+        factory: createGptSovitsProviderFactory({
+          logger: getLogger('tts'),
+          service: gptSovitsService,
+          fetch: (url, init) => gptFetch(url, init),
+          // P3V-18：多音色——按 id 到注册表取（未知 id 返回 null → voice-missing 纯文字）
+          resolveVoice: (voiceId) => voiceProfiles.resolveVoiceConfig(voiceId),
+          requestTimeoutMs: 120_000,
+          maxResponseBytes: 64 * 1024 * 1024
+        })
+      })
+
+      const warmGptIfSelected = (): void => {
+        const tts = configStore.get().tts
+        if (!tts.enabled || tts.provider !== GPT_SOVITS_PROVIDER_ID) return
+        if (gptSovitsService?.state() === 'failed') gptSovitsService.reset()
+        void gptSovitsService?.ensureReady().catch(() => {
+          /* service 自己记录有界失败；当前/下一轮按 provider-unhealthy 纯文字 */
+        })
+      }
+      warmGptIfSelected()
+      gptSovitsConfigCleanupRef = configStore.subscribe((event) => {
+        if (event.domain === 'tts') warmGptIfSelected()
+      })
+    }
+  }
+
+  const emitVoiceEvent = (event: VoiceEvent): void => {
+    const wc = chatWebContents()
+    if (wc !== null) sendEvent(wc, 'companion:event:voice-state', event)
+  }
+  const gptProviderPublicState = (): VoiceTtsProviderOption['state'] => {
+    const serviceState = gptSovitsService?.state()
+    switch (serviceState) {
+      case 'starting':
+      case 'running':
+      case 'failed':
+        return serviceState
+      case 'idle':
+        return 'available'
+      case 'stopped':
+      case undefined:
+        return 'failed'
+    }
+  }
+  const chatRenderAckTracker = createChatRenderAckTracker()
+  const voiceOrchestrator = createVoiceOrchestrator({
+    logger: getLogger('tts'),
+    registry: ttsRegistry,
+    hostManager: stagePlaybackHost,
+    ackGate: chatRenderAckTracker.gate,
+    getTtsConfig: () => configStore.get().tts,
+    runtime: () => (app.isPackaged ? 'packaged-production' : 'dev'),
+    emitEvent: emitVoiceEvent,
+    listProviderOptions: () => [
+      ...(!app.isPackaged
+        ? [
+            {
+              id: EDGE_TTS_PROVIDER_ID,
+              displayName: '系统语音（开发占位）',
+              state: 'available' as const,
+              devTestOnly: true
+            }
+          ]
+        : []),
+      ...(gptInstallation !== null && gptSovitsService !== null
+        ? [
+            {
+              id: GPT_SOVITS_PROVIDER_ID,
+              displayName: 'GPT-SoVITS（本地定制音色）',
+              state: gptProviderPublicState(),
+              devTestOnly: false
+            }
+          ]
+        : [])
+    ],
+    // P3V-18：设置页音色下拉 = 注册表全量（仅 id/显示名；缺文件的标注在显示名里，
+    // 详细状态走 GPT runtime 面板的 voices 投影）
+    listVoiceOptions: () =>
+      gptInstallation === null
+        ? []
+        : voiceProfiles.list().map((profile) => ({
+            id: profile.id,
+            providerId: GPT_SOVITS_PROVIDER_ID,
+            displayName: profile.displayName
+          })),
+    metrics: getMetrics()
+  })
+  voiceOrchestratorRef = voiceOrchestrator
   const live2dWindowManager = new Live2dWindowManager({
     createWindow: createLive2dWindow,
     onStageCreated: (webContentsId) => registerSenderCapability(webContentsId, 'live2d-stage'),
-    onStageDestroyed: unregisterSenderCapability,
+    onStageDestroyed: (webContentsId) => {
+      unregisterSenderCapability(webContentsId)
+      stagePlaybackHost.detachStage(webContentsId)
+    },
+    onStageReady: (webContents) => stagePlaybackHost.attachStage(webContents),
     getModelLoadPlan: () => live2dModelService.getLoadPlan(),
     getStageModelUrl: (modelId) => live2dModelService.getStageModelUrl(modelId),
     getModelExpressionNames: (modelId) =>
@@ -577,12 +849,21 @@ app.whenReady().then(async () => {
   live2dWindowManagerRef = live2dWindowManager
   emitLive2dState()
   const unsubscribeLive2dConfig = configStore.subscribe((event) => {
-    if (event.domain !== 'ui') return
+    // P3B-15：ui.live2d 与 tts 都影响 stage 运行模式（可见 vs audio-only hidden）
+    if (event.domain !== 'ui' && event.domain !== 'tts') return
     const live2dConfig = configStore.get().ui.live2d
+    const ttsConfig = configStore.get().tts
     live2dWindowManager.setAlwaysOnTop(live2dConfig.alwaysOnTop)
     live2dWindowManager.setZoom(live2dConfig.zoom)
     live2dWindowManager.setOffset(live2dConfig.offsetX, live2dConfig.offsetY)
-    if (!live2dConfig.enabled) live2dWindowManager.destroy()
+    if (live2dConfig.enabled) {
+      // 开启 Live2D：销毁 audio-only 宿主（可见 stage 的创建仍是启动路径 P3A 现状）
+      if (live2dWindowManager.getSnapshot().audioOnly) live2dWindowManager.destroy()
+    } else {
+      // Live2D 关闭：纯文字模式不需要 stage；TTS 开则需要隐藏的声音宿主
+      if (ttsConfig.enabled) live2dWindowManager.ensureAudioOnlyStage()
+      else live2dWindowManager.destroy()
+    }
     emitLive2dState()
   })
   live2dConfigCleanupRef = unsubscribeLive2dConfig
@@ -793,6 +1074,8 @@ app.whenReady().then(async () => {
     idempotencyLedger,
     // P3C1-08：合规观测集成（gate 工厂 + TURN_END 落库；未注入时全旁路）
     compliance: complianceInfra.chatIntegration,
+    // P3B-18（F5-007 §1.5）：EarlyTTS hook——releaseText 流驱动语音合成与播放
+    voice: voiceOrchestrator,
     ...(memoryInfra.contextAssembler
       ? { dynamicPrompt: { contextAssembler: memoryInfra.contextAssembler } }
       : {})
@@ -823,13 +1106,16 @@ app.whenReady().then(async () => {
         getLogger('network')
       )
   })
+  // P3B-15A（F5-007 §1.5）：chat paint ack 跟踪器已在 P3B-18 组合点提前创建
+  // （orchestrator 的播放队列消费 gate；handler 喂 ack）。
   registerChatHandlers({
     chatService,
     logger: getLogger('chat'),
     searchMessages: (query, limit) => searchChatMessages(chatSearchDb, query, limit),
     // P3C1-07：合规用户反馈（F5-001 §3.7）。onDislike 补审已在
     // 6.55 接线（dislike -> 审计队列 reason='dislike' 强制补审，P3C1-08）。
-    recordFeedback: complianceFeedback.recordFeedback
+    recordFeedback: complianceFeedback.recordFeedback,
+    ackTracker: chatRenderAckTracker
   })
   // P3A-23：Live2D chat 管理面（main 负责 dialog/ID/URL，renderer 只见 DTO）。
   registerLive2dHandlers({
@@ -900,6 +1186,174 @@ app.whenReady().then(async () => {
     configStore
   })
 
+  // === 7.x P3B-14：语音设置/语音输入（ASR 引擎管理 + 模型下载 + 测试录音）===
+  // 模型根 {assetRoot}/asr；下载走 secureFetch（https 公网 + 重定向复验）；
+  // tar 解压用系统 bsdtar；语音永不外发（审计裁定 3，localOnly 由共享类型冻结）。
+  const asrModelRoot = assetRoot.asrRoot()
+  const vadBinding = createNodeSileroVadBinding()
+  const modelDownloader = createModelDownloader({
+    rootDir: asrModelRoot,
+    fetchImpl: createSecureFetch(
+      {
+        isDev: is.dev,
+        allowHttpLocalhostInDev: configStore.get().security.allowHttpLocalhostInDev
+      },
+      getLogger('network')
+    ),
+    extractArchive: createTarExtractor(getLogger('voice')),
+    engineDirName: asrEngineDirName,
+    // 注入 downloader 时 manager 不会替它补 onStateChange；生产必须在这里桥接，
+    // 否则进度只在 main 内变化，renderer 的 asr-model-state 永远不刷新。
+    onStateChange: () => emitAsrOverview()
+  })
+  const asrEngineManager = createAsrEngineManager({
+    rootDir: asrModelRoot,
+    binding: createNodeSherpaBinding(),
+    vadBinding,
+    // P3V-09：主引擎读 asrPrimaryEngineId（新写法）；旧配置无此键时由兼容键
+    // asrEngineId 迁移（旧值原样成为主引擎）。写路径双键同写保持一致。
+    getSelectedEngineId: () => {
+      const voice = configStore.get().voice
+      return voice.asrPrimaryEngineId ?? voice.asrEngineId
+    },
+    setSelectedEngineId: async (engineId) => {
+      try {
+        await configStore.update({
+          voice: { asrPrimaryEngineId: engineId, asrEngineId: engineId }
+        })
+        return true
+      } catch {
+        return false
+      }
+    },
+    // P3V-09：备用引擎。持久层空串=未设备用（null 会被 deepMerge 顶回默认值，
+    // 「清除备用」会静默失效——见 shared/config/types.ts VoiceConfig 注释）。
+    getFallbackEngineId: () => {
+      const value = configStore.get().voice.asrFallbackEngineId
+      return value === '' ? null : value
+    },
+    setFallbackEngineId: async (engineId) => {
+      try {
+        await configStore.update({ voice: { asrFallbackEngineId: engineId ?? '' } })
+        return true
+      } catch {
+        return false
+      }
+    },
+    downloader: modelDownloader,
+    onOverviewChange: () => emitAsrOverview()
+  })
+  asrEngineManagerRef = asrEngineManager
+  const emitAsrOverview = (): void => {
+    const wc = chatWebContents()
+    if (wc !== null) {
+      sendEvent(wc, 'companion:event:asr-model-state', asrEngineManager.getOverview())
+    }
+  }
+  const voiceListening = createVoiceListeningService({
+    engineManager: asrEngineManager,
+    createVadProcessor: (modelPath) =>
+      createVadProcessor({ recognizer: vadBinding.createVad({ modelPath }) }),
+    emitEvent: emitVoiceEvent,
+    metrics: getMetrics(),
+    // P3B-19：用户开口（VAD speech_start）打断当前 TTS/早播（barge-in）
+    onSpeechStart: () => {
+      voiceOrchestrator.onBargeIn()
+    }
+  })
+  // P3V-16：GPT-SoVITS 官方整合包一键安装。安装根 {assetRoot}/gpt-runtime/gpt-sovits，
+  // 暂存与安装同分区（原子 rename 事务的前提）；镜像/哈希/路径全留在 main。
+  // 空间按**本会话活跃根**实测（status() 是用户当前选择，换根待重启时两者可能不同）。
+  const gptRuntimeManager = createGptRuntimeManager({
+    assetRootDir: () => assetRoot.gptRuntimeRoot(),
+    fetchImpl: createSecureFetch(
+      { isDev: is.dev, allowHttpLocalhostInDev: false },
+      getLogger('network')
+    ),
+    freeBytes: () => {
+      try {
+        const info = statfsSync(assetRoot.root())
+        return Number(info.bavail) * Number(info.bsize)
+      } catch {
+        return null // 查不到按不足处理（宁可拒绝，也不开一个必然半途失败的 8GB 下载）
+      }
+    },
+    // 生产必须桥接，否则进度只在 main 内变化，renderer 的下载中心永远不刷新
+    onStateChange: (variant) => emitAssetDownload(gptRuntimeManager.status(variant)),
+    gpuName: createGpuNameProbe()
+  })
+  // P3V-20：导入音色的暂存槽（会话内存；路径绝不出 main）
+  const stagedVoiceFiles: Record<GptVoiceFileKind, string | null> = {
+    'gpt-weights': null,
+    'sovits-weights': null,
+    'ref-audio': null
+  }
+  const emitAssetDownload = (status: AssetDownloadStatus): void => {
+    const wc = chatWebContents()
+    if (wc !== null) sendEvent(wc, 'companion:event:asset-download', status)
+  }
+  registerVoiceHandlers({
+    logger: getLogger('voice-ipc'),
+    engineManager: asrEngineManager,
+    listening: voiceListening,
+    orchestrator: voiceOrchestrator,
+    emitAsrOverview,
+    assetRoot,
+    gptRuntime: gptRuntimeManager,
+    // 只读发现结果：告诉用户「本机已有一份」，Nacime 不接管也不修改外部目录
+    gptRuntimeExternalDetected: () => gptInstallation !== null,
+    gptRuntimeSource,
+    voiceProfiles,
+    // P3V-18：当前音色唯一真源仍是 config（空 = 未选 → 纯文字）
+    currentVoiceId: () => configStore.get().tts.voiceId,
+    // P3V-20：导入音色的三个文件——路径只在本回调与暂存槽里，renderer 只见文件名
+    pickVoiceFile: async (kind) => {
+      const filters =
+        kind === 'ref-audio'
+          ? [{ name: '参考音频', extensions: ['wav', 'mp3', 'flac', 'm4a', 'ogg'] }]
+          : kind === 'gpt-weights'
+            ? [{ name: 'GPT 权重', extensions: ['ckpt'] }]
+            : [{ name: 'SoVITS 权重', extensions: ['pth'] }]
+      const picked = await dialog.showOpenDialog({
+        title:
+          kind === 'ref-audio'
+            ? '选择参考音频（几秒清晰人声）'
+            : kind === 'gpt-weights'
+              ? '选择 GPT 权重（.ckpt）'
+              : '选择 SoVITS 权重（.pth）',
+        properties: ['openFile', 'dontAddToRecent'],
+        filters
+      })
+      if (picked.canceled || picked.filePaths.length === 0) return null
+      const path = picked.filePaths[0]!
+      stagedVoiceFiles[kind] = path
+      return path
+    },
+    stagedVoiceFiles: () => stagedVoiceFiles,
+    clearStagedVoiceFiles: () => {
+      stagedVoiceFiles['gpt-weights'] = null
+      stagedVoiceFiles['sovits-weights'] = null
+      stagedVoiceFiles['ref-audio'] = null
+    },
+    // P3V-17：选中的目录只在这里与 source service 内出现，不回传 renderer
+    chooseGptRuntimeDirectory: async () => {
+      const picked = await dialog.showOpenDialog({
+        title: '选择已有的 GPT-SoVITS 整合包目录',
+        properties: ['openDirectory', 'dontAddToRecent']
+      })
+      return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]!
+    },
+    // P3V-10：原生目录选择只在此回调里接触真实路径；返回给 renderer 的只有
+    // isDefault/freeBytes/state（asset-root-types 路径纪律）。
+    chooseAssetDirectory: async () => {
+      const picked = await dialog.showOpenDialog({
+        title: '选择语音资源存放位置',
+        properties: ['openDirectory', 'dontAddToRecent']
+      })
+      return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]!
+    }
+  })
+
   // === 8. 窗口创建 ===
   // appId 与 electron-builder.yml 保持一致（S-005 §3.11 占位值，发布前由用户确认替换）
   electronApp.setAppUserModelId('com.nacime-soul.app')
@@ -926,6 +1380,10 @@ app.whenReady().then(async () => {
   }
   if (configStore.get().ui.live2d.enabled) {
     live2dWindowManager.show({ alwaysOnTop: configStore.get().ui.live2d.alwaysOnTop })
+  } else if (configStore.get().tts.enabled) {
+    // P3B-15（F5-007 §1.14 / C23）：TTS 开而 Live2D 关 -> audio-only-hidden stage，
+    // 只跑 PlaybackHost 播声音，不建 Pixi/模型、窗口从不显示。
+    live2dWindowManager.ensureAudioOnlyStage()
   }
 
   // window handler 需要 getMainWindow（窗口可能被 CrashGuard 重建）
@@ -969,6 +1427,22 @@ app.on('before-quit', () => {
   trayRef = null
   live2dConfigCleanupRef?.()
   live2dConfigCleanupRef = null
+  gptSovitsConfigCleanupRef?.()
+  gptSovitsConfigCleanupRef = null
+  // P3B-15：stage audio port 先于窗口销毁（关 port -> stage 收 close 收尾）
+  stagePlaybackHostRef?.dispose()
+  stagePlaybackHostRef = null
+  // P3B-18：先停当前说话（stage 同步停声），再 cancel+dispose 所有存活 provider
+  voiceOrchestratorRef?.dispose()
+  voiceOrchestratorRef = null
+  // P3V-07：显式关闭所有 OnlineStream/OnlineRecognizer，不能只等 napi GC。
+  asrEngineManagerRef?.dispose()
+  asrEngineManagerRef = null
+  void ttsRegistryRef?.disposeAll('app-quit')
+  ttsRegistryRef = null
+  // GPT-SoVITS 外部整合包由 Nacime launcher 启动；退出必须树杀，不留 Python/GPU 孤儿。
+  void gptSovitsServiceRef?.shutdown()
+  gptSovitsServiceRef = null
   live2dWindowManagerRef?.destroy()
   live2dWindowManagerRef = null
   complianceInfraRef?.cleanup() // P3C1-08：停审计消费者（中止 in-flight，结果不再投递）

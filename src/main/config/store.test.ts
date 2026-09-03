@@ -245,6 +245,42 @@ describe('P1-07 update - 合法更新', () => {
     restarted.setup()
     expect(restarted.get().ui.onboarding).toEqual(store.get().ui.onboarding)
   })
+
+  it('P3V-09 主/备引擎键跨重启保留；清除备用必须写空串（null 会被 merge 顶回）', async () => {
+    const store = createConfigStore({ configPath })
+    store.setup()
+    // 旧配置只有 asrEngineId（迁移起点）：主键 undefined，由兼容键兜底
+    expect(store.get().voice.asrPrimaryEngineId).toBeUndefined()
+    expect(store.get().voice.asrEngineId).toBe('sherpa-sensevoice')
+
+    // 选主 + 设备（接线处双写 asrEngineId / 空串语义清除备用）
+    await store.update({
+      voice: {
+        asrPrimaryEngineId: 'zipformer-bilingual-zh-en',
+        asrEngineId: 'zipformer-bilingual-zh-en',
+        asrFallbackEngineId: 'sherpa-sensevoice'
+      }
+    })
+    expect(store.get().voice).toEqual({
+      asrEngineId: 'zipformer-bilingual-zh-en',
+      asrPrimaryEngineId: 'zipformer-bilingual-zh-en',
+      asrFallbackEngineId: 'sherpa-sensevoice'
+    })
+    const onDisk = readConfig().voice
+    expect(onDisk.asrPrimaryEngineId).toBe('zipformer-bilingual-zh-en')
+    expect(onDisk.asrFallbackEngineId).toBe('sherpa-sensevoice')
+
+    // 清除备用：空串能落盘；null 会被 deepMerge 顶回旧值（这一课写进类型注释）
+    await store.update({ voice: { asrFallbackEngineId: '' } })
+    expect(store.get().voice.asrFallbackEngineId).toBe('')
+    expect(readConfig().voice.asrFallbackEngineId).toBe('')
+
+    // 跨重启：主键与「无备用」状态都保留
+    const restarted = createConfigStore({ configPath })
+    restarted.setup()
+    expect(restarted.get().voice.asrPrimaryEngineId).toBe('zipformer-bilingual-zh-en')
+    expect(restarted.get().voice.asrFallbackEngineId).toBe('')
+  })
 })
 
 describe('P1-07 update - 非法更新', () => {

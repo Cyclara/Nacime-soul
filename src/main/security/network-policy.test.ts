@@ -18,6 +18,7 @@ import {
   isPrivateIp,
   checkUrl,
   createSecureFetch,
+  createLocalServiceOriginRegistry,
   installGlobalAgentGuard,
   type NetworkPolicyOptions,
   type NetworkCheckResult
@@ -594,5 +595,95 @@ describe('P1-09B globalAgent 钩子拦截', () => {
       http.globalAgent.createConnection({ host: '10.0.0.1', port: 8080 } as http.RequestOptions)
     }).toThrow('private network')
     uninstall()
+  })
+})
+
+// ── P3B-05：本地服务精确 origin 白名单 ──
+
+describe('P3B-05 LocalServiceOriginRegistry', () => {
+  it('只接受显式端口的字面环回 IP http origin；其余全部拒绝', () => {
+    const registry = createLocalServiceOriginRegistry()
+    expect(registry.register('http://127.0.0.1:51234')).toBe(true)
+    expect(registry.register('http://[::1]:51235')).toBe(true)
+    expect(registry.has('http://127.0.0.1:51234')).toBe(true)
+
+    expect(registry.register('https://127.0.0.1:51234')).toBe(false) // 仅 http
+    expect(registry.register('http://localhost:51234')).toBe(false) // 域名不算，只认字面 IP
+    expect(registry.register('http://10.0.0.1:51234')).toBe(false) // 非环回
+    expect(registry.register('http://127.0.0.1')).toBe(false) // 缺端口
+    expect(registry.register('http://127.0.0.1:0')).toBe(false) // 端口越界
+    expect(registry.register('http://127.0.0.1:70000')).toBe(false)
+    expect(registry.register('http://127.0.0.1:51234/path')).toBe(false) // 只接受 origin
+    expect(registry.register('')).toBe(false)
+
+    expect(registry.entries()).toEqual(['http://127.0.0.1:51234', 'http://[::1]:51235'])
+    registry.unregister('http://127.0.0.1:51234')
+    expect(registry.has('http://127.0.0.1:51234')).toBe(false)
+  })
+
+  it('checkUrl：生产模式下已注册 origin 放行（任意 path/query），未注册端口/其他环回仍拒', async () => {
+    const registry = createLocalServiceOriginRegistry()
+    expect(registry.register('http://127.0.0.1:51234')).toBe(true)
+    const opts: NetworkPolicyOptions = { ...PROD_OPTS, localServiceOrigins: registry }
+
+    const allowed = await checkUrl('http://127.0.0.1:51234/tts?text=hi', opts)
+    expect(allowed).toEqual({ allowed: true })
+
+    // 同主机不同端口：不匹配（精确 origin，不是 CIDR 放行）
+    const otherPort = await checkUrl('http://127.0.0.1:8080/', opts)
+    expect(otherPort).toMatchObject({ allowed: false, code: 'NET_PRIVATE_BLOCKED' })
+
+    // 未注册的环回地址同样拒绝
+    const otherHost = await checkUrl('http://[::1]:51234/', opts)
+    expect(otherHost).toMatchObject({ allowed: false, code: 'NET_PRIVATE_BLOCKED' })
+
+    // 白名单不改变公网判定：http 公网仍拒绝
+    const publicHttp = await checkUrl('http://example.com/', opts)
+    expect(publicHttp).toMatchObject({ allowed: false })
+  })
+
+  it('globalAgent 钩子：注册 origin 放行（生产），未注册端口与私网仍拦截', () => {
+    const registry = createLocalServiceOriginRegistry()
+    expect(registry.register('http://127.0.0.1:51234')).toBe(true)
+    const uninstall = installGlobalAgentGuard({ ...PROD_OPTS, localServiceOrigins: registry })
+
+    // 合法端口会真的建 socket：挂 error 兜底并立即销毁，避免未处理的 ECONNREFUSED
+    const socket = http.globalAgent.createConnection({
+      host: '127.0.0.1',
+      port: 51234
+    } as http.RequestOptions)
+    if (socket !== null && socket !== undefined) {
+      socket.on('error', () => {
+        /* 预期 ECONNREFUSED：这里只验证策略不拦截 */
+      })
+      socket.destroy()
+    }
+
+    expect(() => {
+      http.globalAgent.createConnection({ host: '127.0.0.1', port: 8080 } as http.RequestOptions)
+    }).toThrow('private network')
+    expect(() => {
+      http.globalAgent.createConnection({ host: '10.0.0.1', port: 51234 } as http.RequestOptions)
+    }).toThrow('private network')
+
+    uninstall()
+  })
+
+  it('createSecureFetch：注册 origin 的本地服务请求不被拦截语义影响（checkUrl 层放行）', async () => {
+    const registry = createLocalServiceOriginRegistry()
+    expect(registry.register('http://127.0.0.1:51234')).toBe(true)
+    const secureFetch = createSecureFetch({ ...PROD_OPTS, localServiceOrigins: registry })
+    // 目标无监听 -> fetch 抛 ECONNREFUSED，但错误不能来自网络策略
+    let message = ''
+    try {
+      await secureFetch('http://127.0.0.1:51234/tts')
+    } catch (e) {
+      message = (e as Error).message
+    }
+    expect(message).not.toContain('Network policy blocked')
+
+    // 未注册端口 -> 明确的策略拦截
+    const blocked = createSecureFetch({ ...PROD_OPTS, localServiceOrigins: registry })
+    await expect(blocked('http://127.0.0.1:8080/')).rejects.toThrow('Network policy blocked')
   })
 })

@@ -20,7 +20,7 @@
 //   started(seq=0) -> chunk(seq=1,2,...) -> completed/failed/cancelled(seq=N)
 //   ACK 在 started 之前返回（S-003 §4 "send ACK 后 main 才发 started"）
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import type { Logger } from '@shared/observability/types'
 import { AppError, isAppError, type ErrorCode } from '@shared/errors'
@@ -37,6 +37,7 @@ import type {
 } from '@shared/chat/types'
 import type { MemoryConfig } from '@shared/config/types'
 import type { LLMProvider, LlmRequest, LlmMessage } from '../llm/types'
+import type { TtsCancelReason } from '@shared/voice/tts-types'
 import type { PromptLoader } from '../prompts/loader'
 import { buildPrompt } from '../prompts/builder'
 import { applyBudget, type BudgetHistoryTurn } from '../prompts/budgeter'
@@ -90,6 +91,32 @@ export interface ChatComplianceIntegration {
   }): void
 }
 
+/**
+ * P3B-18（F5-007 §1.5）：ChatService → EarlyTTS 集成钩子。
+ *
+ * 固定顺序（F5-007 §1.5 冻结）：
+ *   - 每段已放行 releaseText **先**发带 sequence 的 chat-stream chunk，**再恰好一次**
+ *     onCommittedDelta({delta, chatSequence})——chatSequence 就是刚发 chunk 的 sequence，
+ *     与 renderer paint ack（P3B-15A）用同一坐标系；
+ *   - 流结束后 finishTurn 并**立即**继续发 completed（finishText 同步返回，C17——
+ *     绝不等待合成或播放；尾段由 controller 后台 worker 排水）；
+ *   - 非成功终局（failed/cancelled）abortTurn 取消本轮语音（幂等）。
+ *
+ * 未注入 = 无语音，零行为差异（Phase 1/2 单测、TTS 关闭场景）。
+ * 实现内部 fail-open：语音侧任何异常不得影响文字流（C15 精神——ChatService 不写
+ * try/catch 包裹调用点，hook 实现必须自己兜住）。
+ */
+export interface ChatVoiceTtsHook {
+  /** 每轮 provider 流开始前恰好一次（params 短路之后）。turnId 为本轮真 turnId。 */
+  beginTurn(input: { turnId: string; requestId: string }): void
+  /** 每段 releaseText sink 之后恰好一次（流循环 + EOF flush 两处）。 */
+  onCommittedDelta(input: { delta: string; chatSequence: number }): void
+  /** 成功终局：completed 事件前调用；同步返回。 */
+  finishTurn(input: { visibleChars: number; visibleSha256: string }): void
+  /** 非成功终局（failed/cancelled）：取消本轮语音（幂等）。 */
+  abortTurn(reason: TtsCancelReason): void
+}
+
 /** ChatService 依赖 */
 export interface ChatServiceDeps {
   logger: Logger
@@ -111,6 +138,11 @@ export interface ChatServiceDeps {
    * P3C1-08：合规观测集成。可选注入（生产由 setupCompliance 接线；测试可省略）。
    */
   compliance?: ChatComplianceIntegration
+  /**
+   * P3B-18：EarlyTTS 集成钩子（F5-007 §1.5）。可选注入（生产由 VoiceOrchestrator
+   * 实现；未注入 = 无语音）。
+   */
+  voice?: ChatVoiceTtsHook
 }
 
 /** 事件接收器。ChatService 通过此回调发射 ChatStreamEvent */
@@ -275,6 +307,7 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
     deps
   const idempotencyLedger = deps.idempotencyLedger
   const compliance = deps.compliance
+  const voice = deps.voice
   const chatLogger = logger.child('chat')
 
   // active turns: requestId -> state
@@ -1002,6 +1035,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
       gate = compliance?.createGate(turnId, randomUUID())
       // F5-001 §3.9：一轮恰好一个 compliance.review span（绝不能每 segment 一个）。
       complianceSpan = gate === undefined ? null : tracer.startSpan('compliance.review', turnId)
+      // P3B-18（F5-007 §1.5）：本轮 EarlyTTS session 在 provider 流前开（params 短路
+      // 不会到达这里，无需 abort 配对）。
+      voice?.beginTurn({ turnId, requestId })
       providerStartAt = performance.now()
 
       // === provider stream ===
@@ -1048,6 +1084,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
                     : Math.round(firstReleaseAt - firstDeltaAt)
               }
               sink({ type: 'chunk', requestId, sequence, delta: releaseText })
+              // P3B-18（F5-007 §1.5）：先 sink chunk、再恰好一次喂 TTS；
+              // chatSequence = 刚发 chunk 的 sequence（与 paint ack 同坐标系）。
+              voice?.onCommittedDelta({ delta: releaseText, chatSequence: sequence })
               sequence++
             }
           } else if (chunk.type === 'reasoning') {
@@ -1072,6 +1111,11 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
               gateHoldMs = firstDeltaAt === null ? null : Math.round(firstReleaseAt - firstDeltaAt)
             }
             sink({ type: 'chunk', requestId, sequence, delta: emission.releaseText })
+            // P3B-18：EOF flush 段同样先 sink 后喂（与流循环同序）
+            voice?.onCommittedDelta({
+              delta: emission.releaseText,
+              chatSequence: sequence
+            })
             sequence++
           }
         }
@@ -1117,6 +1161,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           tags: { requestId },
           metrics: { outputLen: accumulated.length }
         })
+
+        // P3B-18：流失败 -> 本轮语音取消（幂等；后续文字照常送达）
+        voice?.abortTurn('provider-failed')
 
         removeSupersededRows()
 
@@ -1171,6 +1218,9 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           metrics: { outputLen: accumulated.length }
         })
 
+        // P3B-18：用户取消 -> 本轮语音同步取消（stopSpeaking：stage 停声+口型释放）
+        voice?.abortTurn('user-cancel')
+
         removeSupersededRows()
 
         sink({ type: 'cancelled', requestId, sequence })
@@ -1208,6 +1258,13 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
           inputTokens,
           outputTokens
         }
+      })
+
+      // P3B-18（F5-007 §1.5 + C17）：流结束 -> finishText 同步立即返回，随后立即发
+      // completed；绝不 await 合成/播放（尾段由 controller 后台排水）。
+      voice?.finishTurn({
+        visibleChars: accumulated.length,
+        visibleSha256: createHash('sha256').update(accumulated).digest('hex')
       })
 
       sink({
@@ -1249,6 +1306,8 @@ export function createChatService(deps: ChatServiceDeps): ChatService {
         tags: { requestId },
         metrics: { outputLen: accumulated.length }
       })
+      // P3B-18：外层失败（含看门狗停滞 throw）同样取消本轮语音
+      voice?.abortTurn('provider-failed')
       removeSupersededRows()
       sink({
         type: 'failed',

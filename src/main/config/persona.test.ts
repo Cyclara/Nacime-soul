@@ -47,11 +47,19 @@ function assertDeepFrozen(value: unknown): void {
   }
 }
 
-// === CFG-PER-16 + 开工裁定 §2：六域单真源 ===
+// === CFG-PER-16 + 开工裁定 §2：七域单真源 ===
 
-describe('CFG-PER-16 / 开工裁定 §2：CONFIG_DOMAINS 六域单真源', () => {
-  it('CONFIG_DOMAINS 恰为六项且含 persona', () => {
-    expect([...CONFIG_DOMAINS]).toEqual(['model', 'tts', 'memory', 'ui', 'security', 'persona'])
+describe('CFG-PER-16 / 开工裁定 §2：CONFIG_DOMAINS 七域单真源', () => {
+  it('CONFIG_DOMAINS 恰为七项且含 persona/voice（P3B-14 新增 voice 域）', () => {
+    expect([...CONFIG_DOMAINS]).toEqual([
+      'model',
+      'tts',
+      'memory',
+      'ui',
+      'security',
+      'persona',
+      'voice'
+    ])
   })
 })
 

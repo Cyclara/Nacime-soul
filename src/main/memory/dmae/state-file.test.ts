@@ -346,12 +346,17 @@ describe('P2-31.5C1: DmaeStateStore 健康度', () => {
     expect(h.saveFailures7d).toBe(0)
   })
 
+  // atomicWriteJson 2026-09-03 起会自动 mkdir 缺失的父目录（修复真机 ENOENT 故障），
+  // 所以「指向不存在的目录」不再能可靠制造失败。改用「父目录段实际是个文件」——
+  // mkdirSync(recursive) 在这种路径上必定 ENOTDIR，与平台/该修复无关。
   it('C1-10c: save 失败 -> lastSaveOk=false, saveFailures7d 递增', () => {
+    const blocker = path.join(tmpDir, 'blocker')
+    fs.writeFileSync(blocker, '')
     const store = createDmaeStateStore({
-      filePath: '/nonexistent/path/dmae-state.json',
+      filePath: path.join(blocker, 'dmae-state.json'),
       logger: makeLogger()
     })
-    store.save(makeStates([['m1', 50, 0, 0]]), 0) // 写入不存在的目录 -> 失败
+    store.save(makeStates([['m1', 50, 0, 0]]), 0) // 父目录段是文件 -> mkdir 必然失败
     const h = store.getHealth()
     expect(h.lastSaveOk).toBe(false)
     expect(h.saveFailures7d).toBe(1)
@@ -359,8 +364,10 @@ describe('P2-31.5C1: DmaeStateStore 健康度', () => {
   })
 
   it('C1-10d: 多次 save 失败累计 saveFailures7d', () => {
+    const blocker = path.join(tmpDir, 'blocker')
+    fs.writeFileSync(blocker, '')
     const store = createDmaeStateStore({
-      filePath: '/nonexistent/path/dmae-state.json',
+      filePath: path.join(blocker, 'dmae-state.json'),
       logger: makeLogger()
     })
     store.save(makeStates([['m1', 50, 0, 0]]), 0)

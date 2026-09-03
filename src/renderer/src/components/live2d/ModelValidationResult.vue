@@ -32,17 +32,17 @@ defineProps<{ error: Live2dLoadError | null; warnings?: readonly string[] }>()
 .validation {
   margin-top: 0.8rem;
   padding: 0.7rem 0.8rem;
-  border: 1px solid rgb(133 226 174 / 32%);
+  border: 1px solid var(--color-success-border);
   border-radius: 0.7rem;
-  background: rgb(133 226 174 / 8%);
-  color: rgb(211 255 227 / 90%);
+  background: var(--color-success-bg);
+  color: var(--color-success);
   font-size: 0.76rem;
   line-height: 1.45;
 }
 .validation--error {
-  border-color: rgb(255 139 139 / 42%);
-  background: rgb(255 139 139 / 8%);
-  color: rgb(255 220 220 / 92%);
+  border-color: var(--color-error-border);
+  background: var(--color-error-bg);
+  color: var(--color-error);
 }
 .validation strong {
   font-size: 0.78rem;
@@ -50,6 +50,5 @@ defineProps<{ error: Live2dLoadError | null; warnings?: readonly string[] }>()
 .validation p {
   margin: 0.25rem 0 0;
   color: inherit;
-  opacity: 0.78;
 }
 </style>

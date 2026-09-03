@@ -7,8 +7,9 @@
 import type { ILive2DRenderer } from './ILive2DRenderer'
 import { ensureCubism2, ensureCubismCore } from './cubism-core-loader'
 import { createMotionPipeline } from './motion/pipeline'
+import { createLipSyncPlugin, type LipSyncSource } from './motion/lipsync'
 import { createBlinkPlugin } from './motion/blink'
-import { createSaccadePlugin } from './motion/saccade'
+import { createSaccadePlugin, type SaccadeController } from './motion/saccade'
 import { createBreathPlugin } from './motion/breath'
 import { createExpressionController, type ExpressionController } from './expression/controller'
 import { aliasesForModel, modelIdFromStageUrl } from './expression/map'
@@ -45,6 +46,20 @@ export interface StageController {
   handleCommand(command: Live2dStageCommand): Promise<void>
   resize(width: number, height: number): void
   retry(): Promise<void>
+  /**
+   * P3B-16/17：接入口型电平来源（audio-player）。null = 停用 lip-sync。
+   * 随每次模型加载自动重挂（motion pipeline 逐次重建）；缺 ParamMouthOpenY 的模型
+   * 只会禁用 lip-sync，不影响音频播放。
+   */
+  setLipSyncSource(source: LipSyncSource | null): void
+  /**
+   * P3A-18/22（S-006-补充 §1.9）：用户在 stage 上的一次交互（点击 hit area）。
+   * 眼跳短暂冻结随机目标（避免刚被摸头就飘走视线）、表情复位期限刷新
+   * （"用户点击可刷新期限"）；命中的 hit area 名单原样返回给调用方决定反应。
+   * 坐标是 canvas 像素坐标；模型未加载/未命中返回空数组。
+   * 说话期间的期限刷新不经此口：lip-sync 插件的 onSpeakingFrame 直接刷新（§1.7.5）。
+   */
+  interact(x: number, y: number): readonly string[]
   getState(): Live2dStageControllerState
   dispose(): void
 }
@@ -62,6 +77,8 @@ export function createStageController(deps: StageControllerDeps): StageControlle
   let status: Live2dStageStatus = 'starting'
   let motionPipeline: ReturnType<typeof createMotionPipeline> | null = null
   let expressionController: ExpressionController | null = null
+  let lipSyncSource: LipSyncSource | null = null
+  let saccadeController: SaccadeController | null = null
   let errorCode: string | null = null
   let lastModelUrl: string | null = null
   let expressionNames: readonly string[] = []
@@ -100,6 +117,16 @@ export function createStageController(deps: StageControllerDeps): StageControlle
       requestFrame(() => resolve())
     })
 
+  /** 口型插件 + 说话帧回调（刷新表情期限）；两处挂载点共用同一装配。 */
+  const createLipSyncPluginBound = (
+    source: LipSyncSource
+  ): ReturnType<typeof createLipSyncPlugin> =>
+    createLipSyncPlugin({
+      renderer: deps.renderer,
+      source,
+      onSpeakingFrame: () => expressionController?.refresh()
+    })
+
   const attachMotionPlugins = (): void => {
     motionPipeline?.dispose()
     const random = deps.random
@@ -111,9 +138,12 @@ export function createStageController(deps: StageControllerDeps): StageControlle
         ...(deps.reduceMotion === undefined ? {} : { reduceMotion: deps.reduceMotion })
       })
     )
-    pluginPipeline.add(
-      createSaccadePlugin({ renderer: deps.renderer, ...(random === undefined ? {} : { random }) })
-    )
+    const saccade = createSaccadePlugin({
+      renderer: deps.renderer,
+      ...(random === undefined ? {} : { random })
+    })
+    saccadeController = saccade.controller
+    pluginPipeline.add(saccade)
     pluginPipeline.add(createBreathPlugin({ renderer: deps.renderer }))
     motionPipeline = pluginPipeline
     deps.renderer.setFrameDriver((frame, nativeUpdate) => pluginPipeline.run(frame, nativeUpdate))
@@ -160,6 +190,10 @@ export function createStageController(deps: StageControllerDeps): StageControlle
         onFrame: (context) =>
           expressionController?.update(context.frame.deltaMs, context.frame.nowMs)
       })
+      // P3B-16/17：口型插件在 expression 之后（140 final）——说话覆盖、沉默回归 motion。
+      if (lipSyncSource !== null) {
+        motionPipeline?.add(createLipSyncPluginBound(lipSyncSource))
+      }
       // P3A-07：至少让一个 rAF/ticker 帧发生后才承认 ready，避免透明空窗提前 show。
       await waitForFrame()
       if (!disposed) {
@@ -247,6 +281,31 @@ export function createStageController(deps: StageControllerDeps): StageControlle
       if (lastModelUrl !== null) await load(lastModelUrl)
     },
 
+    setLipSyncSource(source) {
+      lipSyncSource = source
+      if (motionPipeline === null) return
+      // 立即生效（模型已加载后接入/移除）；remove+add 幂等，且 dispose 旧插件（闭嘴）。
+      motionPipeline.remove('audio-lipsync')
+      if (source !== null) {
+        motionPipeline.add(createLipSyncPluginBound(source))
+      }
+    },
+
+    interact(x, y) {
+      if (disposed || status !== 'ready') return []
+      let hits: readonly string[]
+      try {
+        hits = deps.renderer.hitTest(x, y)
+      } catch {
+        // hitTest 在模型 swap 竞态下可能抛错；交互失败不得影响 stage 生命周期
+        return []
+      }
+      if (hits.length === 0) return []
+      saccadeController?.pauseForInteraction()
+      expressionController?.refresh()
+      return hits
+    },
+
     async handleCommand(command) {
       if (disposed) return
       switch (command.type) {
@@ -283,6 +342,8 @@ export function createStageController(deps: StageControllerDeps): StageControlle
     dispose() {
       if (disposed) return
       disposed = true
+      lipSyncSource = null
+      saccadeController = null
       if (performanceTimer !== null) clearTimer(performanceTimer)
       performanceTimer = null
       motionPipeline?.dispose()

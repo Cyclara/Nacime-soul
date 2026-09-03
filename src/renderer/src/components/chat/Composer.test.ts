@@ -148,3 +148,116 @@ describe('Composer 思考模式开关（2026-08-20：记住上次档位）', () 
     expect(configStore.state.draft?.model.reasoningEffort).toBe('medium')
   })
 })
+
+// ── P3B-18/19：语音输入入口（麦克风按钮）与「她在说话」pill ──
+function mockCompanionWithVoice(overview: { ready: boolean }): {
+  startListening: ReturnType<typeof vi.fn>
+  cancelSpeaking: ReturnType<typeof vi.fn>
+  emitVoice: (event: unknown) => void
+} {
+  let voiceListener: ((event: unknown) => void) | null = null
+  const startListening = vi.fn(async () => ({ ok: true, data: { ok: true } }))
+  const cancelSpeaking = vi.fn(async () => ({ ok: true, data: undefined }))
+  Object.defineProperty(window, 'companion', {
+    value: {
+      chat: {
+        onStream: vi.fn(() => () => {}),
+        send: vi.fn(async () => ({
+          ok: true,
+          data: { requestId: 'r1', userMessageId: 'u1', assistantMessageId: 'a1' }
+        })),
+        cancel: vi.fn(async () => ({ ok: true, data: undefined })),
+        retry: vi.fn(async () => ({ ok: true, data: { requestId: 'r2' } }))
+      },
+      config: {
+        get: vi.fn(async () => ({ ok: true, data: null })),
+        update: vi.fn(async () => ({ ok: true, data: null })),
+        testModel: vi.fn(async () => ({ ok: true, data: {} }))
+      },
+      voice: {
+        getAsrOverview: vi.fn(async () => ({
+          ok: true,
+          data: {
+            selectedEngineId: 'sherpa-sensevoice',
+            engines: [
+              {
+                engineId: 'sherpa-sensevoice',
+                selected: true,
+                modelState: overview.ready ? 'ready' : 'not-downloaded'
+              }
+            ],
+            vadModel: { state: overview.ready ? 'ready' : 'not-downloaded' }
+          }
+        })),
+        onAsrOverview: vi.fn(() => () => {}),
+        onVoiceState: vi.fn((cb: (event: unknown) => void) => {
+          voiceListener = cb
+          return () => {
+            voiceListener = null
+          }
+        }),
+        onAssetDownload: vi.fn(() => () => {}),
+        startListening,
+        stopListening: vi.fn(async () => ({ ok: true, data: { ok: true } })),
+        cancelSpeaking,
+        openMicPort: vi.fn()
+      }
+    },
+    writable: true,
+    configurable: true
+  })
+  return {
+    startListening,
+    cancelSpeaking,
+    emitVoice: (event) => voiceListener?.(event)
+  }
+}
+
+describe('Composer 语音入口（P3B-18/19）', () => {
+  beforeEach(() => {
+    pinia = createPinia()
+    setActivePinia(pinia)
+  })
+
+  it('ASR 未就绪：麦克风按钮标 unavailable，点击给出去设置页的提示，不开会话', async () => {
+    const voice = mockCompanionWithVoice({ ready: false })
+    const wrapper = mount(Composer, { global: { plugins: [pinia] } })
+    await flushPromises()
+    const mic = wrapper.find('.mic-btn')
+    expect(mic.classes()).toContain('is-unavailable')
+    await mic.trigger('click')
+    await flushPromises()
+    expect(voice.startListening).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('设置 → 语音')
+  })
+
+  it('ASR 就绪：点击麦克风走 orchestrator.start（startListening 被调）', async () => {
+    const voice = mockCompanionWithVoice({ ready: true })
+    const wrapper = mount(Composer, { global: { plugins: [pinia] } })
+    await flushPromises()
+    const mic = wrapper.find('.mic-btn')
+    expect(mic.classes()).not.toContain('is-unavailable')
+    await mic.trigger('click')
+    await flushPromises()
+    expect(voice.startListening).toHaveBeenCalledTimes(1)
+  })
+
+  it('speaking-started 事件显示「她在说话」pill；点击走 cancel-speaking', async () => {
+    const voice = mockCompanionWithVoice({ ready: true })
+    const wrapper = mount(Composer, { global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.find('.speaking-pill').exists()).toBe(false)
+
+    voice.emitVoice({ type: 'speaking-started', requestId: 'r1' })
+    await flushPromises()
+    expect(wrapper.find('.speaking-pill').exists()).toBe(true)
+
+    await wrapper.find('.speaking-pill').trigger('click')
+    await flushPromises()
+    expect(voice.cancelSpeaking).toHaveBeenCalledTimes(1)
+
+    voice.emitVoice({ type: 'speaking-ended', requestId: 'r1', reason: 'cancelled' })
+    await flushPromises()
+    expect(wrapper.find('.speaking-pill').exists()).toBe(false)
+  })
+})
