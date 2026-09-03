@@ -34,6 +34,22 @@ describe('atomicWriteJson', () => {
     atomicWriteJson(f, { v: 2 })
     expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({ v: 2 })
   })
+
+  // 复现 2026-09-03 真机故障：COMPANION_USER_DATA 指向尚未创建的目录（隔离测试常见），
+  // secretStore.setup() 首次落盘时因父目录不存在而 ENOENT。Electron 正常路径下
+  // app.getPath('userData') 恒存在，这条分支只有全新/自定义 userData 目录会走到。
+  it('creates missing parent directory before writing', () => {
+    const parent = join(tmp(), 'fresh-profile')
+    const f = join(parent, 'secrets.json')
+    atomicWriteJson(f, { v: 1 })
+    expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({ v: 1 })
+  })
+
+  it('creates nested missing parent directories', () => {
+    const f = join(tmp(), 'a', 'b', 'c', 'x.json')
+    atomicWriteJson(f, { v: 1 })
+    expect(JSON.parse(readFileSync(f, 'utf8'))).toEqual({ v: 1 })
+  })
 })
 
 describe('getJsonVersion', () => {
