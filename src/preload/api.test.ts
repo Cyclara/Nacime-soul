@@ -14,6 +14,8 @@ vi.mock('electron', () => {
   return {
     ipcRenderer: {
       invoke: vi.fn(),
+      // P3B-14：mic port 转交（postMessage 带 transfer）
+      postMessage: vi.fn(),
       on: vi.fn((channel: string, listener: (...args: unknown[]) => void) => {
         if (!listeners.has(channel)) {
           listeners.set(channel, new Set())
@@ -234,9 +236,10 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     expect(typeof companionApi.window.onState).toBe('function')
   })
 
-  it('chat namespace 恰好 12 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession，P2-44 增 search，P3C1-07 增 feedback）', () => {
+  it('chat namespace 恰好 12 invoke 方法 + onStream（P2-43 增 getLastSession，⑥增 deleteTurn，⑥c 增 deleteMessage，⑦增 deleteSelected/clearSession，P2-44 增 search，P3C1-07 增 feedback，P3B-15A 增 ackRendered）', () => {
     expect(Object.keys(companionApi.chat).sort()).toEqual(
       [
+        'ackRendered',
         'cancel',
         'clearSession',
         'createSession',
@@ -269,6 +272,17 @@ describe('S-004 #35: API 只暴露固定通道', () => {
       kind: 'dislike'
     })
     expect(result).toEqual({ ok: true, data: { ok: true } })
+  })
+
+  // P3B-15A：paint ack 固定走 companion:chat:ack-rendered（F5-007 §1.5）
+  it('chat.ackRendered 固定调用 companion:chat:ack-rendered', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: undefined })
+    const result = await companionApi.chat.ackRendered({ requestId: 'req_1', sequence: 42 })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:chat:ack-rendered', {
+      requestId: 'req_1',
+      sequence: 42
+    })
+    expect(result).toEqual({ ok: true, data: undefined })
   })
 
   it('compliance namespace 恰好 1 invoke 方法（P3C1-08；无 event 通道--审查不可见原则）', () => {
@@ -406,5 +420,189 @@ describe('S-004 #35: API 只暴露固定通道', () => {
     vi.mocked(webFrame.getZoomFactor).mockReturnValue(1.2)
     expect(companionApi.ui.getZoomFactor()).toBe(1.2)
     expect(mockIpc.invoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('P3B-14 voice preload API', () => {
+  beforeEach(() => {
+    mockIpc.invoke.mockReset()
+    mockIpc.postMessage.mockReset()
+  })
+
+  it('voice 命名空间方法固定通道（编译时锁定）', () => {
+    expect(companionApi.voice).toBeDefined()
+    expect(typeof companionApi.voice.getAsrOverview).toBe('function')
+    expect(typeof companionApi.voice.downloadAsrModel).toBe('function')
+    expect(typeof companionApi.voice.cancelAsrDownload).toBe('function')
+    expect(typeof companionApi.voice.pauseAsrDownload).toBe('function')
+    expect(typeof companionApi.voice.resumeAsrDownload).toBe('function')
+    expect(typeof companionApi.voice.deleteAsrModel).toBe('function')
+    expect(typeof companionApi.voice.selectAsrEngine).toBe('function')
+    // P3V-11：备用引擎 + 大资源根目录四通道
+    expect(typeof companionApi.voice.setAsrFallbackEngine).toBe('function')
+    expect(typeof companionApi.voice.getAssetRoot).toBe('function')
+    expect(typeof companionApi.voice.chooseAssetRoot).toBe('function')
+    expect(typeof companionApi.voice.resetAssetRoot).toBe('function')
+    expect(typeof companionApi.voice.startListening).toBe('function')
+    expect(typeof companionApi.voice.stopListening).toBe('function')
+    // P3B-18：TTS 编排三通道
+    expect(typeof companionApi.voice.getVoiceState).toBe('function')
+    expect(typeof companionApi.voice.testTts).toBe('function')
+    expect(typeof companionApi.voice.cancelSpeaking).toBe('function')
+    expect(typeof companionApi.voice.onAsrOverview).toBe('function')
+    expect(typeof companionApi.voice.onVoiceState).toBe('function')
+    expect(typeof companionApi.voice.openMicPort).toBe('function')
+    // P3V-16：GPT runtime 一键安装六通道 + 大资产下载事件
+    expect(typeof companionApi.voice.getGptRuntime).toBe('function')
+    expect(typeof companionApi.voice.installGptRuntime).toBe('function')
+    expect(typeof companionApi.voice.pauseGptRuntimeDownload).toBe('function')
+    expect(typeof companionApi.voice.resumeGptRuntimeDownload).toBe('function')
+    expect(typeof companionApi.voice.cancelGptRuntimeDownload).toBe('function')
+    expect(typeof companionApi.voice.deleteGptRuntime).toBe('function')
+    expect(typeof companionApi.voice.onAssetDownload).toBe('function')
+    // P3V-17：选择/清除已有安装目录
+    expect(typeof companionApi.voice.chooseGptRuntimeDir).toBe('function')
+    expect(typeof companionApi.voice.clearGptRuntimeDir).toBe('function')
+    // P3V-20：本地导入音色
+    expect(typeof companionApi.voice.pickGptVoiceFile).toBe('function')
+    expect(typeof companionApi.voice.importGptVoice).toBe('function')
+    expect(typeof companionApi.voice.deleteGptVoice).toBe('function')
+  })
+
+  it('P3V-16：GPT runtime 六通道走固定通道（入参只有闭集变体，无路径）', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { ok: true } })
+    await companionApi.voice.getGptRuntime()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:get-gpt-runtime', undefined)
+
+    await companionApi.voice.installGptRuntime({ variant: 'rtx50' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:gpt-runtime-install', {
+      variant: 'rtx50'
+    })
+
+    await companionApi.voice.pauseGptRuntimeDownload({ variant: 'standard' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:gpt-runtime-pause-download', {
+      variant: 'standard'
+    })
+    await companionApi.voice.resumeGptRuntimeDownload({ variant: 'standard' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:gpt-runtime-resume-download', {
+      variant: 'standard'
+    })
+    await companionApi.voice.cancelGptRuntimeDownload({ variant: 'standard' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:gpt-runtime-cancel-download', {
+      variant: 'standard'
+    })
+
+    await companionApi.voice.deleteGptRuntime()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:gpt-runtime-delete', undefined)
+
+    // P3V-17：目录选择在 main 侧完成，入参与回参都不带路径
+    await companionApi.voice.chooseGptRuntimeDir()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:choose-gpt-runtime-dir', undefined)
+    await companionApi.voice.clearGptRuntimeDir()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:clear-gpt-runtime-dir', undefined)
+
+    // P3V-20：导入音色三通道（入参只有 kind / 元信息 / voiceId，无路径）
+    await companionApi.voice.pickGptVoiceFile({ kind: 'ref-audio' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:pick-gpt-voice-file', {
+      kind: 'ref-audio'
+    })
+    const importRequest = {
+      displayName: '樱羽艾玛1.0',
+      version: 'v2ProPlus',
+      promptText: 'おはようございます',
+      promptLang: 'ja',
+      defaultTextLang: 'ja'
+    }
+    await companionApi.voice.importGptVoice(importRequest)
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:import-gpt-voice', importRequest)
+    await companionApi.voice.deleteGptVoice({ voiceId: 'gpt-sovits:abc' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:delete-gpt-voice', {
+      voiceId: 'gpt-sovits:abc'
+    })
+  })
+
+  it('P3B-18：getVoiceState / testTts / cancelSpeaking 走对应通道', async () => {
+    mockIpc.invoke.mockResolvedValueOnce({ ok: true, data: { ttsEnabled: true } })
+    await companionApi.voice.getVoiceState()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:get-state', undefined)
+
+    mockIpc.invoke.mockResolvedValueOnce({ ok: true, data: undefined })
+    await companionApi.voice.testTts({ text: '试听' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:test-tts', { text: '试听' })
+
+    mockIpc.invoke.mockResolvedValueOnce({ ok: true, data: undefined })
+    await companionApi.voice.cancelSpeaking()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:cancel-speaking', undefined)
+  })
+
+  it('getAsrOverview / startListening / stopListening 走对应通道', async () => {
+    mockIpc.invoke.mockResolvedValueOnce({ ok: true, data: { x: 1 } })
+    await companionApi.voice.getAsrOverview()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:get-asr-overview', undefined)
+
+    mockIpc.invoke.mockResolvedValueOnce({ ok: true, data: { ok: true } })
+    await companionApi.voice.startListening()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:start-listening', undefined)
+
+    mockIpc.invoke.mockResolvedValueOnce({ ok: true, data: { ok: true } })
+    await companionApi.voice.stopListening()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:stop-listening', undefined)
+  })
+
+  it('P3V-11/13/15：下载控制/删除/备用 + 资源根走固定通道（入参无路径）', async () => {
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { ok: true } })
+    await companionApi.voice.pauseAsrDownload({ engineId: 'zipformer-bilingual-zh-en' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:asr-pause-download', {
+      engineId: 'zipformer-bilingual-zh-en'
+    })
+    await companionApi.voice.resumeAsrDownload({ engineId: 'zipformer-bilingual-zh-en' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:asr-resume-download', {
+      engineId: 'zipformer-bilingual-zh-en'
+    })
+
+    await companionApi.voice.deleteAsrModel({ engineId: 'sherpa-sensevoice' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:asr-delete-model', {
+      engineId: 'sherpa-sensevoice'
+    })
+
+    mockIpc.invoke.mockResolvedValue({ ok: true, data: { ok: true } })
+    await companionApi.voice.setAsrFallbackEngine({ engineId: 'sherpa-sensevoice' })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:asr-set-fallback-engine', {
+      engineId: 'sherpa-sensevoice'
+    })
+    await companionApi.voice.setAsrFallbackEngine({ engineId: null })
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:asr-set-fallback-engine', {
+      engineId: null
+    })
+
+    await companionApi.voice.getAssetRoot()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:get-asset-root', undefined)
+    await companionApi.voice.chooseAssetRoot()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:choose-asset-root', undefined)
+    await companionApi.voice.resetAssetRoot()
+    expect(mockIpc.invoke).toHaveBeenCalledWith('companion:voice:reset-asset-root', undefined)
+  })
+
+  it('openMicPort：port2 经 postMessage 转交 main，port1 经 window.postMessage 交给页面', () => {
+    // node 环境无 window：stub（preload 只在 openMicPort 运行时碰 window）
+    const postMessageSpy = vi.fn()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(globalThis as any).window = { postMessage: postMessageSpy }
+    companionApi.voice.openMicPort()
+    expect(mockIpc.postMessage).toHaveBeenCalledTimes(1)
+    const [channel, msg, transfer] = mockIpc.postMessage.mock.calls[0] as unknown as [
+      string,
+      null,
+      MessagePort[]
+    ]
+    expect(channel).toBe('voice:mic-port')
+    expect(msg).toBeNull()
+    expect(transfer).toHaveLength(1)
+    expect(transfer[0]).toBeInstanceOf(MessagePort)
+    expect(postMessageSpy).toHaveBeenCalledWith(
+      'voice:mic-port',
+      '*',
+      expect.arrayContaining([expect.any(Object)])
+    )
   })
 })

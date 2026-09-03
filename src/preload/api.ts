@@ -23,6 +23,7 @@ import type {
   ChatSendRequest,
   ChatCancelRequest,
   ChatListRequest,
+  ChatRenderAckRequest,
   ChatStreamEvent,
   ChatHistorySnapshot,
   ChatSearchHit,
@@ -48,6 +49,33 @@ import type {
 } from '../shared/config/types'
 import type { PublicAppError } from '../shared/errors'
 import type { DebugSnapshot } from '../shared/observability/types'
+import type {
+  AsrOverview,
+  AsrEngineRequest,
+  AsrSelectEngineRequest,
+  AsrSetFallbackEngineRequest
+} from '../shared/voice/asr-settings-types'
+import type {
+  AssetDownloadStatus,
+  AssetRootChangeResult,
+  AssetRootStatus
+} from '../shared/voice/asset-root-types'
+import type {
+  GptRuntimeOverview,
+  GptRuntimeSourceResult,
+  GptRuntimeVariantRequest,
+  GptVoiceDeleteRequest,
+  GptVoiceDeleteResult,
+  GptVoiceFilePickRequest,
+  GptVoiceFilePickResult,
+  GptVoiceImportRequest,
+  GptVoiceImportResult
+} from '../shared/voice/gpt-runtime-types'
+import type {
+  VoiceEvent,
+  VoicePublicSnapshot,
+  VoiceTestTtsRequest
+} from '../shared/voice/voice-events'
 import type {
   DmaeHistoryRequest,
   DmaePanelRequest,
@@ -272,6 +300,11 @@ export const companionApi: CompanionApi = Object.freeze({
         input as unknown as IpcInvokeMap['companion:chat:feedback']['req']
       )
     },
+    // ── P3B-15A：paint ack（F5-007 §1.5）。applyStream 应用后等一次 rAF 回报最高
+    // 已绘制 sequence；main 侧由此保证「声音绝不跑在对应文字前面」──
+    ackRendered(input: ChatRenderAckRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:chat:ack-rendered', input)
+    },
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe {
       return typedSubscribe('companion:event:chat-stream', cb)
     }
@@ -405,6 +438,127 @@ export const companionApi: CompanionApi = Object.freeze({
     // M-26：静音某条 DMAE 异常规则 N 天
     muteAnomaly(input: DmaeMuteRequest): Promise<IpcResult<void>> {
       return typedInvoke('companion:dmae:mute-anomaly', input)
+    }
+  },
+
+  // ── P3B-14：语音设置/语音输入（chat；台账已登记）──
+  voice: {
+    getAsrOverview(): Promise<IpcResult<AsrOverview>> {
+      return typedInvoke('companion:voice:get-asr-overview', undefined)
+    },
+    downloadAsrModel(input: AsrEngineRequest): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:asr-download-model', input)
+    },
+    cancelAsrDownload(
+      input: AsrEngineRequest
+    ): Promise<IpcResult<{ ok: true; cancelled: boolean }>> {
+      return typedInvoke('companion:voice:asr-cancel-download', input)
+    },
+    pauseAsrDownload(input: AsrEngineRequest): Promise<IpcResult<{ ok: true; paused: boolean }>> {
+      return typedInvoke('companion:voice:asr-pause-download', input)
+    },
+    resumeAsrDownload(input: AsrEngineRequest): Promise<IpcResult<{ ok: true; resumed: boolean }>> {
+      return typedInvoke('companion:voice:asr-resume-download', input)
+    },
+    deleteAsrModel(input: AsrEngineRequest): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:asr-delete-model', input)
+    },
+    selectAsrEngine(input: AsrSelectEngineRequest): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:asr-select-engine', input)
+    },
+    // P3V-09：备用引擎（engineId=null 清除）
+    setAsrFallbackEngine(input: AsrSetFallbackEngineRequest): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:asr-set-fallback-engine', input)
+    },
+    // P3V-10：大资源根目录（响应无路径）
+    getAssetRoot(): Promise<IpcResult<AssetRootStatus>> {
+      return typedInvoke('companion:voice:get-asset-root', undefined)
+    },
+    chooseAssetRoot(): Promise<IpcResult<AssetRootChangeResult>> {
+      return typedInvoke('companion:voice:choose-asset-root', undefined)
+    },
+    resetAssetRoot(): Promise<IpcResult<AssetRootChangeResult>> {
+      return typedInvoke('companion:voice:reset-asset-root', undefined)
+    },
+    // P3V-16：GPT-SoVITS 运行时一键安装（install 即发即回；进度走 onAssetDownload）
+    getGptRuntime(): Promise<IpcResult<GptRuntimeOverview>> {
+      return typedInvoke('companion:voice:get-gpt-runtime', undefined)
+    },
+    installGptRuntime(input: GptRuntimeVariantRequest): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:gpt-runtime-install', input)
+    },
+    pauseGptRuntimeDownload(
+      input: GptRuntimeVariantRequest
+    ): Promise<IpcResult<{ ok: true; paused: boolean }>> {
+      return typedInvoke('companion:voice:gpt-runtime-pause-download', input)
+    },
+    resumeGptRuntimeDownload(
+      input: GptRuntimeVariantRequest
+    ): Promise<IpcResult<{ ok: true; resumed: boolean }>> {
+      return typedInvoke('companion:voice:gpt-runtime-resume-download', input)
+    },
+    cancelGptRuntimeDownload(
+      input: GptRuntimeVariantRequest
+    ): Promise<IpcResult<{ ok: true; cancelled: boolean }>> {
+      return typedInvoke('companion:voice:gpt-runtime-cancel-download', input)
+    },
+    deleteGptRuntime(): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:gpt-runtime-delete', undefined)
+    },
+    // P3V-17：选择/清除已有 GPT-SoVITS 目录（路径不入参也不回传）
+    chooseGptRuntimeDir(): Promise<IpcResult<GptRuntimeSourceResult>> {
+      return typedInvoke('companion:voice:choose-gpt-runtime-dir', undefined)
+    },
+    clearGptRuntimeDir(): Promise<IpcResult<GptRuntimeSourceResult>> {
+      return typedInvoke('companion:voice:clear-gpt-runtime-dir', undefined)
+    },
+    // P3V-20：本地导入音色（挑文件只回文件名；元信息由用户逐项确认）
+    pickGptVoiceFile(input: GptVoiceFilePickRequest): Promise<IpcResult<GptVoiceFilePickResult>> {
+      return typedInvoke('companion:voice:pick-gpt-voice-file', input)
+    },
+    importGptVoice(input: GptVoiceImportRequest): Promise<IpcResult<GptVoiceImportResult>> {
+      return typedInvoke('companion:voice:import-gpt-voice', input)
+    },
+    deleteGptVoice(input: GptVoiceDeleteRequest): Promise<IpcResult<GptVoiceDeleteResult>> {
+      return typedInvoke('companion:voice:delete-gpt-voice', input)
+    },
+    startListening(): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:start-listening', undefined)
+    },
+    stopListening(): Promise<IpcResult<{ ok: true }>> {
+      return typedInvoke('companion:voice:stop-listening', undefined)
+    },
+    // P3B-18：TTS 编排（VoiceOrchestrator）
+    getVoiceState(): Promise<IpcResult<VoicePublicSnapshot>> {
+      return typedInvoke('companion:voice:get-state', undefined)
+    },
+    testTts(input: VoiceTestTtsRequest): Promise<IpcResult<void>> {
+      return typedInvoke('companion:voice:test-tts', input)
+    },
+    cancelSpeaking(): Promise<IpcResult<void>> {
+      return typedInvoke('companion:voice:cancel-speaking', undefined)
+    },
+    onAsrOverview(cb: (overview: AsrOverview) => void): Unsubscribe {
+      return typedSubscribe('companion:event:asr-model-state', cb)
+    },
+    // P3V-16：大资产下载进度（assetId 分流；GPT runtime 与后续音色包共用）
+    onAssetDownload(cb: (status: AssetDownloadStatus) => void): Unsubscribe {
+      return typedSubscribe('companion:event:asset-download', cb)
+    },
+    onVoiceState(cb: (event: VoiceEvent) => void): Unsubscribe {
+      return typedSubscribe('companion:event:voice-state', cb)
+    },
+    /**
+     * P3B-13：开启麦克风 PCM 数据面——preload 建 MessageChannel，port2 经
+     * `voice:mic-port`（ipcRenderer.postMessage）转交 main，port1 经
+     * `window.postMessage('voice:mic-port', ...)` 转交给页面（contextBridge
+     * 不直接传 port；页面在 window 'message' 上收）。port 生命周期 = 采集
+     * 会话生命周期（session.stop() 关闭 → main 收 close 收尾）。
+     */
+    openMicPort(): void {
+      const channel = new MessageChannel()
+      ipcRenderer.postMessage('voice:mic-port', null, [channel.port2])
+      window.postMessage('voice:mic-port', '*', [channel.port1])
     }
   }
 })

@@ -74,6 +74,18 @@ export interface ChatCancelRequest {
   requestId: RequestId
 }
 
+/**
+ * P3B-15A（F5-007 §1.5）：chat renderer 的 paint ack。
+ * applyStream 应用 chunk 后等一次 requestAnimationFrame，经 `companion:chat:ack-rendered`
+ * 回报该 request 已绘制到的最高 sequence。播放队列据此保证「声音绝不跑在对应文字前面」。
+ * main 侧校验：chat capability（stage 无权调用）+ requestId 必须是近期发出的合法请求
+ * + 同 request 内 sequence 严格递增。
+ */
+export interface ChatRenderAckRequest {
+  requestId: RequestId
+  sequence: number // 0..MAX_SAFE_INTEGER 整数
+}
+
 export interface ChatRetryRequest {
   sessionId: SessionId
   messageId: MessageId

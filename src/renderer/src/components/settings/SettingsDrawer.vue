@@ -14,6 +14,7 @@ import SecuritySettingsSection from './SecuritySettingsSection.vue'
 import AboutSection from './AboutSection.vue'
 import AdvancedSection from './AdvancedSection.vue'
 import Live2dSettingsSection from './Live2dSettingsSection.vue'
+import VoiceSettingsSection from './VoiceSettingsSection.vue'
 
 const settingsUi = useSettingsUiStore()
 const configStore = useConfigStore()
@@ -34,16 +35,17 @@ const NAV_ITEMS: Array<{
   { id: 'memory', label: '记忆', marker: '02', description: '记住与淡忘' },
   { id: 'appearance', label: '外观', marker: '03', description: '主题与视觉' },
   { id: 'live2d', label: '角色', marker: '04', description: '形象与在场感' },
-  { id: 'security', label: '安全', marker: '05', description: '隐私与诊断' },
-  { id: 'about', label: '关于', marker: '06', description: '版本与更新' },
+  { id: 'voice', label: '语音', marker: '05', description: '识别与测试录音' },
+  { id: 'security', label: '安全', marker: '06', description: '隐私与诊断' },
+  { id: 'about', label: '关于', marker: '07', description: '版本与更新' },
   // C0-5：高级分区仅开发构建进入导航（生产构建 settings-ui 同步拦截 advanced）
   ...(import.meta.env.DEV
     ? [
         {
           id: 'advanced' as const,
           label: '高级',
-          // 角色分区插入后编号整体后移；高级仍排在关于（06）之后。
-          marker: '07',
+          // 语音分区插入后编号整体后移；高级排在关于（07）之后。
+          marker: '08',
           description: '开发者诊断（仅开发构建）'
         }
       ]
@@ -197,6 +199,7 @@ onBeforeUnmount(() => {
               <MemorySettingsSection v-else-if="resolvedSection === 'memory'" />
               <AppearanceSection v-else-if="resolvedSection === 'appearance'" />
               <Live2dSettingsSection v-else-if="resolvedSection === 'live2d'" />
+              <VoiceSettingsSection v-else-if="resolvedSection === 'voice'" />
               <AboutSection v-else-if="resolvedSection === 'about'" />
               <AdvancedSection v-else-if="resolvedSection === 'advanced'" />
               <SecuritySettingsSection v-else />
@@ -240,7 +243,12 @@ onBeforeUnmount(() => {
   inset: 0;
   display: flex;
   align-items: stretch;
-  justify-content: flex-end;
+  /*
+   * 2026-09-02 真机：旧版仅 CSS viewport >=1440px 才居中；窗口化后把 UI 缩放到
+   * 110%–150% 会让 CSS viewport 跌破 1440，抽屉突然切到 flex-end，肉眼明显右偏。
+   * 抽屉在所有桌面宽度都应以窗口中心为锚；小屏仍由 <=700px 媒体查询铺满。
+   */
+  justify-content: center;
   padding: 14px;
   background: color-mix(in srgb, var(--color-bg) 34%, rgba(8, 10, 16, 0.58));
   backdrop-filter: blur(10px) saturate(92%);

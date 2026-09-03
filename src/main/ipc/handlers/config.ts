@@ -52,7 +52,8 @@ function toPublicSnapshot(
     },
     memory: config.memory,
     security: config.security,
-    persona: config.persona
+    persona: config.persona,
+    voice: config.voice
   }
 }
 

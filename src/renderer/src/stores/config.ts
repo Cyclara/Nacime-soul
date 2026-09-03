@@ -16,11 +16,7 @@ import type {
   ConfigUpdateRequest,
   ModelConnectionTestRequest,
   ConnectionTestResult,
-  ModelConfig,
-  TtsConfig,
   MemoryConfig,
-  UiConfig,
-  SecurityConfig,
   PersonaConfig
 } from '@shared/config/types'
 import type { DeepPartial } from '@shared/config/types'
@@ -41,6 +37,40 @@ let pendingSecrets: { modelApiKey?: string; ttsApiKey?: string } = {}
 
 function stableHash(obj: unknown): string {
   return JSON.stringify(obj)
+}
+
+/** JSON 配置的最小深层 patch；数组一旦变化整体替换，普通对象递归到叶子。 */
+function diffConfigValue(saved: unknown, draft: unknown): unknown {
+  if (stableHash(saved) === stableHash(draft)) return undefined
+  if (
+    draft === null ||
+    typeof draft !== 'object' ||
+    Array.isArray(draft) ||
+    saved === null ||
+    typeof saved !== 'object' ||
+    Array.isArray(saved)
+  ) {
+    return draft
+  }
+
+  const patch: Record<string, unknown> = {}
+  const savedRecord = saved as Record<string, unknown>
+  for (const [key, value] of Object.entries(draft as Record<string, unknown>)) {
+    const nested = diffConfigValue(savedRecord[key], value)
+    if (nested !== undefined) patch[key] = nested
+  }
+  return Object.keys(patch).length === 0 ? undefined : patch
+}
+
+/** 去掉 PublicConfigSnapshot 里的只读投影字段，留下 main ConfigUpdateRequest 可写形状。 */
+function writableSnapshot(snapshot: PublicConfigSnapshot): PublicConfigSnapshot {
+  const plain = JSON.parse(JSON.stringify(snapshot)) as PublicConfigSnapshot
+  const model = plain.model as unknown as Record<string, unknown>
+  delete model.hasApiKey
+  delete model.validated
+  delete model.supportsThinking
+  delete (plain.tts as unknown as Record<string, unknown>).hasApiKey
+  return plain
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -178,34 +208,33 @@ export const useConfigStore = defineStore('config', () => {
 
     state.saving = true
     try {
-      // 深拷贝 draft，解除 Vue reactive proxy。
-      // 不用 structuredClone：state.draft 中可能含 Vue 内部不可 clone 的对象。
-      // JSON 序列化是安全的，因为配置只含基本类型/对象/数组。
-      const plainDraft = JSON.parse(JSON.stringify(state.draft)) as PublicConfigSnapshot
-
-      const domains: ConfigUpdateRequest['domains'] = {
-        model: { ...plainDraft.model } as Partial<ModelConfig>,
-        tts: { ...plainDraft.tts } as Partial<TtsConfig>,
-        memory: { ...plainDraft.memory } as Partial<MemoryConfig>,
-        ui: { ...plainDraft.ui } as Partial<UiConfig>,
-        security: { ...plainDraft.security } as Partial<SecurityConfig>,
-        persona: { ...plainDraft.persona } as DeepPartial<PersonaConfig>
+      // 深拷贝 draft/saved，解除 Vue reactive proxy，并移除只读投影字段。
+      // 只发送「saved → draft」的最小深层 patch，不再把六个域的完整旧快照全量回写。
+      //
+      // ROOT CAUSE（2026-09-02 真机）：Live2D 显示按钮由 main 直接持久化 `ui.live2d.enabled=true`，
+      // renderer config store 的 saved/draft 仍是旧 false。随后只切主题时，旧 save() 把整个 ui 域
+      //（含 stale enabled=false）发回 main，于是主题切换顺手关闭 Live2D。最小 patch 只发
+      // `{ui:{theme}}`，main 保留它刚写入的 enabled=true，并在响应快照里把 renderer 同步回来。
+      const plainDraft = writableSnapshot(state.draft)
+      const plainSaved = writableSnapshot(state.saved ?? state.draft)
+      const domains = {} as ConfigUpdateRequest['domains']
+      const domainNames = ['model', 'tts', 'memory', 'ui', 'security', 'persona', 'voice'] as const
+      for (const domain of domainNames) {
+        const patch = diffConfigValue(plainSaved[domain], plainDraft[domain])
+        if (patch !== undefined) {
+          ;(domains as Record<string, unknown>)[domain] = patch
+        }
       }
 
-      // 删除 hasApiKey/validated/supportsThinking（不是 ModelConfig 字段，属于 PublicModelConfig 扩展）
-      const modelDomain = domains.model as Record<string, unknown>
-      delete modelDomain.hasApiKey
-      delete modelDomain.validated
-      delete modelDomain.supportsThinking
-      const ttsDomain = domains.tts as Record<string, unknown>
-      delete ttsDomain.hasApiKey
-
-      // 附加 pending API keys（空字符串不附加，见上方 hasPendingSecrets 注释）
+      // 附加 pending API keys（空字符串不附加，见上方 hasPendingSecrets 注释）。
+      // 即使对应配置域没有其他变化，也创建该域的最小对象。
       if (pendingSecrets.modelApiKey !== undefined && pendingSecrets.modelApiKey.length > 0) {
-        ;(modelDomain as { apiKey?: string }).apiKey = pendingSecrets.modelApiKey
+        const modelDomain = (domains.model ??= {}) as Record<string, unknown>
+        modelDomain.apiKey = pendingSecrets.modelApiKey
       }
       if (pendingSecrets.ttsApiKey !== undefined && pendingSecrets.ttsApiKey.length > 0) {
-        ;(ttsDomain as { apiKey?: string }).apiKey = pendingSecrets.ttsApiKey
+        const ttsDomain = (domains.tts ??= {}) as Record<string, unknown>
+        ttsDomain.apiKey = pendingSecrets.ttsApiKey
       }
 
       const request: ConfigUpdateRequest = {

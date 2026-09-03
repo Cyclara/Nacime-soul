@@ -5,7 +5,16 @@ import eslintPluginVue from 'eslint-plugin-vue'
 import vueParser from 'vue-eslint-parser'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out', '**/resources/live2d/cubism/*.js'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      '**/resources/live2d/cubism/*.js',
+      // P3B-13：renderer public 静态资产（worklet 处理器等；复制型资产非源码）
+      '**/src/renderer/public/**'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginVue.configs['flat/recommended'],
   {

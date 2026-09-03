@@ -15,6 +15,9 @@ import type { UpdateStatus } from '../update/types'
 import type { Live2dStageCommand } from '../live2d/stage-types'
 import type { Live2dStateEvent } from '../live2d/public-types'
 import { LIVE2D_LOAD_ERROR_CODES } from '../live2d/types'
+import { isVoiceEvent } from '../voice/voice-events'
+import { isAsrOverview } from '../voice/asr-settings-types'
+import { isAssetDownloadStatus } from '../voice/asset-root-types'
 
 // === 工具函数（main 的 invoke validator 也复用）===
 
@@ -403,6 +406,13 @@ export function validateEventPayload<K extends IpcEventChannel>(
       return isStageCommand(payload)
     case 'companion:event:live2d-state':
       return isLive2dStateEvent(payload)
+    case 'companion:event:voice-state':
+      return isVoiceEvent(payload)
+    case 'companion:event:asr-model-state':
+      return isAsrOverview(payload)
+    // P3V-16：大资产下载进度（GPT runtime / 后续音色包；assetId 分流）
+    case 'companion:event:asset-download':
+      return isAssetDownloadStatus(payload)
     default:
       return false
   }

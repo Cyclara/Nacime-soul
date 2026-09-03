@@ -184,9 +184,9 @@ function onAlwaysOnTopChange(event: Event): void {
   gap: 0.65rem;
   margin-top: 0.1rem;
   padding: 0.85rem;
-  border: 1px solid var(--color-border, rgb(255 255 255 / 10%));
+  border: 1px solid var(--color-border);
   border-radius: 0.9rem;
-  background: rgb(255 255 255 / 3%);
+  background: color-mix(in srgb, var(--color-surface-elevated) 58%, transparent);
 }
 .preview-panel__title {
   color: var(--color-text-muted, rgb(255 255 255 / 48%));
@@ -211,12 +211,12 @@ function onAlwaysOnTopChange(event: Event): void {
   transition: 160ms ease;
 }
 .control--primary {
-  background: rgb(193 177 255 / 84%);
-  color: rgb(31 24 56);
-  box-shadow: 0 0.3rem 1rem rgb(120 99 204 / 22%);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  box-shadow: var(--shadow-sm);
 }
 .control--primary:hover {
-  background: rgb(207 194 255);
+  background: var(--color-accent-hover);
   transform: translateY(-1px);
 }
 .control--quiet {
@@ -225,16 +225,16 @@ function onAlwaysOnTopChange(event: Event): void {
   color: var(--color-text-secondary, rgb(255 255 255 / 70%));
 }
 .control--quiet:hover:not(:disabled) {
-  background: rgb(255 255 255 / 7%);
+  background: var(--color-accent-soft);
 }
 .control:disabled {
   cursor: not-allowed;
-  opacity: 0.38;
+  opacity: 0.72;
 }
 .control:focus-visible,
 .save-settings:focus-visible,
 input:focus-visible {
-  outline: 2px solid rgb(193 177 255);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 .control-hint {
@@ -266,7 +266,7 @@ input:focus-visible {
 .framing__preset {
   min-height: 1.9rem;
   padding: 0.3rem 0.75rem;
-  border: 1px solid rgb(193 177 255 / 30%);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent);
   border-radius: 999px;
   background: transparent;
   color: var(--color-text-secondary, rgb(255 255 255 / 75%));
@@ -276,12 +276,12 @@ input:focus-visible {
   transition: 160ms ease;
 }
 .framing__preset:hover {
-  border-color: rgb(193 177 255 / 66%);
-  background: rgb(193 177 255 / 14%);
-  color: rgb(255 255 255 / 92%);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft-hover);
+  color: var(--color-text);
 }
 .framing__preset:focus-visible {
-  outline: 2px solid rgb(193 177 255);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 .setting-row {
@@ -305,7 +305,7 @@ input:focus-visible {
 }
 .setting-row input[type='range'] {
   width: 100%;
-  accent-color: var(--color-companion, rgb(193 177 255));
+  accent-color: var(--color-companion, var(--color-accent));
 }
 .setting-toggle {
   justify-content: flex-start;
@@ -320,21 +320,21 @@ input:focus-visible {
   width: 1.65rem;
   height: 1rem;
   flex: 0 0 auto;
-  border: 1px solid var(--color-border, rgb(255 255 255 / 22%));
+  border: 1px solid var(--color-border);
   border-radius: 999px;
-  background: rgb(255 255 255 / 8%);
+  background: var(--color-bg-tertiary);
   transition: 160ms ease;
 }
 .setting-toggle input:checked + .toggle-box {
-  border-color: rgb(193 177 255 / 70%);
-  background: rgb(193 177 255 / 68%);
-  box-shadow: inset 0 0 0 3px rgb(30 25 51 / 38%);
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--color-bg) 48%, transparent);
 }
 .save-settings {
   justify-self: start;
   min-height: 2rem;
   padding: 0.35rem 0.7rem;
-  border: 1px solid rgb(193 177 255 / 30%);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent);
   border-radius: 0.65rem;
   background: transparent;
   color: var(--color-text-secondary, rgb(255 255 255 / 75%));
@@ -344,7 +344,7 @@ input:focus-visible {
 }
 .save-settings:disabled {
   cursor: progress;
-  opacity: 0.52;
+  opacity: 0.72;
 }
 .save-error {
   margin: 0;

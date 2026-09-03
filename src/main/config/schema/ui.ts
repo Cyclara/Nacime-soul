@@ -21,7 +21,13 @@ const ChatUiConfigSchema = v.object({
 
 const OnboardingConfigSchema = v.object({
   version: v.literal(1),
-  stage: v.picklist(['provider-setup', 'connection-test', 'first-conversation', 'complete']),
+  stage: v.picklist([
+    'provider-setup',
+    'connection-test',
+    'voice-setup',
+    'first-conversation',
+    'complete'
+  ]),
   completedAt: v.optional(v.pipe(v.number(), v.finite(), v.integer(), v.minValue(0))),
   voiceSendMode: v.optional(v.picklist(['draft', 'send']))
 })

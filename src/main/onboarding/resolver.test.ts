@@ -36,18 +36,23 @@ describe('P3A-29 OnboardingResolver', () => {
     })
   })
 
-  it('已有 API Key 但没有真实 completed turn 时进入第一次见面', () => {
+  it('已有 API Key 但没有真实 completed turn 时先进入可跳过的语音设置', () => {
     expect(
       resolver.resolve({ hasApiKey: true, persisted: initial, history: noCompletedTurns })
     ).toEqual({
-      stage: 'first-conversation',
+      stage: 'voice-setup',
       reason: 'configured-empty-history',
       persisted: true
     })
   })
 
-  it('已经持久化的 connection-test / first-conversation / complete 进度优先于自动推断', () => {
-    for (const stage of ['connection-test', 'first-conversation', 'complete'] as const) {
+  it('已经持久化的 connection-test / voice-setup / first-conversation / complete 进度优先于自动推断', () => {
+    for (const stage of [
+      'connection-test',
+      'voice-setup',
+      'first-conversation',
+      'complete'
+    ] as const) {
       expect(
         resolver.resolve({
           hasApiKey: true,

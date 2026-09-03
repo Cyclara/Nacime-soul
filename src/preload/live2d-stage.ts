@@ -116,4 +116,18 @@ export const live2dStageApi: Live2dStageApi = Object.freeze({
   }
 })
 
+// P3B-15（F5-007 §1.14）：main 经 `webContents.postMessage('voice:audio-port',
+// {generation}, [port])` 转交 TTS 专用 port。contextBridge 不直接透传 MessagePort；
+// 与 P3B-13 mic port 同机制：preload 收到后经 window.postMessage 带 transferable 交给
+// 页面（playback host 在 window 'message' 上收）。port 生命周期 = 该 generation 会话。
+ipcRenderer.on('voice:audio-port', (_event, payload: unknown) => {
+  const generation =
+    typeof payload === 'object' && payload !== null
+      ? (payload as Record<string, unknown>)['generation']
+      : undefined
+  const port = _event.ports[0]
+  if (typeof generation !== 'string' || generation.length === 0 || port === undefined) return
+  window.postMessage({ type: 'voice:audio-port', generation }, '*', [port])
+})
+
 contextBridge.exposeInMainWorld('live2dStage', live2dStageApi)

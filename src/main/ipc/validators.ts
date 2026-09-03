@@ -24,6 +24,7 @@ import type {
   ChatDeleteSelectedRequest,
   ChatClearSessionRequest,
   ChatListRequest,
+  ChatRenderAckRequest,
   ChatRetryRequest,
   ChatSearchRequest,
   ChatSendRequest
@@ -31,6 +32,19 @@ import type {
 import type { ChatFeedbackRequest } from '@shared/compliance/types'
 import type { Live2dStageReadyRequest, Live2dStageReport } from '@shared/live2d/stage-types'
 import type { Live2dFramingPreviewRequest } from '@shared/live2d/public-types'
+import {
+  isAsrEngineId,
+  isAsrEngineRequest,
+  isAsrSelectEngineRequest,
+  isAsrSetFallbackEngineRequest
+} from '@shared/voice/asr-settings-types'
+import {
+  isGptRuntimeVariantRequest,
+  isGptVoiceDeleteRequest,
+  isGptVoiceFilePickRequest,
+  isGptVoiceImportRequest
+} from '@shared/voice/gpt-runtime-types'
+import { isVoiceTestTtsRequest } from '@shared/voice/voice-events'
 import type {
   ConfigResetRequest,
   ConfigUpdateRequest,
@@ -107,6 +121,21 @@ function isChatCancelRequest(value: unknown): value is ChatCancelRequest {
   if (!isPlainObject(value)) return false
   if (!hasOnlyKeys(value, ['requestId'])) return false
   if (!isId(value.requestId)) return false
+  return true
+}
+
+// --- ChatRenderAckRequest（P3B-15A paint ack；requestId 同 id 界，sequence 严格非负整数）---
+function isChatRenderAckRequest(value: unknown): value is ChatRenderAckRequest {
+  if (!isPlainObject(value)) return false
+  if (!hasOnlyKeys(value, ['requestId', 'sequence'])) return false
+  if (!isId(value.requestId)) return false
+  if (
+    typeof value.sequence !== 'number' ||
+    !Number.isInteger(value.sequence) ||
+    value.sequence < 0
+  ) {
+    return false
+  }
   return true
 }
 
@@ -319,6 +348,20 @@ function isPartialModelConfig(value: unknown): boolean {
     reasoningEffort: (v) => v === 'off' || v === 'low' || v === 'medium' || v === 'high',
     compatOverrides: (v) => isCompatOverrides(v),
     apiKey: (v) => isString(v, { minLen: 1, maxLen: 4096 })
+  })
+}
+
+/**
+ * VoiceConfig partial 验证（P3B-14；asrEngineId 闭集全本地，无云选项）。
+ * P3V-09：闭集 2 → 6（复用 shared 的 isAsrEngineId 单真源，不再维护第二份
+ * 硬编码清单）+ 主/备双键。asrFallbackEngineId 空串=清除备用（见 config 类型
+ * 注释——null 落不了盘）。
+ */
+function isPartialVoiceConfig(value: unknown): boolean {
+  return validatePartialFields(value, {
+    asrEngineId: (v) => isAsrEngineId(v),
+    asrPrimaryEngineId: (v) => isAsrEngineId(v),
+    asrFallbackEngineId: (v) => v === '' || isAsrEngineId(v)
   })
 }
 
@@ -591,6 +634,7 @@ function isPartialOnboardingConfig(value: unknown): boolean {
     stage: (v) =>
       v === 'provider-setup' ||
       v === 'connection-test' ||
+      v === 'voice-setup' ||
       v === 'first-conversation' ||
       v === 'complete',
     completedAt: (v) => isNumber(v, { min: 0, integer: true }),
@@ -774,6 +818,9 @@ function isConfigUpdateRequest(value: unknown): value is ConfigUpdateRequest {
   }
   if ('persona' in value.domains && value.domains.persona !== undefined) {
     if (!isPartialPersonaConfig(value.domains.persona)) return false
+  }
+  if ('voice' in value.domains && value.domains.voice !== undefined) {
+    if (!isPartialVoiceConfig(value.domains.voice)) return false
   }
   return true
 }
@@ -988,6 +1035,8 @@ export const IPC_VALIDATORS = {
   'companion:chat:search': isChatSearchRequest,
   // P3C1-07：合规用户反馈（F5-001 §3.7）
   'companion:chat:feedback': isChatFeedbackRequest,
+  // P3B-15A：paint ack（合法 requestId/递增 sequence 的语义校验在 handler 侧 tracker）
+  'companion:chat:ack-rendered': isChatRenderAckRequest,
   // P3C1-08：合规调试快照（F5-001 §3.10；无载荷）
   'companion:compliance:get-snapshot': (v: unknown): v is undefined => v === undefined,
   // P3A-05：stage capability only，具体 sender 权限由 register.ts capability guard 执行。
@@ -1029,7 +1078,41 @@ export const IPC_VALIDATORS = {
   'companion:dmae:run-benchmark': isDmaeBenchmarkRequest,
   'companion:dmae:record-qualitative': isDmaeQualitativeRequest,
   // ── M-26：DMAE 异常静音（F5-002 §3.7 第 6 通道）──
-  'companion:dmae:mute-anomaly': isDmaeMuteRequest
+  'companion:dmae:mute-anomaly': isDmaeMuteRequest,
+  // ── P3B-14：语音设置（ASR 引擎管理/模型下载；chat capability）──
+  'companion:voice:get-asr-overview': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:asr-download-model': isAsrEngineRequest,
+  'companion:voice:asr-cancel-download': isAsrEngineRequest,
+  'companion:voice:asr-pause-download': isAsrEngineRequest,
+  'companion:voice:asr-resume-download': isAsrEngineRequest,
+  'companion:voice:asr-delete-model': isAsrEngineRequest,
+  'companion:voice:asr-select-engine': isAsrSelectEngineRequest,
+  // ── P3V-09/10：主备选择 + 大资源根目录 ──
+  'companion:voice:asr-set-fallback-engine': isAsrSetFallbackEngineRequest,
+  'companion:voice:get-asset-root': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:choose-asset-root': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:reset-asset-root': (v: unknown): v is undefined => v === undefined,
+  // ── P3V-16：GPT-SoVITS 运行时一键安装（变体闭集校验；delete 无载荷）──
+  'companion:voice:get-gpt-runtime': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:gpt-runtime-install': isGptRuntimeVariantRequest,
+  'companion:voice:gpt-runtime-pause-download': isGptRuntimeVariantRequest,
+  'companion:voice:gpt-runtime-resume-download': isGptRuntimeVariantRequest,
+  'companion:voice:gpt-runtime-cancel-download': isGptRuntimeVariantRequest,
+  'companion:voice:gpt-runtime-delete': (v: unknown): v is undefined => v === undefined,
+  // ── P3V-17：选择/清除已有安装目录（路径只在 main 的原生对话框里出现，不入参）──
+  'companion:voice:choose-gpt-runtime-dir': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:clear-gpt-runtime-dir': (v: unknown): v is undefined => v === undefined,
+  // ── P3V-20：本地导入音色（文件路径不入参；语言/版本闭集；提示词必填）──
+  'companion:voice:pick-gpt-voice-file': isGptVoiceFilePickRequest,
+  'companion:voice:import-gpt-voice': isGptVoiceImportRequest,
+  'companion:voice:delete-gpt-voice': isGptVoiceDeleteRequest,
+  // ── P3B-14：语音输入（冻结通道名；测试录音先落地，P3B-18 扩全编排）──
+  'companion:voice:start-listening': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:stop-listening': (v: unknown): v is undefined => v === undefined,
+  // ── P3B-18：TTS 编排（VoiceOrchestrator）──
+  'companion:voice:get-state': (v: unknown): v is undefined => v === undefined,
+  'companion:voice:test-tts': isVoiceTestTtsRequest,
+  'companion:voice:cancel-speaking': (v: unknown): v is undefined => v === undefined
 } satisfies { [K in IpcInvokeChannel]: Validator<IpcInvokeMap[K]['req']> }
 
 /**

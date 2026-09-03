@@ -9,6 +9,7 @@ import { ipcMain } from 'electron'
 import type { Logger, LogFields } from '@shared/observability/types'
 import type { ChatFeedbackRequest } from '@shared/compliance/types'
 import type { ComplianceFeedbackOutcome } from '../../compliance/feedback'
+import { createChatRenderAckTracker } from '../../voice/playback/ack-gate'
 import type { ChatService } from '../../chat/service'
 import { configureIpcGuard } from '../register'
 import { registerChatHandlers } from './chat'
@@ -76,7 +77,8 @@ function makeDeps(outcome: ComplianceFeedbackOutcome): {
     searchMessages: () => [],
     recordFeedback: recordFeedback as unknown as Parameters<
       typeof registerChatHandlers
-    >[0]['recordFeedback']
+    >[0]['recordFeedback'],
+    ackTracker: createChatRenderAckTracker()
   }
   return { deps, recordFeedback }
 }
@@ -161,7 +163,9 @@ describe('P3C1-07 chat:feedback handler', () => {
       searchMessages: () => [],
       recordFeedback: recordFeedback as unknown as Parameters<
         typeof registerChatHandlers
-      >[0]['recordFeedback']
+      >[0]['recordFeedback'],
+      // P3B-15A：ack 通道在专属测试文件覆盖；此处仅需满足依赖形状
+      ackTracker: createChatRenderAckTracker()
     })
 
     const handler = getHandler('companion:chat:feedback')

@@ -8,6 +8,7 @@ import type {
   ChatCancelRequest,
   ChatHistorySnapshot,
   ChatListRequest,
+  ChatRenderAckRequest,
   ChatSearchHit,
   ChatSendAck,
   ChatSendRequest,
@@ -65,6 +66,29 @@ import type {
   MemoryUpdateContentRequest,
   MemoryUpdatedEvent
 } from './memory/types'
+import type {
+  AsrOverview,
+  AsrEngineRequest,
+  AsrSelectEngineRequest,
+  AsrSetFallbackEngineRequest
+} from './voice/asr-settings-types'
+import type {
+  AssetDownloadStatus,
+  AssetRootChangeResult,
+  AssetRootStatus
+} from './voice/asset-root-types'
+import type {
+  GptRuntimeOverview,
+  GptRuntimeSourceResult,
+  GptRuntimeVariantRequest,
+  GptVoiceDeleteRequest,
+  GptVoiceDeleteResult,
+  GptVoiceFilePickRequest,
+  GptVoiceFilePickResult,
+  GptVoiceImportRequest,
+  GptVoiceImportResult
+} from './voice/gpt-runtime-types'
+import type { VoiceEvent, VoicePublicSnapshot, VoiceTestTtsRequest } from './voice/voice-events'
 import type {
   DmaeBenchmarkReport,
   DmaeDailyAggregate,
@@ -128,6 +152,9 @@ export interface CompanionApi {
     search(input: { query: string; limit?: number }): Promise<IpcResult<ChatSearchHit[]>>
     // P3C1-07：合规用户反馈（F5-001 §3.7）。幂等--重复上报只计一次
     feedback(input: ChatFeedbackRequest): Promise<IpcResult<ChatFeedbackResponse>>
+    // P3B-15A：paint ack（F5-007 §1.5）。applyStream 后等一次 rAF 回报最高已绘制
+    // sequence；main 侧据此保证 TTS 音频不早于对应文字出现。
+    ackRendered(input: ChatRenderAckRequest): Promise<IpcResult<void>>
     onStream(cb: (event: ChatStreamEvent) => void): Unsubscribe
   }
   // P3C1-08：compliance（1 invoke；仅调试面板，无 event 通道——审查不可见原则）
@@ -182,6 +209,51 @@ export interface CompanionApi {
     recordQualitative(input: DmaeQualitativeRequest): Promise<IpcResult<void>>
     // M-26：静音某条 DMAE 异常规则 N 天
     muteAnomaly(input: DmaeMuteRequest): Promise<IpcResult<void>>
+  }
+  // P3B-14：语音设置/语音输入（chat；台账已登记）
+  voice: {
+    getAsrOverview(): Promise<IpcResult<AsrOverview>>
+    downloadAsrModel(input: AsrEngineRequest): Promise<IpcResult<{ ok: true }>>
+    cancelAsrDownload(input: AsrEngineRequest): Promise<IpcResult<{ ok: true; cancelled: boolean }>>
+    pauseAsrDownload(input: AsrEngineRequest): Promise<IpcResult<{ ok: true; paused: boolean }>>
+    resumeAsrDownload(input: AsrEngineRequest): Promise<IpcResult<{ ok: true; resumed: boolean }>>
+    deleteAsrModel(input: AsrEngineRequest): Promise<IpcResult<{ ok: true }>>
+    selectAsrEngine(input: AsrSelectEngineRequest): Promise<IpcResult<{ ok: true }>>
+    // P3V-09/10：备用引擎 + 大资源根目录（响应无路径）
+    setAsrFallbackEngine(input: AsrSetFallbackEngineRequest): Promise<IpcResult<{ ok: true }>>
+    getAssetRoot(): Promise<IpcResult<AssetRootStatus>>
+    chooseAssetRoot(): Promise<IpcResult<AssetRootChangeResult>>
+    resetAssetRoot(): Promise<IpcResult<AssetRootChangeResult>>
+    // P3V-16：GPT-SoVITS 运行时一键安装（进度经 onAssetDownload）
+    getGptRuntime(): Promise<IpcResult<GptRuntimeOverview>>
+    installGptRuntime(input: GptRuntimeVariantRequest): Promise<IpcResult<{ ok: true }>>
+    pauseGptRuntimeDownload(
+      input: GptRuntimeVariantRequest
+    ): Promise<IpcResult<{ ok: true; paused: boolean }>>
+    resumeGptRuntimeDownload(
+      input: GptRuntimeVariantRequest
+    ): Promise<IpcResult<{ ok: true; resumed: boolean }>>
+    cancelGptRuntimeDownload(
+      input: GptRuntimeVariantRequest
+    ): Promise<IpcResult<{ ok: true; cancelled: boolean }>>
+    deleteGptRuntime(): Promise<IpcResult<{ ok: true }>>
+    // P3V-17：选择/清除已有 GPT-SoVITS 目录（重启后生效）
+    chooseGptRuntimeDir(): Promise<IpcResult<GptRuntimeSourceResult>>
+    clearGptRuntimeDir(): Promise<IpcResult<GptRuntimeSourceResult>>
+    // P3V-20：本地导入音色
+    pickGptVoiceFile(input: GptVoiceFilePickRequest): Promise<IpcResult<GptVoiceFilePickResult>>
+    importGptVoice(input: GptVoiceImportRequest): Promise<IpcResult<GptVoiceImportResult>>
+    deleteGptVoice(input: GptVoiceDeleteRequest): Promise<IpcResult<GptVoiceDeleteResult>>
+    startListening(): Promise<IpcResult<{ ok: true }>>
+    stopListening(): Promise<IpcResult<{ ok: true }>>
+    // P3B-18：TTS 编排（VoiceOrchestrator）
+    getVoiceState(): Promise<IpcResult<VoicePublicSnapshot>>
+    testTts(input: VoiceTestTtsRequest): Promise<IpcResult<void>>
+    cancelSpeaking(): Promise<IpcResult<void>>
+    onAsrOverview(cb: (overview: AsrOverview) => void): Unsubscribe
+    onAssetDownload(cb: (status: AssetDownloadStatus) => void): Unsubscribe
+    onVoiceState(cb: (event: VoiceEvent) => void): Unsubscribe
+    openMicPort(): void
   }
 }
 

@@ -28,7 +28,8 @@ describe('P3A-23 public Live2D state', () => {
         visible,
         alwaysOnTop: true,
         webContentsId: 2,
-        loadedModelId: null
+        loadedModelId: null,
+        audioOnly: false
       }),
       loading: () => false,
       lastError: () => null,

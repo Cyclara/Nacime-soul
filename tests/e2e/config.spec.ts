@@ -81,14 +81,15 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
     const win = await app2.firstWindow()
 
     // S-014 之后「有 Key」不再等于「直接进聊天」：本例用 IPC 直存配置、没走引导 UI，
-    // 因此引导阶段仍是 provider-setup，重启后 resolver 判为 configured-empty-history，
-    // 落在「第一次见面」。
+    // 因此引导阶段仍是 provider-setup，重启后 resolver 判为 configured-empty-history。
+    // P3V-14 起该分支落在**语音资源设置**（`.voice-setup`）而不是「第一次见面」——
+    // 刚连完 Key 的用户不该错过语音设置。两者都算「已配置」终局。
     //
     // 先等**任一**终局界面出现再分支：密钥能否跨重启回读取决于机器的系统钥匙串
     // （GitHub Actions 的 Windows runner 上 safeStorage 密文换进程就解不开），
     // 死等其中一个会在另一条路径上白等 30 秒再报一个看不出原因的错。
     await win.waitForSelector(
-      '.first-conversation, input[placeholder="https://api.deepseek.com"]',
+      '.voice-setup, .first-conversation, input[placeholder="https://api.deepseek.com"]',
       {
         timeout: 30_000
       }
@@ -112,16 +113,17 @@ test('S-004 #37: 设置模型->保存->刷新->脱敏配置仍存在', async () 
     })
 
     // 不变量②（M-34，本次 CI 暴露的真缺陷）：**引导阶段必须与 hasApiKey 一致**。
-    // 密钥可回读 → 跳过连接表单、进「第一次见面」；回读不出来 → 必须老老实实退回配置页
-    // 让用户重填。绝不允许「引导跳过了配置、聊天却报未配置 API Key」这种自相矛盾——
-    // 修复前 resolver 用 `has()`（只看键在不在）、config 快照用「存在且可读」，
-    // 两套判据在 CI 上正好劈叉。
+    // 密钥可回读 → 跳过连接表单、进已配置终局（语音设置或第一次见面）；回读不出来 →
+    // 必须老老实实退回配置页让用户重填。绝不允许「引导跳过了配置、聊天却报未配置
+    // API Key」这种自相矛盾——修复前 resolver 用 `has()`（只看键在不在）、config
+    // 快照用「存在且可读」，两套判据在 CI 上正好劈叉。
     const guideVisible = await win.isVisible('input[placeholder="https://api.deepseek.com"]')
-    const firstConversationVisible = await win.isVisible('.first-conversation')
-    expect({ guideVisible, firstConversationVisible }).toEqual(
+    const configuredViewVisible =
+      (await win.isVisible('.voice-setup')) || (await win.isVisible('.first-conversation'))
+    expect({ guideVisible, configuredViewVisible }).toEqual(
       persisted?.hasApiKey === true
-        ? { guideVisible: false, firstConversationVisible: true }
-        : { guideVisible: true, firstConversationVisible: false }
+        ? { guideVisible: false, configuredViewVisible: true }
+        : { guideVisible: true, configuredViewVisible: false }
     )
   } finally {
     await shutdownApp(app2)

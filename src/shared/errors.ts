@@ -15,9 +15,13 @@ export type ErrorCode =
   | 'TTS_ENGINE_DOWN'
   | 'TTS_TIMEOUT'
   | 'TTS_DECODE'
+  /** P3V-16：GPT runtime 正在下载/安装中，删除等操作暂不可执行。 */
+  | 'TTS_RUNTIME_BUSY'
   | 'ASR_INIT_FAIL'
   | 'ASR_DEVICE'
   | 'ASR_MODEL_MISSING'
+  /** P3V-13：模型仍在下载/被活跃会话占用，删除等操作暂不可执行。 */
+  | 'ASR_BUSY'
   | 'MEM_DB_CORRUPT'
   | 'MEM_MIGRATE_FAIL'
   | 'MEM_EMBED_FAIL'

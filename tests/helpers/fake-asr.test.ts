@@ -2,6 +2,7 @@
 // P3-00C 自测：假 ASR 引擎的状态机/脚本/失败注入/进度回调正确。
 
 import { describe, it, expect, vi } from 'vitest'
+import type { AsrEngine } from '@shared/voice/asr-types'
 import { createFakeAsrEngine } from './fake-asr'
 import { makeSilentPcm16 } from './silent-pcm'
 
@@ -50,5 +51,26 @@ describe('fake-asr 自测', () => {
     asr2.failLoad(new Error('model file missing'))
     await expect(asr2.loadModel()).rejects.toThrow('model file missing')
     expect(asr2.state).toBe('error')
+  })
+})
+
+describe('fake-asr 对齐 P3B-09 冻结 ABI', () => {
+  it('结构满足 AsrEngine（编译期 + localOnly 恒 true）', async () => {
+    const asr: AsrEngine = createFakeAsrEngine([{ text: '对齐' }])
+    expect(asr.localOnly).toBe(true)
+    expect(asr.id).toBe('fake-asr')
+    await asr.loadModel()
+    const result = await asr.recognize(makeSilentPcm16(50), { language: 'zh' })
+    expect(result.text).toBe('对齐')
+  })
+
+  it('observations 透传 audio 长度与语言提示', async () => {
+    const asr = createFakeAsrEngine([])
+    await asr.loadModel()
+    await asr.recognize(makeSilentPcm16(20), { language: 'en' }) // 20ms@16k = 320 样本
+    expect(asr.observations.lastAudioSamples).toBe(320)
+    expect(asr.observations.lastLanguage).toBe('en')
+    await asr.recognize(makeSilentPcm16(20))
+    expect(asr.observations.lastLanguage).toBeUndefined()
   })
 })

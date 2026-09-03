@@ -519,12 +519,253 @@ describe('P3A-04/05 Live2dWindowManager', () => {
       getCubismCoreUrl: () => null,
       getZoom: () => 1,
       getOffset: () => ({ x: 0, y: 0 }),
-      sendStageCommand: () => {}
+      sendStageCommand: () => {},
+      // 不调度重建：本用例只看崩溃那一刻的状态
+      scheduleCrashRebuild: () => {}
     })
 
     manager.show()
     window.crash()
     expect(manager.getSnapshot().status).toBe('error')
     expect(window.isDestroyed()).toBe(false)
+  })
+})
+
+// S-006-补充 §1.7.7：stage 崩溃恢复——有界重建 1 次（新 webContentsId + 新 stageInstanceId），
+// 连续第二次崩溃保持 error；一次成功 ready 归零计数；不重建 chat。
+describe('S-006 §1.7.7 Live2dWindowManager 崩溃有界重建', () => {
+  function harness(opts?: { audioOnly?: boolean }): {
+    manager: Live2dWindowManager
+    windows: FakeStageWindow[]
+    created: number[]
+    destroyed: number[]
+    runRebuild: () => void
+  } {
+    const windows: FakeStageWindow[] = []
+    const created: number[] = []
+    const destroyed: number[] = []
+    let pendingRebuild: (() => void) | null = null
+    let nextId = 100
+    const manager = new Live2dWindowManager({
+      createWindow: () => {
+        const window = new FakeStageWindow(nextId++)
+        windows.push(window)
+        return window as unknown as BrowserWindow
+      },
+      onStageCreated: (id) => created.push(id),
+      onStageDestroyed: (id) => destroyed.push(id),
+      getModelLoadPlan: () => ({
+        attempts: [{ modelId: 'mao', reason: 'selected' }],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
+      getStageModelUrl: (id) => `nacime-live2d://model/${id}/model.model3.json`,
+      getCubismCoreUrl: () => null,
+      getZoom: () => 1,
+      getOffset: () => ({ x: 0, y: 0 }),
+      sendStageCommand: () => {},
+      scheduleCrashRebuild: (callback) => {
+        pendingRebuild = callback
+      }
+    })
+    if (opts?.audioOnly === true) manager.ensureAudioOnlyStage()
+    else manager.show()
+    return {
+      manager,
+      windows,
+      created,
+      destroyed,
+      runRebuild: () => {
+        const callback = pendingRebuild
+        pendingRebuild = null
+        callback?.()
+      }
+    }
+  }
+
+  it('崩溃一次：标 error → 重建为新窗口/新 webContentsId，旧 ID 出 trust set', () => {
+    const h = harness()
+    const first = h.windows[0]!
+    manager_ready(h.manager, first, 'stage-a')
+
+    first.crash()
+    expect(h.manager.getSnapshot().status).toBe('error')
+    h.runRebuild()
+
+    expect(h.windows).toHaveLength(2)
+    expect(first.isDestroyed()).toBe(true)
+    expect(h.destroyed).toEqual([100])
+    expect(h.created).toEqual([100, 101])
+    expect(h.manager.getSnapshot()).toMatchObject({ status: 'starting', webContentsId: 101 })
+    // 新 stage 用新 instance id 重新 ready，一切照常
+    const bootstrap = h.manager.acceptStageReady(h.windows[1]!.webContents, {
+      stageInstanceId: 'stage-b'
+    })
+    expect(bootstrap.initialModelUrl).toBe('nacime-live2d://model/mao/model.model3.json')
+  })
+
+  it('连续第二次崩溃：不再重建，保持 error 等用户显式恢复', () => {
+    const h = harness()
+    manager_ready(h.manager, h.windows[0]!, 'stage-a')
+    h.windows[0]!.crash()
+    h.runRebuild()
+    expect(h.windows).toHaveLength(2)
+
+    // 重建的 stage 还没 ready 就又崩了（连续崩溃）
+    h.windows[1]!.crash()
+    h.runRebuild()
+    expect(h.windows).toHaveLength(2) // 没有第三个窗口
+    expect(h.manager.getSnapshot().status).toBe('error')
+  })
+
+  it('重建后成功 ready 归零计数：之后再崩仍允许一次重建', () => {
+    const h = harness()
+    manager_ready(h.manager, h.windows[0]!, 'stage-a')
+    h.windows[0]!.crash()
+    h.runRebuild()
+    manager_ready(h.manager, h.windows[1]!, 'stage-b')
+
+    h.windows[1]!.crash()
+    h.runRebuild()
+    expect(h.windows).toHaveLength(3)
+  })
+
+  it('用户在重建调度前主动关闭：不重建（不与显式 destroy 打架）', () => {
+    const h = harness()
+    manager_ready(h.manager, h.windows[0]!, 'stage-a')
+    h.windows[0]!.crash()
+    h.manager.destroy()
+    h.runRebuild()
+    expect(h.windows).toHaveLength(1)
+    expect(h.manager.getSnapshot().status).toBe('closed')
+  })
+
+  it('audio-only 宿主崩溃：按 audio-only 模式重建（不 show、不加载模型）', () => {
+    const h = harness({ audioOnly: true })
+    const first = h.windows[0]!
+    h.manager.acceptStageReady(first.webContents, { stageInstanceId: 'audio-a' })
+    first.crash()
+    h.runRebuild()
+    expect(h.windows).toHaveLength(2)
+    expect(h.manager.getSnapshot()).toMatchObject({ audioOnly: true, visible: false })
+    const bootstrap = h.manager.acceptStageReady(h.windows[1]!.webContents, {
+      stageInstanceId: 'audio-b'
+    })
+    expect(bootstrap.mode).toBe('audio-only')
+    expect(h.windows[1]!.isVisible()).toBe(false)
+  })
+
+  /** ready 全流程：stage ready → report ready（窗口 show）。 */
+  function manager_ready(
+    manager: Live2dWindowManager,
+    window: FakeStageWindow,
+    stageInstanceId: string
+  ): void {
+    manager.acceptStageReady(window.webContents, { stageInstanceId })
+    manager.acceptStageReport(window.webContents, { stageInstanceId, status: 'ready', fps: 60 })
+  }
+})
+
+// P3B-15（F5-007 §1.14 / 验收 C23）：audio-only-hidden stage——TTS 开而 Live2D 关时
+// 建 show:false 轻量宿主：不加载模型、ready 后不显示窗口、bootstrap 带 mode 标志。
+describe('P3B-15 Live2dWindowManager audio-only hidden stage', () => {
+  function makeManager(deps: {
+    createWindow: () => BrowserWindow
+    onStageReady?: (wc: WebContents) => void
+  }): { manager: Live2dWindowManager; readyHooks: Array<{ id: number }> } {
+    const readyHooks: Array<{ id: number }> = []
+    const manager = new Live2dWindowManager({
+      createWindow: deps.createWindow,
+      onStageCreated: () => {},
+      onStageDestroyed: () => {},
+      getModelLoadPlan: () => ({
+        attempts: [],
+        exhaustedError: {
+          code: 'FILE_NOT_FOUND',
+          retryable: false,
+          suggestedAction: 'choose-model'
+        }
+      }),
+      getStageModelUrl: () => null,
+      getCubismCoreUrl: () => null,
+      getZoom: () => 1,
+      getOffset: () => ({ x: 0, y: 0 }),
+      sendStageCommand: () => {},
+      onStageReady: (wc) => {
+        readyHooks.push({ id: wc.id })
+        deps.onStageReady?.(wc)
+      }
+    })
+    return { manager, readyHooks }
+  }
+
+  const fakeSender = (id: number): WebContents => ({ id }) as unknown as WebContents
+
+  it('ensureAudioOnlyStage 建隐藏窗口：snapshot.audioOnly=true、ready 后不 show', () => {
+    const window = new FakeStageWindow(30)
+    const { manager } = makeManager({ createWindow: () => window as unknown as BrowserWindow })
+
+    const snap = manager.ensureAudioOnlyStage()
+    expect(snap).toMatchObject({ status: 'starting', webContentsId: 30, audioOnly: true })
+    expect(window.isVisible()).toBe(false)
+
+    // audio-only bootstrap：无模型 URL + mode 标志 + cubism 资源为 null
+    const bootstrap = manager.acceptStageReady(fakeSender(30), { stageInstanceId: 's30' })
+    expect(bootstrap).toMatchObject({
+      stageInstanceId: 's30',
+      mode: 'audio-only',
+      initialModelUrl: null,
+      cubismCoreUrl: null
+    })
+
+    // ready 报告：audioOnly 下窗口保持隐藏
+    manager.acceptStageReport(fakeSender(30), { stageInstanceId: 's30', status: 'ready' })
+    expect(manager.getSnapshot()).toMatchObject({ status: 'ready', audioOnly: true })
+    expect(window.isVisible()).toBe(false)
+  })
+
+  it('ensureAudioOnlyStage 幂等复用；show() 后 audioOnly 清除（升级为可见模式）', () => {
+    const window = new FakeStageWindow(31)
+    const { manager } = makeManager({ createWindow: () => window as unknown as BrowserWindow })
+
+    manager.ensureAudioOnlyStage()
+    manager.ensureAudioOnlyStage()
+    expect(manager.getSnapshot().audioOnly).toBe(true)
+
+    manager.show()
+    expect(manager.getSnapshot().audioOnly).toBe(false)
+    expect(window.isVisible()).toBe(true)
+  })
+
+  it('onStageReady 钩子在 valid ready 时触发（P3B-15 建 port 的时机）', () => {
+    const window = new FakeStageWindow(32)
+    const preview = makeManager({ createWindow: () => window as unknown as BrowserWindow })
+    const manager = preview.manager
+
+    manager.ensureAudioOnlyStage()
+    manager.acceptStageReady(fakeSender(32), { stageInstanceId: 's32' })
+    expect(preview.readyHooks).toEqual([{ id: 32 }])
+
+    // 可见模式同样触发——PlaybackHost=stage renderer 恒成立（§1.14 唯一 host）
+    const visibleWindow = new FakeStageWindow(33)
+    const visible = makeManager({ createWindow: () => visibleWindow as unknown as BrowserWindow })
+    visible.manager.show()
+    visible.manager.acceptStageReady(fakeSender(33), { stageInstanceId: 's33' })
+    expect(visible.readyHooks).toEqual([{ id: 33 }])
+  })
+
+  it('销毁后 audioOnly 复位；再 ensure 得到新 generation 窗口', () => {
+    const windows = [new FakeStageWindow(34), new FakeStageWindow(35)]
+    const { manager } = makeManager({
+      createWindow: () => windows.shift() as unknown as BrowserWindow
+    })
+    manager.ensureAudioOnlyStage()
+    manager.destroy()
+    expect(manager.getSnapshot()).toMatchObject({ status: 'closed', audioOnly: false })
+    manager.ensureAudioOnlyStage()
+    expect(manager.getSnapshot()).toMatchObject({ webContentsId: 35, audioOnly: true })
   })
 })

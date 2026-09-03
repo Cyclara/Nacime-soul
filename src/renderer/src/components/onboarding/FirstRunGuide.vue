@@ -11,16 +11,23 @@ import { ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useConfigStore } from '../../stores/config'
 import FirstConversationGuide from './FirstConversationGuide.vue'
+import VoiceSetupStep from './VoiceSetupStep.vue'
 
 const configStore = useConfigStore()
 const { state } = storeToRefs(configStore)
 
-type Step = 'form' | 'testing' | 'first-conversation'
+type Step = 'form' | 'testing' | 'voice-setup' | 'first-conversation'
 
-const step = ref<Step>(
-  state.value.draft?.ui.onboarding.stage === 'first-conversation' ? 'first-conversation' : 'form'
-)
+function initialStep(): Step {
+  const stage = state.value.draft?.ui.onboarding.stage
+  if (stage === 'voice-setup' || stage === 'first-conversation') return stage
+  // connection-test 不能在重启后恢复一个已经不存在的 Promise；安全回表单重试。
+  return 'form'
+}
+
+const step = ref<Step>(initialStep())
 const errorMessage = ref<string | null>(null)
+const advancingVoiceSetup = ref(false)
 
 const hasApiKey = computed(() => state.value.draft?.model.hasApiKey ?? false)
 const provider = ref('')
@@ -93,7 +100,7 @@ async function onTestAndSave(): Promise<void> {
         return
       }
       configStore.patch('ui', {
-        onboarding: { ...state.value.draft.ui.onboarding, stage: 'first-conversation' }
+        onboarding: { ...state.value.draft.ui.onboarding, stage: 'voice-setup' }
       })
       const progressSaved = await configStore.save()
       if (!progressSaved) {
@@ -101,7 +108,7 @@ async function onTestAndSave(): Promise<void> {
         errorMessage.value = '连接已通过，但引导进度没有保存，请重试'
         return
       }
-      step.value = 'first-conversation'
+      step.value = 'voice-setup'
     } else {
       // 失败：返回表单步骤，保留输入（草稿保留，S-001 P1-24A 验收）
       step.value = 'form'
@@ -118,6 +125,29 @@ async function onTestAndSave(): Promise<void> {
 const emit = defineEmits<{
   startChat: [text: string]
 }>()
+
+async function finishVoiceSetup(): Promise<void> {
+  if (advancingVoiceSetup.value) return
+  errorMessage.value = null
+  if (!state.value.draft) {
+    errorMessage.value = '配置状态已过期，请重新打开引导'
+    return
+  }
+  advancingVoiceSetup.value = true
+  try {
+    configStore.patch('ui', {
+      onboarding: { ...state.value.draft.ui.onboarding, stage: 'first-conversation' }
+    })
+    const saved = await configStore.save()
+    if (!saved) {
+      errorMessage.value = '语音设置进度没有保存，请重试'
+      return
+    }
+    step.value = 'first-conversation'
+  } finally {
+    advancingVoiceSetup.value = false
+  }
+}
 
 async function startFirstConversation(text: string): Promise<void> {
   if (state.value.draft) {
@@ -183,7 +213,13 @@ async function startFirstConversation(text: string): Promise<void> {
       <p>正在测试连接...</p>
     </div>
 
-    <!-- 步骤 3: 第一次见面；opening 是展示层，不写入 SessionStore -->
+    <!-- 步骤 3: 可跳过的本地语音资源；开始下载不阻塞文字对话。 -->
+    <div v-else-if="step === 'voice-setup'" class="voice-step-shell">
+      <p v-if="errorMessage" class="voice-step-error" role="alert">{{ errorMessage }}</p>
+      <VoiceSetupStep @continue="finishVoiceSetup" />
+    </div>
+
+    <!-- 步骤 4: 第一次见面；opening 是展示层，不写入 SessionStore -->
     <FirstConversationGuide
       v-else-if="step === 'first-conversation'"
       @start-chat="startFirstConversation"
@@ -203,6 +239,27 @@ async function startFirstConversation(text: string): Promise<void> {
   background:
     radial-gradient(circle at 16% 16%, var(--color-companion-soft), transparent 34%),
     radial-gradient(circle at 88% 8%, var(--color-accent-soft), transparent 32%);
+}
+
+.voice-step-shell {
+  position: relative;
+  width: 100%;
+  margin-block: auto;
+}
+
+.voice-step-error {
+  position: sticky;
+  z-index: 3;
+  top: 0.5rem;
+  width: min(calc(100% - 2rem), 44rem);
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius);
+  margin: 0 auto 0.5rem;
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  text-align: center;
 }
 
 .step {

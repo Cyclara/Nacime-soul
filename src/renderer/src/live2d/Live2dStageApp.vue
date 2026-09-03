@@ -1,11 +1,19 @@
 <!-- src/renderer/src/live2d/Live2dStageApp.vue -->
 <!-- P3A-06：独立 Live2D stage 根。没有 router/Pinia/chat bootstrap，只持有 Pixi 生命周期。 -->
+<!-- P3B-15：stage 也是唯一 TTS PlaybackHost——bootstrap.mode === 'audio-only' 时不建
+     Pixi/模型（窗口保持隐藏），只接收专用 audio port 播放 PCM。两种模式都挂 host。 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { Live2dStageBootstrap } from '@shared/live2d/stage-types'
 import { PixiLive2DRenderer } from './PixiLive2DRenderer'
-import { createStageController, type StageController } from './stage-controller'
+import {
+  createStageController,
+  type StageController,
+  type Live2dStageControllerState
+} from './stage-controller'
 import { startLive2dStage, type Live2dStageBootstrapHandle } from './stage-bootstrap'
-import type { Live2dStageControllerState } from './stage-controller'
+import { createStagePlaybackHost, type StagePlaybackHost } from './audio/playback-host'
+import { createStageAudioPlayer, type StageAudioPlayer } from './audio/audio-player'
 import Live2dErrorOverlay from './Live2dErrorOverlay.vue'
 
 const props = defineProps<{
@@ -40,8 +48,22 @@ const statusCopy = computed(() => {
 let controller: StageController | null = null
 let bootstrapHandle: Live2dStageBootstrapHandle | null = null
 let resizeObserver: ResizeObserver | null = null
+let playbackHost: StagePlaybackHost | null = null
+let audioPlayer: StageAudioPlayer | null = null
 
-onMounted(async () => {
+/**
+ * S-006-补充 §1.9「reduceMotion=true：降低随机眼跳/大幅 motion，保留最低限度呼吸」。
+ * 读系统偏好（stage 没有 config store，也不该为此扩 preload）；变化时插件下一帧生效。
+ */
+const reduceMotionQuery =
+  typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null
+function prefersReducedMotion(): boolean {
+  return reduceMotionQuery?.matches === true
+}
+
+function initLive2d(bootstrap: Live2dStageBootstrap): void {
   const target = canvas.value
   if (target === null) return
 
@@ -50,12 +72,14 @@ onMounted(async () => {
     report: (report) => window.live2dStage.reportState(report),
     ensureCubismCore: props.ensureCubismCore,
     ensureCubism2: props.ensureCubism2,
+    reduceMotion: prefersReducedMotion,
     onStateChange: (nextState) => {
       stageState.value = nextState
     }
   })
   controller = nextController
-  window.addEventListener('pagehide', disposeStage, { once: true })
+  // P3B-16/17：电平来源接入口型插件（缺 ParamMouthOpenY 的模型只禁 lip-sync，音频照播）。
+  if (audioPlayer !== null) nextController.setLipSyncSource(audioPlayer)
   nextController.attach(target)
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver((entries) => {
@@ -68,23 +92,110 @@ onMounted(async () => {
     })
     resizeObserver.observe(target)
   }
+  void nextController.initialize(bootstrap)
+}
+
+function initAudioOnly(bootstrap: Live2dStageBootstrap): void {
+  // 音频宿主模式：无 Pixi/模型可加载，直接报 ready（窗口由 main 保持隐藏）。
+  stageState.value = {
+    stageInstanceId: bootstrap.stageInstanceId,
+    status: 'ready',
+    errorCode: null
+  }
+  void window.live2dStage.reportState({
+    stageInstanceId: bootstrap.stageInstanceId,
+    status: 'ready'
+  })
+}
+
+onMounted(async () => {
+  // PlaybackHost 先行：port 随 ready 转交到达；两种模式都要接收。
+  // P3B-16 起 sink = AudioContext 播放器：真播放 + 本地 RMS 电平（口型由 controller 消费）。
+  // P3B-18：播放器的 segment started/ended 回报经 host 转发 main（queue 的「started 才
+  // 标 playing / ended 推进队列」依赖它；generation 不符的迟到回报由 host 丢弃）。
+  audioPlayer = createStageAudioPlayer({
+    onSegmentEvent: (event) => playbackHost?.forwardToMain(event)
+  })
+  playbackHost = createStagePlaybackHost({ sink: audioPlayer })
+  window.addEventListener('message', onStageAudioPortMessage)
+  window.addEventListener('pagehide', disposeStage, { once: true })
 
   bootstrapHandle = await startLive2dStage(window.live2dStage, {
-    onBootstrap: (bootstrap) => nextController.initialize(bootstrap),
-    onCommand: (command) => nextController.handleCommand(command)
+    onBootstrap: (bootstrap) => {
+      if (bootstrap.mode === 'audio-only') {
+        initAudioOnly(bootstrap)
+        return
+      }
+      initLive2d(bootstrap)
+    },
+    onCommand: (command) => {
+      if (command.type === 'dispose') playbackHost?.dispose()
+      else controller?.handleCommand(command)
+    }
   })
 })
+
+/** preload 经 window.postMessage 转交的 audio port（P3B-15；与 mic port 同机制）。 */
+function onStageAudioPortMessage(event: MessageEvent): void {
+  if (event.source !== window) return
+  const data = event.data as { type?: unknown; generation?: unknown }
+  if (data?.type !== 'voice:audio-port') return
+  const port = event.ports[0]
+  if (typeof data.generation !== 'string' || port === undefined) return
+  playbackHost?.attach(data.generation, port)
+}
 
 function retryStage(): void {
   void controller?.retry()
 }
 
+// ── S-006-补充 §1.9：拖动区域与模型 hit area 分离；拖动后短时间抑制点击 ──
+// 整个窗口是 `-webkit-app-region: drag`（P3A-25 移动窗口），Chromium 在 drag 区域内
+// 不派发 click，但 pointerdown/pointerup 仍到达页面。用「按下→抬起位移 < 阈值且
+// 抬起时刻距上次拖动结束 > 抑制窗」判定一次真正的点击，再交 controller 做 hitTest。
+const TAP_MAX_MOVE_PX = 6
+const POST_DRAG_SUPPRESS_MS = 250
+let pointerDownAt: { x: number; y: number; time: number } | null = null
+let lastDragEndedAt = -Infinity
+
+function onStagePointerDown(event: PointerEvent): void {
+  if (event.button !== 0) return
+  pointerDownAt = { x: event.clientX, y: event.clientY, time: performance.now() }
+}
+
+function onStagePointerUp(event: PointerEvent): void {
+  const down = pointerDownAt
+  pointerDownAt = null
+  if (down === null || event.button !== 0) return
+  const now = performance.now()
+  const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y)
+  if (moved > TAP_MAX_MOVE_PX) {
+    // 一次拖动：记下结束时刻，抑制紧随其后的误触
+    lastDragEndedAt = now
+    return
+  }
+  if (now - lastDragEndedAt < POST_DRAG_SUPPRESS_MS) return
+  const target = canvas.value
+  if (target === null) return
+  const rect = target.getBoundingClientRect()
+  controller?.interact(event.clientX - rect.left, event.clientY - rect.top)
+}
+
+function onStagePointerCancel(): void {
+  pointerDownAt = null
+}
+
 function disposeStage(): void {
   window.removeEventListener('pagehide', disposeStage)
+  window.removeEventListener('message', onStageAudioPortMessage)
   resizeObserver?.disconnect()
   resizeObserver = null
   bootstrapHandle?.dispose()
   bootstrapHandle = null
+  playbackHost?.dispose()
+  playbackHost = null
+  audioPlayer?.dispose()
+  audioPlayer = null
   controller?.dispose()
   controller = null
 }
@@ -96,6 +207,9 @@ onBeforeUnmount(disposeStage)
   <main
     class="live2d-stage"
     :aria-busy="stageState.status === 'starting' || stageState.status === 'loading-model'"
+    @pointerdown="onStagePointerDown"
+    @pointerup="onStagePointerUp"
+    @pointercancel="onStagePointerCancel"
   >
     <canvas ref="canvas" class="live2d-canvas" aria-label="Nacime 的 Live2D 形象" />
 

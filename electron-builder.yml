@@ -13,6 +13,13 @@ files:
   # P3A-11：内置 Mao/Hiyori 模型与随包许可；stage 仅经 nacime-live2d:// 安全读取。
   - resources/live2d/**
   - assets/tray/**
+# P3B-18：外部 Python 必须直接读取 launcher/词典，不能放进 app.asar 虚拟文件系统。
+# 只复制 Nacime 自有桥接资源；用户的 GPT-SoVITS 整合包与模型绝不进安装包、绝不改写。
+extraResources:
+  - from: resources/voice
+    to: voice
+    filter:
+      - '**/*'
 asar: true
 asarUnpack:
   - '**/node_modules/better-sqlite3/**'

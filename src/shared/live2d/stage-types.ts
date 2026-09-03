@@ -11,7 +11,13 @@ export type Live2dStageStatus = 'starting' | 'loading-model' | 'ready' | 'degrad
 export interface Live2dStageBootstrap {
   readonly stageInstanceId: string
   readonly status: Live2dStageStatus
-  /** main 受控模型资源 URL；不得是绝对用户路径。 */
+  /**
+   * P3B-15（F5-007 §1.14）：stage 运行模式。默认（省略）= live2d-visible，加载
+   * Pixi/模型。`audio-only` = TTS 开而 Live2D 关的轻量宿主：不建 Pixi/模型、窗口
+   * 保持隐藏，只运行 PlaybackHost 播放 PCM（屏幕上看不见她，但声音不依赖可见形象）。
+   */
+  readonly mode?: 'audio-only'
+  /** main 受控模型资源 URL；不得是绝对用户路径。audio-only 下恒 null。 */
   readonly initialModelUrl: string | null
   /** main 受控 Cubism Core runtime URL；随包资源，绝不使用 CDN。 */
   readonly cubismCoreUrl: string | null

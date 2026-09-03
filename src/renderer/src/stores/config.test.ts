@@ -132,6 +132,11 @@ function makeSnapshot(): PublicConfigSnapshot {
         disabledRuleIds: [],
         debugCaptureText: false
       }
+    },
+    voice: {
+      asrEngineId: 'sherpa-sensevoice',
+      // P3V-09：主键缺省（旧配置迁移语义由读侧兜底）；空串 = 不设备用
+      asrFallbackEngineId: ''
     }
   }
 }
@@ -163,11 +168,11 @@ describe('P2-46: 主题草稿与保存', () => {
     setupCompanionApi()
   })
 
-  it('patch ui.theme 后 save 走既有 config:update 并保留完整 ui 域', async () => {
+  it('patch ui.theme 后 save 只发送最小 ui patch，不全量回写同域兄弟字段', async () => {
     const { config, snapshot } = setupCompanionApi()
     config.update.mockImplementation(async (request) => ({
       ok: true,
-      data: { ...snapshot, ui: { ...snapshot.ui, theme: request.domains.ui.theme } }
+      data: { ...snapshot, ui: { ...snapshot.ui, ...request.domains.ui } }
     }))
 
     const store = useConfigStore()
@@ -178,13 +183,39 @@ describe('P2-46: 主题草稿与保存', () => {
     expect(store.isDirty).toBe(true)
     await expect(store.save()).resolves.toBe(true)
     expect(config.update).toHaveBeenCalledOnce()
-    expect(config.update.mock.calls[0][0].domains.ui).toMatchObject({
-      theme: 'dark',
-      locale: 'zh-CN',
-      fontScale: 1
-    })
+    expect(config.update.mock.calls[0][0].domains).toEqual({ ui: { theme: 'dark' } })
     expect(store.state.saved!.ui.theme).toBe('dark')
     expect(store.state.draft!.ui.theme).toBe('dark')
+  })
+
+  it('ROOT CAUSE 回归：main 已把 Live2D 开启、renderer 快照仍为 false 时，切主题不把它关回去', async () => {
+    // ROOT CAUSE:
+    //
+    // Live2dPresenceButton 走 live2d:set-visible，由 main 直接持久化 ui.live2d.enabled=true；
+    // renderer config store 并不会同步这次 out-of-band 更新，saved/draft 仍是 false。
+    // 旧 save() 每次把完整 ui 域发回 main，所以只切 theme 也携带 stale enabled=false，
+    // 导致主题切换瞬间关闭 Live2D。修复后 save() 只发 `{ui:{theme}}`。
+    const { config, snapshot } = setupCompanionApi()
+    expect(snapshot.ui.live2d.enabled).toBe(false) // renderer 启动快照（陈旧）
+    const mainUi = {
+      ...snapshot.ui,
+      live2d: { ...snapshot.ui.live2d, enabled: true }
+    }
+    config.update.mockImplementation(async (request) => ({
+      ok: true,
+      data: { ...snapshot, ui: { ...mainUi, ...request.domains.ui } }
+    }))
+
+    const store = useConfigStore()
+    await store.load()
+    store.patch('ui', { theme: 'dark2' })
+    await expect(store.save()).resolves.toBe(true)
+
+    expect(config.update.mock.calls[0][0].domains).toEqual({ ui: { theme: 'dark2' } })
+    // main 的真值保留下来，并通过完整响应补水 renderer
+    expect(store.state.saved!.ui.live2d.enabled).toBe(true)
+    expect(store.state.draft!.ui.live2d.enabled).toBe(true)
+    expect(store.state.saved!.ui.theme).toBe('dark2')
   })
 
   it('S-04 回归：保存失败后再次保存可重试成功（不再被永久锁死）', async () => {
@@ -385,11 +416,23 @@ describe('CFG-PER-12: patchPersonaCompliance 嵌套草稿 merge', () => {
     expect(compliance.disabledRuleIds).toEqual(['R-MR-01'])
   })
 
-  it('save 的 domains 携带 persona 全量', async () => {
+  it('save 的 persona domain 只携带改变的深层叶子', async () => {
     const { config, snapshot } = setupCompanionApi()
     config.update.mockImplementation(async (request) => ({
       ok: true,
-      data: { ...snapshot, persona: request.domains.persona }
+      data: {
+        ...snapshot,
+        persona: {
+          ...snapshot.persona,
+          compliance: {
+            ...snapshot.persona.compliance,
+            gate: {
+              ...snapshot.persona.compliance.gate,
+              ...request.domains.persona?.compliance?.gate
+            }
+          }
+        }
+      }
     }))
 
     const store = useConfigStore()
@@ -398,9 +441,11 @@ describe('CFG-PER-12: patchPersonaCompliance 嵌套草稿 merge', () => {
 
     await expect(store.save()).resolves.toBe(true)
     expect(config.update).toHaveBeenCalledOnce()
-    const personaDomain = config.update.mock.calls[0][0].domains.persona
-    expect(personaDomain.compliance.gate.enabled).toBe(false)
-    expect(personaDomain.compliance.gate.scope).toBe('observe')
-    expect(personaDomain.compliance.audit.sampleRate).toBe(0.25)
+    expect(config.update.mock.calls[0][0].domains.persona).toEqual({
+      compliance: { gate: { enabled: false } }
+    })
+    expect(store.state.saved!.persona.compliance.gate.enabled).toBe(false)
+    expect(store.state.saved!.persona.compliance.gate.scope).toBe('observe')
+    expect(store.state.saved!.persona.compliance.audit.sampleRate).toBe(0.25)
   })
 })

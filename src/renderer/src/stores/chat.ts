@@ -334,6 +334,51 @@ export const useChatStore = defineStore('chat', () => {
     retryTargetId = null
   }
 
+  // === P3B-15A：paint ack（F5-007 §1.5）===
+  //
+  // applyStream 应用完一个事件后等一次 requestAnimationFrame，把该 request 已绘制到的
+  // 最高 sequence 经 `companion:chat:ack-rendered` 回报 main。播放队列据此保证 TTS 音频
+  // 不早于对应文字出现；rAF 天然把同帧内多个 chunk 合并成一次回报（只发最高值）。
+  // main 侧对未知 requestId / 逆序 sequence 会拒绝——我们只回报自己真正应用过的，
+  // 因此正常路径不会触发拒绝。
+
+  let pendingAck: { requestId: string; sequence: number } | null = null
+  let ackRafScheduled = false
+  let currentAckRequestId: string | null = null
+
+  /** 调用时解析：jsdom/无头环境无 rAF 时退 setTimeout(0)，生产恒走 rAF。 */
+  function scheduleNextFrame(callback: FrameRequestCallback): void {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(callback)
+    } else {
+      setTimeout(() => callback(0), 0)
+    }
+  }
+
+  /** 记录最新已绘制 sequence；仅在被应用的事件上调用（旧/逆序事件在 applyStream 已丢弃）。 */
+  function schedulePaintAck(requestId: string, sequence: number): void {
+    if (!window.companion) return
+    // 新 request 接管：旧 request 的未回报绘制作废（main 侧 gate 按 requestId 分键，互不污染）
+    if (currentAckRequestId !== requestId) {
+      currentAckRequestId = requestId
+      pendingAck = null
+    }
+    if (pendingAck === null || sequence > pendingAck.sequence) {
+      pendingAck = { requestId, sequence }
+    }
+    if (ackRafScheduled) return
+    ackRafScheduled = true
+    scheduleNextFrame(() => {
+      ackRafScheduled = false
+      const ack = pendingAck
+      pendingAck = null
+      if (ack === null || !window.companion) return
+      const api = window.companion.chat?.ackRendered
+      if (api === undefined) return
+      void api({ requestId: ack.requestId, sequence: ack.sequence })
+    })
+  }
+
   // === 流式状态机（S-002 §3.2）===
 
   function applyStream(event: ChatStreamEvent): void {
@@ -356,6 +401,7 @@ export const useChatStore = defineStore('chat', () => {
           createdAt: Date.now(),
           status: 'streaming'
         })
+        schedulePaintAck(event.requestId, 0)
         break
       }
 
@@ -377,6 +423,7 @@ export const useChatStore = defineStore('chat', () => {
             msg.reasoning = (msg.reasoning ?? '') + event.delta
           }
         }
+        schedulePaintAck(event.requestId, event.sequence)
         break
       }
 
@@ -391,6 +438,8 @@ export const useChatStore = defineStore('chat', () => {
         }
         state.activeTurn = null
         consumeRetryTarget()
+        // 终局后的尾段 ack（P3B-15A）：last chunk 可能就在 completed 之前同帧到达
+        schedulePaintAck(event.requestId, event.sequence)
         break
       }
 
@@ -413,6 +462,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         state.activeTurn = null
         consumeRetryTarget()
+        schedulePaintAck(event.requestId, event.sequence)
         break
       }
 
@@ -427,6 +477,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         state.activeTurn = null
         consumeRetryTarget()
+        schedulePaintAck(event.requestId, event.sequence)
         break
       }
     }
@@ -498,3 +549,6 @@ export const useChatStore = defineStore('chat', () => {
     reset
   }
 })
+
+/** 编排层依赖的 store 实例类型（P3B-18 voice-chat orchestrator）。 */
+export type ChatStore = ReturnType<typeof useChatStore>

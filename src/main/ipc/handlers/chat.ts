@@ -27,6 +27,7 @@ import type { ChatSearchHit, ChatStreamEvent } from '@shared/chat/types'
 import type { ChatFeedbackRequest } from '@shared/compliance/types'
 import type { ComplianceFeedbackOutcome } from '../../compliance/feedback'
 import type { ChatService } from '../../chat/service'
+import type { ChatRenderAckTracker } from '../../voice/playback/ack-gate'
 import { registerValidatedHandler, sendEvent } from '../register'
 
 /** Chat handler 依赖 */
@@ -44,6 +45,12 @@ export interface ChatHandlerDeps {
    * handler 对外恒 {ok:true}--不向 renderer 泄漏差异）。
    */
   recordFeedback: (request: ChatFeedbackRequest) => ComplianceFeedbackOutcome
+  /**
+   * P3B-15A（F5-007 §1.5）：chat paint ack 跟踪器。send/retry 发出 requestId 后登记；
+   * `companion:chat:ack-rendered` 的回报经它校验（未知请求/逆序拒绝）后喂进 gate，
+   * 供播放队列在发声前等待「对应文字已绘制」。播放侧消费在 P3B-18 组合根接线。
+   */
+  ackTracker: ChatRenderAckTracker
 }
 
 /**
@@ -108,6 +115,9 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
       sink
     )
 
+    // P3B-15A：renderer 随后会为这个 requestId 回报 paint ack；先登记进 LRU。
+    deps.ackTracker.noteRequestIssued(ack.requestId)
+
     chatLogger.info('chat send ack', {
       scope: 'chat',
       tags: { requestId: ack.requestId, sessionId: payload.sessionId },
@@ -146,6 +156,9 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
       })
       return { requestId: '' }
     }
+
+    // P3B-15A：retry 轮同样登记（renderer 对 retry 的流事件回报同一 requestId）。
+    deps.ackTracker.noteRequestIssued(ack.requestId)
 
     chatLogger.info('chat retry ack', {
       scope: 'chat',
@@ -205,6 +218,21 @@ export function registerChatHandlers(deps: ChatHandlerDeps): void {
       tags: { kind: payload.kind, status: outcome.status }
     })
     return { ok: true }
+  })
+
+  // === companion:chat:ack-rendered ===
+  // P3B-15A（F5-007 §1.5）：renderer applyStream + rAF 后回报最高已绘制 sequence。
+  // capability=chat 由 guard 保证（stage 无权调用）；未知 requestId / 逆序 sequence 由
+  // tracker 拒绝（不喂 gate）。拒绝只记 debug——renderer 端口的迟到 ack 属协议噪声，
+  // 不构成用户可见错误；后果只是播放侧等不到该 ack（超时→本轮 text-only）。
+  registerValidatedHandler('companion:chat:ack-rendered', async (_ctx, payload) => {
+    const ack = deps.ackTracker.acceptAck(payload.requestId, payload.sequence)
+    if (ack === null) {
+      chatLogger.debug('chat render ack rejected (unknown/stale request or bad sequence)', {
+        scope: 'chat',
+        tags: { requestId: payload.requestId, sequence: String(payload.sequence) }
+      })
+    }
   })
 
   chatLogger.debug('chat handlers registered', { scope: 'ipc' })

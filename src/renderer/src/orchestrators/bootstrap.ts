@@ -9,6 +9,7 @@ import { useAppStore } from '../stores/app'
 import { useChatStore } from '../stores/chat'
 import { useConfigStore } from '../stores/config'
 import { useLive2dStore } from '../stores/live2d'
+import { useVoiceStore } from '../stores/voice'
 import type { Unsubscribe } from '@shared/ipc/contracts'
 
 function aggregateTeardown(unsubs: Unsubscribe[]): Unsubscribe {
@@ -37,6 +38,7 @@ export async function bootstrapApp(): Promise<Unsubscribe> {
   const configStore = useConfigStore()
   const chatStore = useChatStore()
   const live2dStore = useLive2dStore()
+  const voiceStore = useVoiceStore()
 
   const unsubs: Unsubscribe[] = []
   const teardown = aggregateTeardown(unsubs)
@@ -65,6 +67,13 @@ export async function bootstrapApp(): Promise<Unsubscribe> {
     if (window.companion?.live2d) {
       unsubs.push(live2dStore.subscribe())
       await live2dStore.hydrate()
+    }
+    // P3V-15：下载队列要跨首次向导/聊天/设置页存活，因此 voice event 由 App 级
+    // bootstrap 常驻持有；组件订阅只增加引用，不会在页面切换时拆掉全局 listener。
+    // 语音是增强能力：补水失败写入 voice 自身错误，不阻断文字聊天启动。
+    if (window.companion?.voice) {
+      unsubs.push(voiceStore.subscribe())
+      await Promise.allSettled([voiceStore.hydrate(), voiceStore.hydrateAssetRoot()])
     }
 
     // 4. 恢复当前会话；只有没有当前会话时才新建

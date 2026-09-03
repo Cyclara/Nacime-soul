@@ -31,6 +31,57 @@ export interface NetworkPolicyOptions {
    * 这是 Provider 的宽泛开关，未来本地服务不复用此开关。
    */
   allowHttpLocalhostInDev: boolean
+  /**
+   * 本地服务精确 origin 白名单（P3B-05，GPT-SoVITS 等）：dev 与生产同权，
+   * 只放行运行时注册过的 `http://127.0.0.1:{port}` / `http://[::1]:{port}`。
+   * 注册表按引用捕获（端口在服务启动时才确定），同一实例要同时传给
+   * installGlobalAgentGuard 与 createSecureFetch，两层都能放行。
+   */
+  localServiceOrigins?: LocalServiceOriginRegistry
+}
+
+// ── 本地服务精确 origin 白名单（P3B-05）──
+
+const LOOPBACK_ORIGIN_PATTERN = /^http:\/\/(127\.0\.0\.1|\[::1\]):(\d{1,5})$/
+
+/** 严格环回 http origin：字面 IP（不做 DNS 名）、显式端口 1-65535。 */
+function isLoopbackHttpOrigin(origin: string): boolean {
+  const match = LOOPBACK_ORIGIN_PATTERN.exec(origin)
+  if (match === null) return false
+  const port = Number.parseInt(match[2] ?? '', 10)
+  return port >= 1 && port <= 65_535
+}
+
+/** 本地服务 origin 运行时注册表（P3B-05）。 */
+export interface LocalServiceOriginRegistry {
+  /**
+   * 注册一个精确 origin。仅接受 `http://127.0.0.1:{port}` / `http://[::1]:{port}`；
+   * https、非环回、localhost 域名、缺端口、端口越界一律拒绝并返回 false。
+   */
+  register(origin: string): boolean
+  unregister(origin: string): void
+  has(origin: string): boolean
+  entries(): readonly string[]
+}
+
+export function createLocalServiceOriginRegistry(): LocalServiceOriginRegistry {
+  const origins = new Set<string>()
+  return {
+    register(origin: string): boolean {
+      if (!isLoopbackHttpOrigin(origin)) return false
+      origins.add(origin)
+      return true
+    },
+    unregister(origin: string): void {
+      origins.delete(origin)
+    },
+    has(origin: string): boolean {
+      return origins.has(origin)
+    },
+    entries(): readonly string[] {
+      return [...origins]
+    }
+  }
 }
 
 /** 网络检查结果 */
@@ -216,6 +267,16 @@ export async function checkUrl(
     }
   }
 
+  // 1.5 本地服务精确 origin 白名单（P3B-05）：在私网检查之前（环回地址属私网段）。
+  //     dev 与生产同权；这是精确匹配，不是 Provider 的宽泛 dev 开关。
+  if (
+    opts.localServiceOrigins !== undefined &&
+    isLoopbackHttpOrigin(parsed.origin) &&
+    opts.localServiceOrigins.has(parsed.origin)
+  ) {
+    return { allowed: true }
+  }
+
   // 2. 解析 hostname 到 IP 地址列表（支持 abort signal 取消/超时）
   let addresses: string[]
   if (isIpAddress(hostname)) {
@@ -277,10 +338,26 @@ export function installGlobalAgentGuard(opts: NetworkPolicyOptions, logger?: Log
   const log = logger ?? noopLogger
 
   /**
-   * 检查连接目标的 host。如果是私网 IP 且不满足 dev localhost 例外，抛错阻断连接。
+   * 检查连接目标。先查本地服务精确 origin（P3B-05，host+port+scheme 精确命中注册表，
+   * dev 与生产同权），再走原有私网/dev-localhost 判定。
    */
-  const guardConnection = (host: string | undefined): void => {
+  const guardConnection = (
+    options: { host?: string; port?: number | string },
+    scheme: 'http' | 'https'
+  ): void => {
+    const host = options.host
     if (!host) return
+
+    if (opts.localServiceOrigins !== undefined) {
+      const port =
+        options.port === undefined ? (scheme === 'https' ? 443 : 80) : Number(options.port)
+      const origin = `${scheme}://${
+        host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+      }:${port}`
+      if (isLoopbackHttpOrigin(origin) && opts.localServiceOrigins.has(origin)) {
+        return
+      }
+    }
 
     // 如果是 IP 地址，直接检查
     if (isIpAddress(host) && isPrivateIp(host)) {
@@ -308,14 +385,14 @@ export function installGlobalAgentGuard(opts: NetworkPolicyOptions, logger?: Log
 
   // 覆盖 http.globalAgent.createConnection
   http.globalAgent.createConnection = function (this: http.Agent, options: http.RequestOptions) {
-    guardConnection((options as { host?: string }).host)
+    guardConnection(options as { host?: string; port?: number | string }, 'http')
     // eslint-disable-next-line prefer-rest-params
     return origHttpCreate.apply(this, arguments as unknown as Parameters<typeof origHttpCreate>)
   } as typeof http.globalAgent.createConnection
 
   // 覆盖 https.globalAgent.createConnection
   https.globalAgent.createConnection = function (this: https.Agent, options: https.RequestOptions) {
-    guardConnection((options as { host?: string }).host)
+    guardConnection(options as { host?: string; port?: number | string }, 'https')
     // eslint-disable-next-line prefer-rest-params
     return origHttpsCreate.apply(this, arguments as unknown as Parameters<typeof origHttpsCreate>)
   } as typeof https.globalAgent.createConnection
